@@ -1,0 +1,145 @@
+# SCM Master
+
+A supply-chain management system for **hardware procurement and asset lifecycle tracking** — built for the case where a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
+
+It joins together three things that off-the-shelf tools usually keep apart:
+
+1. **Procurement** — what you buy and from whom.
+2. **Warehouse flow** — receiving goods into a transit warehouse.
+3. **Asset lifecycle** — following each physical unit from arrival all the way to decommission.
+
+## What makes it different
+
+Most warehouse apps stop at "stock in, stock out." Most CMDBs (configuration-management databases) only start once a unit is already racked. Neither follows a single unit across that boundary.
+
+This system models the **continuous identity of an asset** as its spine. When a serialised unit is received, an `Asset` is born. The *same* row then moves through the warehouse and into a rack — its location and status change, but its identity, and its link back to the purchase-order line it came from, never breaks. That unbroken thread is what makes end-to-end spend and provenance tracing possible.
+
+The second deliberate design choice is **multi-sourcing**. A `Product` (the spec) is kept separate from a `ProductSupplier` (one row per source of that product). "Replacing a supplier" — critical under spiky demand and long chip lead times — is then just choosing a different source, without losing the product's identity or its purchase history.
+
+## How it flows
+
+The process the system models, end to end — from picking a source to a unit's final disposal:
+
+```mermaid
+flowchart LR
+    subgraph CAT["Catalog"]
+        P["Product<br/>(the spec)"]
+        PS["ProductSupplier<br/>(a source: lead time,<br/>MOQ, price, rank)"]
+        P -- "many sources" --> PS
+    end
+
+    subgraph PROC["Procurement"]
+        PO["PurchaseOrder"]
+        OI["OrderItem<br/>(chosen source)"]
+        PO --> OI
+        PS -. "re-source = repoint" .-> OI
+    end
+
+    subgraph FLOW["Warehouse flow"]
+        R["Receipt<br/>(goods arrive)"]
+        OI --> R
+    end
+
+    subgraph LIFE["Asset lifecycle"]
+        A["Asset<br/>(serial unit)"]
+        R -- "a unit is born" --> A
+    end
+
+    A -. "provenance link<br/>(never broken)" .-> OI
+```
+
+### Asset lifecycle (the spine)
+
+A single serial-tracked unit, followed for its whole life. Its location and status change, but its identity — and its link back to the order line it came from — never breaks:
+
+```mermaid
+stateDiagram-v2
+    [*] --> RECEIVED: received at warehouse
+    RECEIVED --> IN_STORAGE: staged in transit warehouse
+    IN_STORAGE --> DEPLOYED: installed in a rack
+    RECEIVED --> DEPLOYED: deployed directly
+    DEPLOYED --> MAINTENANCE: needs service
+    MAINTENANCE --> DEPLOYED: back in service
+    DEPLOYED --> DECOMMISSIONED: taken out of service
+    MAINTENANCE --> DECOMMISSIONED: retired
+    DECOMMISSIONED --> DISPOSED: RMA / scrapped
+    DISPOSED --> [*]
+```
+
+## Domain model
+
+The data model is organised into three modules under [`backend/app/models/`](backend/app/models/):
+
+### Catalog — *the what and the who-we-buy-from* ([`catalog.py`](backend/app/models/catalog.py))
+
+| Entity | Role |
+| --- | --- |
+| `Organization` | A company we deal with — supplier and/or manufacturer (flagged by role, so one org can be both). |
+| `Product` | The supplier-independent spec (a server model, a CPU SKU, a DIMM). Hardware doesn't expire, so there's deliberately no expiry field. |
+| `ProductSupplier` | One **source** for a product. Carries the levers that matter under demand spikes: lead time, minimum order quantity, contract price, and a `preference_rank` (lower = preferred). Multiple rows per product = multi-sourcing. |
+
+### Procurement — *the buying* ([`procurement.py`](backend/app/models/procurement.py))
+
+| Entity | Role |
+| --- | --- |
+| `PurchaseOrder` | A buy from a supplier, with a status lifecycle (`PENDING → APPROVED → PLACED → PARTIALLY_RECEIVED → RECEIVED`, or `CANCELLED`) and a destination location. |
+| `OrderItem` | A line on an order. Points at the chosen `ProductSupplier` — so **re-sourcing a line is just repointing this link** to a different source of the same product. Carries the inbound-timing data a future capacity planner will use. |
+
+### Flow & lifecycle — *receiving, then the life of a unit* ([`flow.py`](backend/app/models/flow.py))
+
+| Entity | Role |
+| --- | --- |
+| `Location` | A place — self-referential, so a rack nests under a datacenter and the transit warehouse is just another location. Capacity is a tunable, initially-unknown knob. |
+| `Receipt` / `ReceiptItem` | An inbound receiving event against a purchase order. |
+| `Asset` | **The spine.** A single serial-tracked unit, followed for its whole life: `RECEIVED → IN_STORAGE → DEPLOYED → MAINTENANCE → DECOMMISSIONED → DISPOSED`. Keeps a current location and an unbroken link to the order line it originated from. |
+
+All entities share a UUID primary key and `date_created` / `last_updated` audit columns (via mixins in [`db.py`](backend/app/core/db.py)).
+
+## Tech stack
+
+- **Python** with **FastAPI** for the API.
+- **SQLAlchemy 2.0** (typed `Mapped[...]` models) for the ORM.
+- **Pydantic 2** / **pydantic-settings** for config and (eventually) request/response schemas.
+- **SQLite** by default for development; point `DATABASE_URL` at a `postgresql://` URL for production — the same code runs against both.
+
+## Project layout
+
+```
+backend/
+  app/
+    core/
+      config.py     # settings (env / .env driven)
+      db.py         # engine, session factory, Base + Id/Timestamp mixins
+    models/
+      catalog.py    # Organization, Product, ProductSupplier
+      procurement.py# PurchaseOrder, OrderItem
+      flow.py       # Location, Receipt, ReceiptItem, Asset
+    main.py         # FastAPI app: /health and /schema
+  requirements.txt
+```
+
+## Getting started
+
+From the `backend/` directory:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\uvicorn app.main:app --reload
+```
+
+The schema is created automatically on startup (fine for early development; a migration tool such as Alembic comes later). Then check it's wired up:
+
+- `GET /health` — liveness check.
+- `GET /schema` — lists the tables the domain model defines, as a quick sanity check.
+
+By default this creates a local `scm.db` SQLite file in the `backend/` directory.
+
+## Status & roadmap
+
+The **domain model is in place**; the operational layer is next. Planned:
+
+- [ ] API layer — Pydantic schemas + CRUD routes (place an order, receive it, create and move assets).
+- [ ] Asset lifecycle service — the receive → deploy → decommission transitions, the heart of the system.
+- [ ] Alembic migrations — before the schema grows further.
+- [ ] Capacity / flow planning — consuming lead-time and inbound-timing data to plan against warehouse capacity.
