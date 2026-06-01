@@ -106,15 +106,24 @@ All entities share a UUID primary key and `date_created` / `last_updated` audit 
 
 ```
 backend/
+  alembic/          # versioned migrations (env.py wired to app settings + metadata)
   app/
     core/
       config.py     # settings (env / .env driven)
       db.py         # engine, session factory, Base + Id/Timestamp mixins
-    models/
+    models/         # SQLAlchemy ORM models
       catalog.py    # Organization, Product, ProductSupplier
       procurement.py# PurchaseOrder, OrderItem
       flow.py       # Location, Receipt, ReceiptItem, Asset
-    main.py         # FastAPI app: /health and /schema
+    schemas/        # Pydantic Create/Update/Read per domain
+    services/       # business rules: CRUDService base + domain services
+    api/
+      deps.py       # get_db (owns the per-request transaction)
+      errors.py     # ServiceError -> HTTP status mapping
+      v1/           # one APIRouter per domain, mounted at /api/v1
+    seed.py         # realistic hardware fixture data
+    main.py         # FastAPI app: mounts /api/v1, /health, /schema
+  alembic.ini
   requirements.txt
 ```
 
@@ -125,15 +134,18 @@ From the `backend/` directory:
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\alembic upgrade head      # create/upgrade the schema
+.venv\Scripts\python -m app.seed         # (optional) load demo data
 .venv\Scripts\uvicorn app.main:app --reload
 ```
 
-The schema is created automatically on startup (fine for early development; a migration tool such as Alembic comes later). Then check it's wired up:
+The schema is owned by Alembic migrations — run `alembic upgrade head` to create or update it. Then check it's wired up:
 
 - `GET /health` — liveness check.
-- `GET /schema` — lists the tables the domain model defines, as a quick sanity check.
+- `GET /schema` — lists the tables the domain model defines.
+- `GET /docs` — interactive OpenAPI/Swagger UI for the full `/api/v1` surface.
 
-By default this creates a local `scm.db` SQLite file in the `backend/` directory.
+The API lives under `/api/v1` — catalog (`/organizations`, `/products`, `/product-suppliers`), procurement (`/purchase-orders`), and flow (`/locations`), each with create / list / get / update. By default this uses a local `scm.db` SQLite file in the `backend/` directory; point `DATABASE_URL` at a `postgresql://` URL for production.
 
 ## Status & roadmap
 
@@ -145,13 +157,13 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] Domain model — Catalog (`Organization`, `Product`, `ProductSupplier`), Procurement (`PurchaseOrder`, `OrderItem`), Flow & lifecycle (`Location`, `Receipt`, `ReceiptItem`, `Asset`).
 - [x] FastAPI app skeleton with `/health` and `/schema` sanity checks.
 
-### Phase 1 — Persistence & API surface
+### Phase 1 — Persistence & API surface ✅ *(done)*
 
-- [ ] **Alembic migrations** — replace `create_all` on startup with versioned migrations before the schema grows further.
-- [ ] **Pydantic schemas** — request/response models per entity, decoupled from the ORM models.
-- [ ] **CRUD routes** — catalog (products, suppliers, sources), procurement (orders + lines), locations.
-- [ ] **Repository / service layer** — keep business rules out of the route handlers.
-- [ ] **Seed + factory data** — a realistic fixture set for local dev and demos.
+- [x] **Alembic migrations** — schema is now versioned (`alembic upgrade head`); `env.py` reads the app's settings + metadata, so migrations never drift from the code.
+- [x] **Pydantic schemas** — `Create` / `Update` / `Read` models per entity in [`app/schemas/`](backend/app/schemas/), decoupled from the ORM.
+- [x] **CRUD routes** — catalog (organizations, products, sources), procurement (orders + nested lines), locations, under `/api/v1`.
+- [x] **Repository / service layer** — a generic `CRUDService` plus thin domain services in [`app/services/`](backend/app/services/) holding the business rules; domain errors map centrally to HTTP codes (404/409/422).
+- [x] **Seed data** — a realistic hardware scenario ([`app/seed.py`](backend/app/seed.py)): 5 orgs, 4 products multi-sourced across 7 sources, a warehouse + datacenter + 2 racks, and a pending purchase order.
 
 ### Phase 2 — Asset lifecycle service *(the heart of the system)*
 
