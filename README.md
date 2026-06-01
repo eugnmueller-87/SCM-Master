@@ -137,9 +137,47 @@ By default this creates a local `scm.db` SQLite file in the `backend/` directory
 
 ## Status & roadmap
 
-The **domain model is in place**; the operational layer is next. Planned:
+The **domain model is in place**. Below is the full intended scope, sequenced into phases — each phase is independently useful and builds on the one before it.
 
-- [ ] API layer — Pydantic schemas + CRUD routes (place an order, receive it, create and move assets).
-- [ ] Asset lifecycle service — the receive → deploy → decommission transitions, the heart of the system.
-- [ ] Alembic migrations — before the schema grows further.
-- [ ] Capacity / flow planning — consuming lead-time and inbound-timing data to plan against warehouse capacity.
+### Phase 0 — Foundation ✅ *(done)*
+
+- [x] Core setup — config (env / `.env`), engine + session factory, `Base` with UUID + audit mixins.
+- [x] Domain model — Catalog (`Organization`, `Product`, `ProductSupplier`), Procurement (`PurchaseOrder`, `OrderItem`), Flow & lifecycle (`Location`, `Receipt`, `ReceiptItem`, `Asset`).
+- [x] FastAPI app skeleton with `/health` and `/schema` sanity checks.
+
+### Phase 1 — Persistence & API surface
+
+- [ ] **Alembic migrations** — replace `create_all` on startup with versioned migrations before the schema grows further.
+- [ ] **Pydantic schemas** — request/response models per entity, decoupled from the ORM models.
+- [ ] **CRUD routes** — catalog (products, suppliers, sources), procurement (orders + lines), locations.
+- [ ] **Repository / service layer** — keep business rules out of the route handlers.
+- [ ] **Seed + factory data** — a realistic fixture set for local dev and demos.
+
+### Phase 2 — Asset lifecycle service *(the heart of the system)*
+
+- [ ] **Receiving** — receive a `PurchaseOrder` (full or partial); each serialised unit spawns an `Asset` in `RECEIVED`, linked back to its `OrderItem`. Order status advances (`PARTIALLY_RECEIVED` → `RECEIVED`) automatically.
+- [ ] **Guarded state machine** — enforce legal transitions (`RECEIVED → IN_STORAGE → DEPLOYED → MAINTENANCE → DECOMMISSIONED → DISPOSED`); reject illegal jumps at the service layer.
+- [ ] **Moves & deployment** — relocate an asset between locations; deploying into a rack stamps `deployed_date` and current location.
+- [ ] **Lifecycle event log** — an append-only history of every status/location change per asset (who, when, from→to), so the full provenance is queryable, not just the current state.
+- [ ] **Provenance API** — given an asset, trace back to order line, supplier, and spend; given an order line, list every asset it produced.
+
+### Phase 3 — Sourcing & procurement intelligence
+
+- [ ] **Supplier-swap workflow** — re-source an order line to a different `ProductSupplier` of the same product, with an audit trail of why.
+- [ ] **Sourcing suggestions** — rank candidate sources by `preference_rank`, lead time, MOQ, and price; surface the trade-offs.
+- [ ] **Order approval flow** — `PENDING → APPROVED → PLACED` with role gating.
+- [ ] **Spend analytics** — spend by product, category, supplier, and time, built on the never-broken asset→order provenance link.
+
+### Phase 4 — Capacity & flow planning
+
+- [ ] **Inbound pipeline view** — what's on order, expected-vs-actual delivery, driven by `ProductSupplier` lead times and order-line dates.
+- [ ] **Warehouse capacity model** — measure against `Location.capacity`; flag the transit warehouse approaching its limit under spiky demand.
+- [ ] **Deployment forecasting** — project rack fill from inbound + on-hand assets.
+
+### Phase 5 — Operations & hardening
+
+- [ ] **Test suite** — unit tests for the lifecycle state machine + integration tests for the API.
+- [ ] **AuthN / AuthZ** — users and role-gated operations (procurement, warehouse, datacenter ops).
+- [ ] **Observability** — structured logging, request tracing, health/readiness probes.
+- [ ] **Containerisation & CI** — Docker image + GitHub Actions (lint, test, migrate-check).
+- [ ] **Frontend** — an operations UI over the API (catalog, orders, receiving, asset board).
