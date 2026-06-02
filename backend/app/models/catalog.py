@@ -1,8 +1,8 @@
 """Catalog: the *what* and the *who we buy it from*.
 
 This is the part of the OpenBoxes model genuinely worth scavenging. The key
-idea — and the one IONOS specifically asked for ("we should be able to replace
-suppliers") — is the separation of:
+idea — being able to replace suppliers without losing a product's history — is
+the separation of:
 
     Product          the spec  ("Supermicro AS-1015, 64GB, 2x NVMe")
     ProductSupplier  one row PER SOURCE of that product
@@ -66,7 +66,7 @@ class ProductSupplier(IdMixin, TimestampMixin, Base):
     """One *source* for a Product. Multiple rows per product = multi-sourcing.
 
     Fields lifted from OpenBoxes' ProductSupplier because they are exactly the
-    levers IONOS pulls during a demand spike:
+    levers you pull during a demand spike:
       - standard_lead_time_days : the timing lever (chip lead times are brutal)
       - min_order_quantity      : the MOQ that bites when you only need a few
       - contract_price          : cost

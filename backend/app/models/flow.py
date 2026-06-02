@@ -2,7 +2,7 @@
 OpenBoxes never modelled — the continuous identity of a unit from received
 stock all the way to a decommissioned asset in a datacenter rack.
 
-The Asset is the spine of the IONOS system. When a Receipt records arrival of a
+The Asset is the spine of the system. When a Receipt records arrival of a
 serialised unit, an Asset is born (status RECEIVED). The SAME Asset row then
 moves through the warehouse and into a rack — its location and status change,
 but its identity (and link back to the PurchaseOrder line it came from) never
@@ -32,7 +32,7 @@ class LocationType(str, enum.Enum):
 class Location(IdMixin, TimestampMixin, Base):
     """A place. Self-referential so a RACK can nest under a DATACENTER, and the
     transit WAREHOUSE is just another location. ``capacity`` is intentionally
-    nullable: IONOS doesn't know the real limits yet, so it starts as an
+    nullable: the real limits aren't known yet, so it starts as an
     unknown the system will measure and the user will tune later."""
 
     __tablename__ = "location"

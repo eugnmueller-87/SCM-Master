@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "IONOS Transit Warehouse"
+    app_name: str = "SCM Master"
     # SQLite by default; swap to a postgresql:// URL via DATABASE_URL in prod.
     database_url: str = "sqlite:///./scm.db"
 

@@ -1,6 +1,6 @@
 """Procurement: the *buying*. PurchaseOrder + OrderItem.
 
-Trimmed from OpenBoxes' Order/OrderItem to what IONOS needs. Crucially, each
+Trimmed from OpenBoxes' Order/OrderItem to what this system needs. Crucially, each
 OrderItem points at a ProductSupplier (the chosen source) — so re-sourcing a
 line during a spike is literally repointing this FK to a different
 ProductSupplier of the same Product. The estimated dates are the inbound-timing
