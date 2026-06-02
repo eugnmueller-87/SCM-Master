@@ -27,7 +27,9 @@ from app.models.catalog import Product
 from app.models.flow import LocationType
 from app.services.auth import user_service
 from app.services.catalog import (
-    organization_service, product_service, product_supplier_service,
+    organization_service,
+    product_service,
+    product_supplier_service,
 )
 from app.services.flow import location_service
 from app.services.procurement import purchase_order_service
@@ -142,11 +144,11 @@ def seed() -> None:
 
         db.commit()
         print("Seed complete:")
-        print(f"  admin user    : admin@example.com / admin (ADMIN)")
-        print(f"  organizations : 5")
-        print(f"  products      : 4")
-        print(f"  product sources (multi-sourcing): 7")
-        print(f"  locations     : 4 (warehouse, datacenter, 2 racks)")
+        print("  admin user    : admin@example.com / admin (ADMIN)")
+        print("  organizations : 5")
+        print("  products      : 4")
+        print("  product sources (multi-sourcing): 7")
+        print("  locations     : 4 (warehouse, datacenter, 2 racks)")
         print(f"  purchase order: {order.order_number} ({len(order.items)} lines, status {order.status.value})")
     except Exception:
         db.rollback()

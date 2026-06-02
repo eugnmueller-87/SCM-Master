@@ -14,12 +14,20 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.catalog import (
-    OrganizationCreate, OrganizationRead, OrganizationUpdate,
-    ProductCreate, ProductRead, ProductUpdate,
-    ProductSupplierCreate, ProductSupplierRead, ProductSupplierUpdate,
+    OrganizationCreate,
+    OrganizationRead,
+    OrganizationUpdate,
+    ProductCreate,
+    ProductRead,
+    ProductSupplierCreate,
+    ProductSupplierRead,
+    ProductSupplierUpdate,
+    ProductUpdate,
 )
 from app.services.catalog import (
-    organization_service, product_service, product_supplier_service,
+    organization_service,
+    product_service,
+    product_supplier_service,
 )
 
 router = APIRouter(tags=["catalog"])

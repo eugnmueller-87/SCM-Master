@@ -13,7 +13,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_role
 from app.models.auth import Role
 from app.schemas.procurement import (
-    OrderItemRead, PurchaseOrderCreate, PurchaseOrderRead, PurchaseOrderUpdate,
+    OrderItemRead,
+    PurchaseOrderCreate,
+    PurchaseOrderRead,
+    PurchaseOrderUpdate,
 )
 from app.schemas.sourcing import OrderStatusRequest, ResourceLineRequest
 from app.services.procurement import purchase_order_service

@@ -15,13 +15,13 @@ from fastapi import Depends, FastAPI
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import app.models  # noqa: F401  -- registers all tables on Base
 from app.api.deps import get_db
 from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.db import Base
 from app.core.observability import RequestContextMiddleware, configure_logging
-import app.models  # noqa: F401  -- registers all tables on Base
 
 configure_logging()
 

@@ -105,7 +105,7 @@ def test_spend_reflects_received_units(client):
 
 
 def test_spend_empty_when_nothing_received(client):
-    s = build_scenario(client)
+    build_scenario(client)  # data exists, but nothing received yet
     summary = client.get(f"{B}/analytics/spend").json()
     assert summary["total_units"] == 0
     assert summary["total_spend"] == "0"

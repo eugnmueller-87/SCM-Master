@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.sourcing import (
-    CategorySpend, ProductSpend, SourceSuggestion, SpendSummary, SupplierSpend,
+    CategorySpend,
+    ProductSpend,
+    SourceSuggestion,
+    SpendSummary,
+    SupplierSpend,
 )
 from app.services import analytics, sourcing
 

@@ -13,12 +13,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+import app.models  # noqa: F401 -- register all tables (binds name `app` to the package)
 from app.api.deps import get_db
 from app.core.db import Base
 from app.core.security import create_access_token, hash_password
 from app.main import app as fastapi_app
 from app.models.auth import Role, User
-import app.models  # noqa: F401 -- register all tables (binds name `app` to the package)
 
 
 @pytest.fixture

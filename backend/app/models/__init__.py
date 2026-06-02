@@ -11,20 +11,20 @@ from app.models.catalog import (  # noqa: F401
     Product,
     ProductSupplier,
 )
-from app.models.procurement import (  # noqa: F401
-    PurchaseOrder,
-    OrderItem,
-    OrderStatus,
-)
 from app.models.flow import (  # noqa: F401
+    Asset,
+    AssetEvent,
+    AssetEventType,
+    AssetStatus,
     Location,
     LocationType,
     Receipt,
     ReceiptItem,
-    Asset,
-    AssetStatus,
-    AssetEvent,
-    AssetEventType,
+)
+from app.models.procurement import (  # noqa: F401
+    OrderItem,
+    OrderStatus,
+    PurchaseOrder,
 )
 
 __all__ = [

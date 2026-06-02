@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from app.models.flow import AssetEventType, AssetStatus
 from app.schemas.base import ReadBase
 
-
 # --- Asset ----------------------------------------------------------------
 
 class AssetRead(ReadBase):

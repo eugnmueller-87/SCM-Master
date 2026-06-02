@@ -10,7 +10,10 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.services.exceptions import (
-    ConflictError, NotFoundError, ServiceError, ValidationError,
+    ConflictError,
+    NotFoundError,
+    ServiceError,
+    ValidationError,
 )
 
 _STATUS = {

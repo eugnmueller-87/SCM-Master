@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 from app.models.procurement import OrderStatus
 from app.schemas.base import ReadBase
 
-
 # --- OrderItem ------------------------------------------------------------
 
 class OrderItemCreate(BaseModel):

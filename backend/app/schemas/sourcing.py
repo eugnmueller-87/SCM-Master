@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 from app.models.procurement import OrderStatus
 
-
 # --- Order status / supplier swap ----------------------------------------
 
 class OrderStatusRequest(BaseModel):

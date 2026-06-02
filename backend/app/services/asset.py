@@ -28,7 +28,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.flow import (
-    Asset, AssetEvent, AssetEventType, AssetStatus, Location, Receipt, ReceiptItem,
+    Asset,
+    AssetEvent,
+    AssetEventType,
+    AssetStatus,
+    Location,
+    Receipt,
+    ReceiptItem,
 )
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.services import lifecycle

@@ -15,7 +15,8 @@ import enum
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import String, Integer, ForeignKey, Date, Enum as SAEnum, Text
+from sqlalchemy import Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, IdMixin, TimestampMixin

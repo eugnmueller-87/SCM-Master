@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import String, Numeric, Integer, Boolean, ForeignKey, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, IdMixin, TimestampMixin

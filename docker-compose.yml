@@ -1,0 +1,29 @@
+# Local Postgres-backed run, demonstrating the SQLite -> Postgres swap.
+#   docker compose up --build
+# The API comes up on http://localhost:8000 (docs at /docs).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scm
+      POSTGRES_PASSWORD: scm
+      POSTGRES_DB: scm
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      # psycopg driver; add psycopg[binary] to requirements when using Postgres.
+      DATABASE_URL: postgresql+psycopg://scm:scm@db:5432/scm
+      SECRET_KEY: change-me-in-real-deployments-0000000000
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy

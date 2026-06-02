@@ -12,7 +12,6 @@ Everything here is computed from existing data — no new tables.
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import func, select

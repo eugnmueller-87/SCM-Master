@@ -16,11 +16,16 @@ from app.api.deps import get_db, require_role
 from app.models.auth import Role
 from app.models.flow import AssetStatus
 from app.schemas.asset import (
-    AssetEventRead, AssetRead, AssetTrace, MoveRequest, ReceiptRead,
-    ReceiveRequest, TransitionRequest,
+    AssetEventRead,
+    AssetRead,
+    AssetTrace,
+    MoveRequest,
+    ReceiptRead,
+    ReceiveRequest,
+    TransitionRequest,
 )
-from app.services.asset import asset_service
 from app.services import provenance
+from app.services.asset import asset_service
 
 router = APIRouter(tags=["assets"])
 
