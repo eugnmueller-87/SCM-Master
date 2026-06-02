@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCM Master — Operations</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header>
+    <h1>SCM&nbsp;Master <span class="sub">operations</span></h1>
+    <div id="whoami" class="whoami"></div>
+  </header>
+
+  <!-- Login -->
+  <section id="login-view" class="card hidden">
+    <h2>Sign in</h2>
+    <form id="login-form">
+      <label>Email <input type="email" id="login-email" value="admin@example.com" required /></label>
+      <label>Password <input type="password" id="login-password" value="admin" required /></label>
+      <button type="submit">Log in</button>
+    </form>
+    <p class="hint">Seeded admin: <code>admin@example.com</code> / <code>admin</code></p>
+    <p id="login-error" class="error"></p>
+  </section>
+
+  <!-- App -->
+  <main id="app-view" class="hidden">
+    <nav class="tabs">
+      <button data-tab="assets" class="active">Assets</button>
+      <button data-tab="inbound">Inbound</button>
+      <button data-tab="capacity">Capacity</button>
+      <button data-tab="spend">Spend</button>
+      <button id="logout" class="right">Log out</button>
+    </nav>
+
+    <section id="tab-assets" class="tab">
+      <div class="toolbar">
+        <label>Status
+          <select id="asset-status-filter">
+            <option value="">All</option>
+            <option>RECEIVED</option><option>IN_STORAGE</option><option>DEPLOYED</option>
+            <option>MAINTENANCE</option><option>DECOMMISSIONED</option><option>DISPOSED</option>
+          </select>
+        </label>
+        <button id="asset-refresh">Refresh</button>
+      </div>
+      <table id="assets-table"><thead><tr>
+        <th>Serial</th><th>Status</th><th>Location</th><th>Provenance</th><th>Actions</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section id="tab-inbound" class="tab hidden">
+      <table id="inbound-table"><thead><tr>
+        <th>Order</th><th>Status</th><th>Ordered</th><th>Received</th><th>Outstanding</th><th>ETA</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section id="tab-capacity" class="tab hidden">
+      <table id="capacity-table"><thead><tr>
+        <th>Code</th><th>Name</th><th>Type</th><th>Used</th><th>Capacity</th><th>Utilisation</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+
+    <section id="tab-spend" class="tab hidden">
+      <div id="spend-summary" class="summary"></div>
+      <h3>By supplier</h3>
+      <table id="spend-supplier-table"><thead><tr>
+        <th>Supplier</th><th>Units</th><th>Spend</th>
+      </tr></thead><tbody></tbody></table>
+      <h3>By category</h3>
+      <table id="spend-category-table"><thead><tr>
+        <th>Category</th><th>Units</th><th>Spend</th>
+      </tr></thead><tbody></tbody></table>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -11,7 +11,10 @@ Run from the backend/ directory:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -49,3 +52,10 @@ def readyz(db: Session = Depends(get_db)) -> dict:
 def schema() -> dict:
     """List the tables the domain model defines — a sanity check."""
     return {"tables": sorted(Base.metadata.tables.keys())}
+
+
+# Serve the static operations UI at / (mounted last so it never shadows the API
+# or the probes above). Skipped gracefully if the frontend dir isn't present.
+_frontend = Path(__file__).resolve().parents[2] / "frontend"
+if _frontend.is_dir():
+    app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")

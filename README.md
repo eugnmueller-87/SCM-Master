@@ -111,22 +111,25 @@ backend/
     core/
       config.py     # settings (env / .env driven)
       db.py         # engine, session factory, Base + Id/Timestamp mixins
-    models/         # SQLAlchemy ORM models
-      catalog.py    # Organization, Product, ProductSupplier
-      procurement.py# PurchaseOrder, OrderItem
-      flow.py       # Location, Receipt, ReceiptItem, Asset
+      security.py   # bcrypt hashing + JWT access tokens
+      observability.py  # JSON logging + request-id middleware
+    models/         # SQLAlchemy ORM models (catalog, procurement, flow, auth)
     schemas/        # Pydantic Create/Update/Read per domain
     services/       # business rules: CRUDService base + domain services
-                    #   lifecycle.py (state machine), asset.py (receiving +
-                    #   transitions + event log), provenance.py
+                    #   lifecycle (state machine), asset (receiving + events),
+                    #   provenance, sourcing, analytics, planning, auth
     api/
-      deps.py       # get_db (owns the per-request transaction)
+      deps.py       # get_db (per-request transaction) + auth deps (require_role)
       errors.py     # ServiceError -> HTTP status mapping
       v1/           # one APIRouter per domain, mounted at /api/v1
-    seed.py         # realistic hardware fixture data
-    main.py         # FastAPI app: mounts /api/v1, /health, /schema
-  alembic.ini
-  requirements.txt
+    seed.py         # realistic hardware fixture data (+ bootstrap admin)
+    main.py         # FastAPI app: /api/v1, /health, /readyz, serves the frontend
+  tests/            # pytest suite (unit + API integration)
+  Dockerfile
+  alembic.ini · ruff.toml · pytest.ini · requirements.txt
+frontend/           # dependency-free operations UI (served at /)
+ci/                 # CI workflow (copy into .github/workflows/ to activate)
+docker-compose.yml  # Postgres + api
 ```
 
 ## Getting started
@@ -141,22 +144,24 @@ python -m venv .venv
 .venv\Scripts\uvicorn app.main:app --reload
 ```
 
-The schema is owned by Alembic migrations — run `alembic upgrade head` to create or update it. Then check it's wired up:
+The schema is owned by Alembic migrations — run `alembic upgrade head` to create or update it. Then open:
 
-- `GET /health` — liveness check.
-- `GET /schema` — lists the tables the domain model defines.
-- `GET /docs` — interactive OpenAPI/Swagger UI for the full `/api/v1` surface.
+- **`/`** — the operations UI. Log in with the seeded admin (`admin@example.com` / `admin`).
+- **`/docs`** — interactive OpenAPI/Swagger UI for the full `/api/v1` surface.
+- `GET /health` — liveness; `GET /readyz` — readiness (checks the DB).
 
 The API lives under `/api/v1`:
 
-- **Catalog** — `/organizations`, `/products`, `/product-suppliers` (create / list / get / update).
-- **Procurement** — `/purchase-orders` (with nested lines).
+- **Auth** — `POST /auth/login` (returns a JWT), `/auth/register` (admin-only), `/auth/me`.
+- **Catalog** — `/organizations`, `/products`, `/product-suppliers`.
+- **Procurement** — `/purchase-orders` (nested lines), `/{id}/status` (approval), `/{id}/items/{lineId}/resource` (supplier-swap).
 - **Flow** — `/locations`.
 - **Receiving** — `POST /purchase-orders/{id}/receipts` turns ordered units into assets.
-- **Assets** — `/assets` (list/filter by status or location), `/assets/{id}/transition`, `/assets/{id}/move`, `/assets/{id}/events`.
-- **Provenance** — `/assets/{id}/provenance`, `/order-items/{id}/assets`.
+- **Assets** — `/assets` (filter by status/location), `/assets/{id}/transition`, `/move`, `/events`, `/provenance`.
+- **Sourcing & analytics** — `/products/{id}/sources`, `/analytics/spend[...]`.
+- **Planning** — `/planning/inbound`, `/planning/capacity`, `/planning/forecast`.
 
-By default this uses a local `scm.db` SQLite file in the `backend/` directory; point `DATABASE_URL` at a `postgresql://` URL for production.
+Most write endpoints are role-gated (send the JWT as a `Bearer` token); reads need any authenticated user. Run with Docker via `docker compose up --build`. By default this uses a local `scm.db` SQLite file; point `DATABASE_URL` at a `postgresql://` URL for production.
 
 ## Status & roadmap
 
@@ -197,10 +202,10 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Warehouse capacity model** — `GET /planning/capacity`: per-location used/free/utilisation against `Location.capacity`, with an `over_capacity` flag.
 - [x] **Deployment forecasting** — `GET /planning/forecast`: deployable units = on-hand (RECEIVED/IN_STORAGE) + still-inbound ([`services/planning.py`](backend/app/services/planning.py)).
 
-### Phase 5 — Operations & hardening
+### Phase 5 — Operations & hardening ✅ *(done)*
 
-- [x] **Test suite** — pytest: pure unit tests for the lifecycle state machine + API integration tests over an isolated in-memory DB ([`backend/tests/`](backend/tests/)). *(Pulled forward; runs against every phase.)*
-- [ ] **AuthN / AuthZ** — users and role-gated operations (procurement, warehouse, datacenter ops).
-- [ ] **Observability** — structured logging, request tracing, health/readiness probes.
-- [ ] **Containerisation & CI** — Docker image + GitHub Actions (lint, test, migrate-check).
-- [ ] **Frontend** — an operations UI over the API (catalog, orders, receiving, asset board).
+- [x] **Test suite** — pytest: pure unit tests for the lifecycle state machine + API integration tests over an isolated in-memory DB ([`backend/tests/`](backend/tests/)); 55 tests across every phase.
+- [x] **AuthN / AuthZ** — JWT login (bcrypt + PyJWT), a `User`/`Role` model, and role-gated writes: PROCUREMENT (orders/approvals/re-sourcing), WAREHOUSE (receiving), WAREHOUSE+DATACENTER (asset transitions); ADMIN passes all. ([`core/security.py`](backend/app/core/security.py), [`api/v1/auth.py`](backend/app/api/v1/auth.py)).
+- [x] **Observability** — JSON structured logging, a per-request correlation id (`X-Request-ID`), an access log line, and `/readyz` (DB check) alongside `/health` ([`core/observability.py`](backend/app/core/observability.py)).
+- [x] **Containerisation & CI** — [`Dockerfile`](backend/Dockerfile) (non-root) + [`docker-compose.yml`](docker-compose.yml) (Postgres), and a CI pipeline — ruff lint, migrate-check (no schema drift), pytest — in [`ci/ci.yml`](ci/ci.yml) (see [`ci/README.md`](ci/README.md) to activate).
+- [x] **Frontend** — a dependency-free operations UI ([`frontend/`](frontend/)) served by FastAPI at `/`: login, the asset board with one-click lifecycle transitions and provenance trace, inbound pipeline, capacity, and spend.
