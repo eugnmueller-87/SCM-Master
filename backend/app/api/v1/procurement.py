@@ -10,7 +10,8 @@ from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_role
+from app.models.auth import Role
 from app.schemas.procurement import (
     OrderItemRead, PurchaseOrderCreate, PurchaseOrderRead, PurchaseOrderUpdate,
 )
@@ -19,8 +20,12 @@ from app.services.procurement import purchase_order_service
 
 router = APIRouter(tags=["procurement"])
 
+# Procurement write operations require the PROCUREMENT role (ADMIN always passes).
+_procurement = require_role(Role.PROCUREMENT)
 
-@router.post("/purchase-orders", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED)
+
+@router.post("/purchase-orders", response_model=PurchaseOrderRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(_procurement)])
 def create_purchase_order(payload: PurchaseOrderCreate, db: Session = Depends(get_db)):
     return purchase_order_service.create(db, payload.model_dump())
 
@@ -41,14 +46,15 @@ def update_purchase_order(order_id: str, payload: PurchaseOrderUpdate, db: Sessi
     return purchase_order_service.update(db, obj, payload.model_dump(exclude_unset=True))
 
 
-@router.post("/purchase-orders/{order_id}/status", response_model=PurchaseOrderRead)
+@router.post("/purchase-orders/{order_id}/status", response_model=PurchaseOrderRead,
+             dependencies=[Depends(_procurement)])
 def set_order_status(order_id: str, payload: OrderStatusRequest, db: Session = Depends(get_db)):
     """Drive the approval flow: PENDING -> APPROVED -> PLACED (or CANCELLED)."""
     return purchase_order_service.set_status(db, order_id, payload.target)
 
 
 @router.post("/purchase-orders/{order_id}/items/{order_item_id}/resource",
-             response_model=OrderItemRead)
+             response_model=OrderItemRead, dependencies=[Depends(_procurement)])
 def resource_order_line(order_id: str, order_item_id: str,
                         payload: ResourceLineRequest, db: Session = Depends(get_db)):
     """Supplier-swap: repoint a line to a different source of the same product."""

@@ -13,5 +13,10 @@ class Settings(BaseSettings):
     # SQLite by default; swap to a postgresql:// URL via DATABASE_URL in prod.
     database_url: str = "sqlite:///./scm.db"
 
+    # Auth. Override SECRET_KEY in any real deployment (env / .env).
+    secret_key: str = "dev-insecure-change-me-0000000000000000"  # >=32 bytes; override in prod
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 8
+
 
 settings = Settings()

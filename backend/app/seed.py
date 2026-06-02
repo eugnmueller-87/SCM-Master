@@ -22,8 +22,10 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
+from app.models.auth import Role
 from app.models.catalog import Product
 from app.models.flow import LocationType
+from app.services.auth import user_service
 from app.services.catalog import (
     organization_service, product_service, product_supplier_service,
 )
@@ -39,6 +41,11 @@ def seed() -> None:
         if db.scalar(select(Product).limit(1)):
             print("Catalog already populated — skipping seed.")
             return
+
+        # --- A bootstrap admin (log in, then create other users via the API) --
+        user_service.create_user(
+            db, email="admin@example.com", full_name="Admin",
+            password="admin", role=Role.ADMIN)
 
         # --- Organizations: manufacturers and suppliers -------------------
         supermicro = organization_service.create(db, dict(
@@ -135,6 +142,7 @@ def seed() -> None:
 
         db.commit()
         print("Seed complete:")
+        print(f"  admin user    : admin@example.com / admin (ADMIN)")
         print(f"  organizations : 5")
         print(f"  products      : 4")
         print(f"  product sources (multi-sourcing): 7")

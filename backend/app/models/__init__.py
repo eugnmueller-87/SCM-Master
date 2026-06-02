@@ -2,6 +2,10 @@
 
 Import order matters only for readability here; relationships resolve by name.
 """
+from app.models.auth import (  # noqa: F401
+    Role,
+    User,
+)
 from app.models.catalog import (  # noqa: F401
     Organization,
     Product,
@@ -24,6 +28,8 @@ from app.models.flow import (  # noqa: F401
 )
 
 __all__ = [
+    "Role",
+    "User",
     "Organization",
     "Product",
     "ProductSupplier",

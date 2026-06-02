@@ -12,7 +12,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_role
+from app.models.auth import Role
 from app.models.flow import AssetStatus
 from app.schemas.asset import (
     AssetEventRead, AssetRead, AssetTrace, MoveRequest, ReceiptRead,
@@ -23,11 +24,15 @@ from app.services import provenance
 
 router = APIRouter(tags=["assets"])
 
+# Receiving is warehouse work; lifecycle moves span warehouse + datacenter ops.
+_receiving = require_role(Role.WAREHOUSE)
+_ops = require_role(Role.WAREHOUSE, Role.DATACENTER)
+
 
 # --- Receiving (against a purchase order) ---------------------------------
 
 @router.post("/purchase-orders/{order_id}/receipts", response_model=ReceiptRead,
-             status_code=status.HTTP_201_CREATED)
+             status_code=status.HTTP_201_CREATED, dependencies=[Depends(_receiving)])
 def receive_order(order_id: str, payload: ReceiveRequest, db: Session = Depends(get_db)):
     return asset_service.receive(
         db, order_id,
@@ -60,7 +65,8 @@ def get_asset_events(asset_id: str, db: Session = Depends(get_db)):
 
 # --- Lifecycle actions ----------------------------------------------------
 
-@router.post("/assets/{asset_id}/transition", response_model=AssetRead)
+@router.post("/assets/{asset_id}/transition", response_model=AssetRead,
+             dependencies=[Depends(_ops)])
 def transition_asset(asset_id: str, payload: TransitionRequest, db: Session = Depends(get_db)):
     return asset_service.transition(
         db, asset_id, payload.target,
@@ -68,7 +74,8 @@ def transition_asset(asset_id: str, payload: TransitionRequest, db: Session = De
     )
 
 
-@router.post("/assets/{asset_id}/move", response_model=AssetRead)
+@router.post("/assets/{asset_id}/move", response_model=AssetRead,
+             dependencies=[Depends(_ops)])
 def move_asset(asset_id: str, payload: MoveRequest, db: Session = Depends(get_db)):
     return asset_service.move(
         db, asset_id, payload.location_id, actor=payload.actor, note=payload.note,

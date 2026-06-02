@@ -15,7 +15,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
 from app.core.db import Base
+from app.core.security import create_access_token, hash_password
 from app.main import app as fastapi_app
+from app.models.auth import Role, User
 import app.models  # noqa: F401 -- register all tables (binds name `app` to the package)
 
 
@@ -37,10 +39,27 @@ def db_session():
         engine.dispose()
 
 
+def _make_user(db_session, role: Role) -> User:
+    email = f"{role.value.lower()}@example.com"
+    user = User(
+        email=email, full_name=role.value.title(),
+        hashed_password=hash_password("pw"), role=role,
+    )
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
 @pytest.fixture
 def client(db_session):
-    """A TestClient whose get_db yields the test session and commits per request,
-    mirroring the real dependency's transaction boundary."""
+    """A TestClient authenticated as ADMIN (passes every role check), so most
+    tests exercise behaviour without auth ceremony. get_db yields the test
+    session and commits per request, mirroring the real dependency.
+
+    Extras on the returned client:
+      - ``.as_role(role)`` -> a client carrying a token for that role;
+      - ``.anon()``        -> an unauthenticated client.
+    """
     def _override():
         try:
             yield db_session
@@ -50,6 +69,27 @@ def client(db_session):
             raise
 
     fastapi_app.dependency_overrides[get_db] = _override
-    with TestClient(fastapi_app) as c:
+
+    admin = _make_user(db_session, Role.ADMIN)
+    c = TestClient(fastapi_app)
+    c.headers.update({
+        "Authorization": f"Bearer {create_access_token(subject=admin.email, role=admin.role.value)}"
+    })
+
+    def as_role(role: Role) -> TestClient:
+        _make_user(db_session, role)
+        rc = TestClient(fastapi_app)
+        rc.headers.update({
+            "Authorization": f"Bearer {create_access_token(subject=f'{role.value.lower()}@example.com', role=role.value)}"
+        })
+        return rc
+
+    def anon() -> TestClient:
+        return TestClient(fastapi_app)
+
+    c.as_role = as_role
+    c.anon = anon
+
+    with c:
         yield c
     fastapi_app.dependency_overrides.clear()
