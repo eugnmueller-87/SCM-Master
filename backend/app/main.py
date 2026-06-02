@@ -1,9 +1,9 @@
 """FastAPI entrypoint.
 
-The schema is now owned by Alembic migrations (run ``alembic upgrade head``),
-not created on startup — so dev and prod share one source of truth. This module
-builds the app, mounts the versioned API routers, and keeps two sanity-check
-endpoints.
+The schema is owned by Alembic migrations (run ``alembic upgrade head``), not
+created on startup — so dev and prod share one source of truth. This module
+configures structured logging, request-id middleware, builds the app, mounts
+the versioned API routers, and exposes liveness/readiness probes.
 
 Run from the backend/ directory:
     .venv\\Scripts\\alembic upgrade head
@@ -11,23 +11,38 @@ Run from the backend/ directory:
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
+from app.api.deps import get_db
 from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.db import Base
+from app.core.observability import RequestContextMiddleware, configure_logging
 import app.models  # noqa: F401  -- registers all tables on Base
+
+configure_logging()
 
 app = FastAPI(title=settings.app_name)
 
+app.add_middleware(RequestContextMiddleware)
 register_error_handlers(app)
 app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health")
 def health() -> dict:
+    """Liveness: the process is up and serving."""
     return {"status": "ok", "app": settings.app_name}
+
+
+@app.get("/readyz")
+def readyz(db: Session = Depends(get_db)) -> dict:
+    """Readiness: the process can reach its dependencies (the database)."""
+    db.execute(text("SELECT 1"))
+    return {"status": "ready"}
 
 
 @app.get("/schema")
