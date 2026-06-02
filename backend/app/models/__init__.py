@@ -19,6 +19,8 @@ from app.models.flow import (  # noqa: F401
     ReceiptItem,
     Asset,
     AssetStatus,
+    AssetEvent,
+    AssetEventType,
 )
 
 __all__ = [
@@ -34,4 +36,6 @@ __all__ = [
     "ReceiptItem",
     "Asset",
     "AssetStatus",
+    "AssetEvent",
+    "AssetEventType",
 ]

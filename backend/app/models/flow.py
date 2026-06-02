@@ -112,3 +112,46 @@ class Asset(IdMixin, TimestampMixin, Base):
     product = relationship("Product")
     current_location = relationship("Location")
     source_order_item = relationship("OrderItem")
+    events: Mapped[list["AssetEvent"]] = relationship(
+        back_populates="asset",
+        cascade="all, delete-orphan",
+        order_by="AssetEvent.date_created",
+    )
+
+
+class AssetEventType(str, enum.Enum):
+    RECEIVED = "RECEIVED"        # asset born at receipt
+    MOVED = "MOVED"             # relocated between locations
+    STATUS_CHANGED = "STATUS_CHANGED"  # lifecycle status transition
+
+
+class AssetEvent(IdMixin, TimestampMixin, Base):
+    """Append-only history of everything that happens to an Asset.
+
+    Current state lives on ``Asset`` (status + current_location); this table is
+    the *trail* of how it got there — every status transition and every move,
+    each capturing the from/to values and an optional actor. Nothing here is
+    ever updated or deleted in normal operation: it is the audit spine that
+    makes an asset's whole life reconstructable.
+    """
+
+    __tablename__ = "asset_event"
+
+    asset_id: Mapped[str] = mapped_column(ForeignKey("asset.id"), index=True)
+    event_type: Mapped[AssetEventType] = mapped_column(SAEnum(AssetEventType))
+
+    # Status transition (null for a pure move).
+    from_status: Mapped[Optional[AssetStatus]] = mapped_column(SAEnum(AssetStatus))
+    to_status: Mapped[Optional[AssetStatus]] = mapped_column(SAEnum(AssetStatus))
+
+    # Location change (null for a pure status change).
+    from_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("location.id"))
+    to_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("location.id"))
+
+    # Who triggered it (free text for now; becomes a user FK with auth in Phase 5).
+    actor: Mapped[Optional[str]] = mapped_column(String(128))
+    note: Mapped[Optional[str]] = mapped_column(Text)
+
+    asset: Mapped["Asset"] = relationship(back_populates="events")
+    from_location = relationship("Location", foreign_keys=[from_location_id])
+    to_location = relationship("Location", foreign_keys=[to_location_id])

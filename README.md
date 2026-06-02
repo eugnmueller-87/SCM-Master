@@ -117,6 +117,8 @@ backend/
       flow.py       # Location, Receipt, ReceiptItem, Asset
     schemas/        # Pydantic Create/Update/Read per domain
     services/       # business rules: CRUDService base + domain services
+                    #   lifecycle.py (state machine), asset.py (receiving +
+                    #   transitions + event log), provenance.py
     api/
       deps.py       # get_db (owns the per-request transaction)
       errors.py     # ServiceError -> HTTP status mapping
@@ -145,7 +147,16 @@ The schema is owned by Alembic migrations — run `alembic upgrade head` to crea
 - `GET /schema` — lists the tables the domain model defines.
 - `GET /docs` — interactive OpenAPI/Swagger UI for the full `/api/v1` surface.
 
-The API lives under `/api/v1` — catalog (`/organizations`, `/products`, `/product-suppliers`), procurement (`/purchase-orders`), and flow (`/locations`), each with create / list / get / update. By default this uses a local `scm.db` SQLite file in the `backend/` directory; point `DATABASE_URL` at a `postgresql://` URL for production.
+The API lives under `/api/v1`:
+
+- **Catalog** — `/organizations`, `/products`, `/product-suppliers` (create / list / get / update).
+- **Procurement** — `/purchase-orders` (with nested lines).
+- **Flow** — `/locations`.
+- **Receiving** — `POST /purchase-orders/{id}/receipts` turns ordered units into assets.
+- **Assets** — `/assets` (list/filter by status or location), `/assets/{id}/transition`, `/assets/{id}/move`, `/assets/{id}/events`.
+- **Provenance** — `/assets/{id}/provenance`, `/order-items/{id}/assets`.
+
+By default this uses a local `scm.db` SQLite file in the `backend/` directory; point `DATABASE_URL` at a `postgresql://` URL for production.
 
 ## Status & roadmap
 
@@ -165,13 +176,13 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Repository / service layer** — a generic `CRUDService` plus thin domain services in [`app/services/`](backend/app/services/) holding the business rules; domain errors map centrally to HTTP codes (404/409/422).
 - [x] **Seed data** — a realistic hardware scenario ([`app/seed.py`](backend/app/seed.py)): 5 orgs, 4 products multi-sourced across 7 sources, a warehouse + datacenter + 2 racks, and a pending purchase order.
 
-### Phase 2 — Asset lifecycle service *(the heart of the system)*
+### Phase 2 — Asset lifecycle service ✅ *(done)* — *the heart of the system*
 
-- [ ] **Receiving** — receive a `PurchaseOrder` (full or partial); each serialised unit spawns an `Asset` in `RECEIVED`, linked back to its `OrderItem`. Order status advances (`PARTIALLY_RECEIVED` → `RECEIVED`) automatically.
-- [ ] **Guarded state machine** — enforce legal transitions (`RECEIVED → IN_STORAGE → DEPLOYED → MAINTENANCE → DECOMMISSIONED → DISPOSED`); reject illegal jumps at the service layer.
-- [ ] **Moves & deployment** — relocate an asset between locations; deploying into a rack stamps `deployed_date` and current location.
-- [ ] **Lifecycle event log** — an append-only history of every status/location change per asset (who, when, from→to), so the full provenance is queryable, not just the current state.
-- [ ] **Provenance API** — given an asset, trace back to order line, supplier, and spend; given an order line, list every asset it produced.
+- [x] **Receiving** — `POST /purchase-orders/{id}/receipts` (full or partial); each unit spawns an `Asset` in `RECEIVED` (auto-generated serial), linked back to its `OrderItem`. Order status advances `PARTIALLY_RECEIVED → RECEIVED` automatically from cumulative received-vs-ordered quantity; over-receipt is rejected.
+- [x] **Guarded state machine** — a pure, testable transition table ([`services/lifecycle.py`](backend/app/services/lifecycle.py)) enforcing `RECEIVED → IN_STORAGE → DEPLOYED → MAINTENANCE → DECOMMISSIONED → DISPOSED` (plus the side-paths); illegal jumps are rejected with a 422 explaining what *is* allowed.
+- [x] **Moves & deployment** — relocate an asset (`POST /assets/{id}/move`); deploying into a rack stamps `deployed_date` and current location.
+- [x] **Lifecycle event log** — a new append-only `AssetEvent` table records every status/location change (type, from→to, actor, note, timestamp); `GET /assets/{id}/events` returns the full history.
+- [x] **Provenance API** — `GET /assets/{id}/provenance` traces an asset back to order line → order → supplier → unit spend; `GET /order-items/{id}/assets` lists every asset a line produced.
 
 ### Phase 3 — Sourcing & procurement intelligence
 
