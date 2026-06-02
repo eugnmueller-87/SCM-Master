@@ -191,15 +191,15 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Order approval flow** — `POST /purchase-orders/{id}/status` drives `PENDING → APPROVED → PLACED` (or `CANCELLED`) through a guarded transition table; receipt-driven statuses can't be set by hand. *(Role gating lands with auth in Phase 5.)*
 - [x] **Spend analytics** — `GET /analytics/spend[/by-supplier|/by-product|/by-category]`, computed from *received* assets via the never-broken asset→order provenance link ([`services/analytics.py`](backend/app/services/analytics.py)).
 
-### Phase 4 — Capacity & flow planning
+### Phase 4 — Capacity & flow planning ✅ *(done)*
 
-- [ ] **Inbound pipeline view** — what's on order, expected-vs-actual delivery, driven by `ProductSupplier` lead times and order-line dates.
-- [ ] **Warehouse capacity model** — measure against `Location.capacity`; flag the transit warehouse approaching its limit under spiky demand.
-- [ ] **Deployment forecasting** — project rack fill from inbound + on-hand assets.
+- [x] **Inbound pipeline view** — `GET /planning/inbound`: open order lines with quantity still outstanding, ETA, and an overdue flag.
+- [x] **Warehouse capacity model** — `GET /planning/capacity`: per-location used/free/utilisation against `Location.capacity`, with an `over_capacity` flag.
+- [x] **Deployment forecasting** — `GET /planning/forecast`: deployable units = on-hand (RECEIVED/IN_STORAGE) + still-inbound ([`services/planning.py`](backend/app/services/planning.py)).
 
 ### Phase 5 — Operations & hardening
 
-- [ ] **Test suite** — unit tests for the lifecycle state machine + integration tests for the API.
+- [x] **Test suite** — pytest: pure unit tests for the lifecycle state machine + API integration tests over an isolated in-memory DB ([`backend/tests/`](backend/tests/)). *(Pulled forward; runs against every phase.)*
 - [ ] **AuthN / AuthZ** — users and role-gated operations (procurement, warehouse, datacenter ops).
 - [ ] **Observability** — structured logging, request tracing, health/readiness probes.
 - [ ] **Containerisation & CI** — Docker image + GitHub Actions (lint, test, migrate-check).
