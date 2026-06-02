@@ -184,12 +184,12 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Lifecycle event log** — a new append-only `AssetEvent` table records every status/location change (type, from→to, actor, note, timestamp); `GET /assets/{id}/events` returns the full history.
 - [x] **Provenance API** — `GET /assets/{id}/provenance` traces an asset back to order line → order → supplier → unit spend; `GET /order-items/{id}/assets` lists every asset a line produced.
 
-### Phase 3 — Sourcing & procurement intelligence
+### Phase 3 — Sourcing & procurement intelligence ✅ *(done)*
 
-- [ ] **Supplier-swap workflow** — re-source an order line to a different `ProductSupplier` of the same product, with an audit trail of why.
-- [ ] **Sourcing suggestions** — rank candidate sources by `preference_rank`, lead time, MOQ, and price; surface the trade-offs.
-- [ ] **Order approval flow** — `PENDING → APPROVED → PLACED` with role gating.
-- [ ] **Spend analytics** — spend by product, category, supplier, and time, built on the never-broken asset→order provenance link.
+- [x] **Supplier-swap workflow** — `POST /purchase-orders/{id}/items/{lineId}/resource` repoints a line to a different `ProductSupplier` of the same product (and re-prices from the new source); blocked once the order is placed.
+- [x] **Sourcing suggestions** — `GET /products/{id}/sources` ranks candidate sources by `preference_rank` → lead time → price ([`services/sourcing.py`](backend/app/services/sourcing.py)).
+- [x] **Order approval flow** — `POST /purchase-orders/{id}/status` drives `PENDING → APPROVED → PLACED` (or `CANCELLED`) through a guarded transition table; receipt-driven statuses can't be set by hand. *(Role gating lands with auth in Phase 5.)*
+- [x] **Spend analytics** — `GET /analytics/spend[/by-supplier|/by-product|/by-category]`, computed from *received* assets via the never-broken asset→order provenance link ([`services/analytics.py`](backend/app/services/analytics.py)).
 
 ### Phase 4 — Capacity & flow planning
 
