@@ -158,8 +158,24 @@ def _detect_needs(db: Session, period_days: int) -> dict[str, dict]:
 # --- Steps 2-6: net, source, bundle, judge, classify, place ---------------
 
 def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
-                          period_days: int = 7) -> PurchasingRunResult:
+                          period_days: int = 7,
+                          approve_suppliers: Optional[set[str]] = None) -> PurchasingRunResult:
+    """Run the purchasing automation.
+
+    Normal run:
+      - dry_run=True  -> compute and tier bundles, place nothing (preview);
+      - dry_run=False -> auto-place every ACT-tier supplier bundle.
+
+    Confirm run (``approve_suppliers`` given) — the human approve->place path for
+    the review screen: the run is recomputed from live data (so a stale or
+    no-longer-justified approval can't place a wrong PO), and a supplier's PO is
+    placed ONLY when that supplier is in ``approve_suppliers`` AND its recomputed
+    tier is placeable (``act`` or ``propose`` — a human approving a proposal is
+    valid). An ``escalate`` bundle is NEVER placed by approval (no source, over
+    threshold, or blocked); it is returned unplaced for the UI to surface.
+    """
     run_at = _now()
+    confirming = approve_suppliers is not None
     needs = _detect_needs(db, period_days)
     inbound = _inbound_by_product(db)
 
@@ -246,9 +262,15 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
             confidence=bundle_confidence,
         )
 
-        # Step 6: side effects — ONE multi-line PO per supplier for act + live run.
+        # Step 6: side effects — ONE multi-line PO per supplier.
+        #   Normal run:  auto-place ACT bundles on a live (non-dry) run.
+        #   Confirm run: place a bundle iff this supplier was approved AND its
+        #                recomputed tier is placeable (act/propose, never escalate).
         placed_po_id: Optional[str] = None
-        if tier == "act" and not dry_run:
+        if confirming:
+            if supplier_id in approve_suppliers and tier in ("act", "propose"):
+                placed_po_id = _place(db, supplier_id, lines, run_at)
+        elif tier == "act" and not dry_run:
             placed_po_id = _place(db, supplier_id, lines, run_at)
 
         # Emit one decision per line (preserving per-line trigger/evidence), all
@@ -273,17 +295,19 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
                       "supplier_id": supplier_id, "lines": len(lines),
                       "bundle_total": bundle_total, "tier": tier,
                       "bundle_confidence": bundle_confidence,
-                      "placed_po_id": placed_po_id, "dry_run": dry_run}})
+                      "placed_po_id": placed_po_id,
+                      "mode": "confirm" if confirming else ("dry_run" if dry_run else "live")}})
 
-    # Summary — count distinct POs/bundles for placed, lines for the rest.
+    # Summary — count distinct POs for placed; committed spend = what was placed.
     placed_pos = {d.placed_po_id for d in decisions if d.placed_po_id}
     act_count = sum(1 for d in decisions if d.tier == "act")
     proposed = sum(1 for d in decisions if d.tier == "propose")
     escalated = sum(1 for d in decisions if d.tier == "escalate")
-    total_committed = sum(d.total for d in decisions if d.tier == "act")
+    total_committed = sum(d.total for d in decisions if d.placed_po_id)
 
     return PurchasingRunResult(
-        run_at=run_at, dry_run=dry_run, period_days=period_days,
+        # A confirm run places POs, so it is never a dry run.
+        run_at=run_at, dry_run=(dry_run and not confirming), period_days=period_days,
         decisions=decisions,
         summary={
             "act": act_count, "placed": len(placed_pos), "proposed": proposed,

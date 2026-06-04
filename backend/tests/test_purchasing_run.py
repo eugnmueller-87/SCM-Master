@@ -232,6 +232,99 @@ def test_bundle_escalates_if_any_line_escalates(client, db_session, monkeypatch)
     assert tiers == {"escalate"}, "a weak line drags the whole supplier PO to escalate"
 
 
+def test_confirm_places_only_approved_supplier(client, db_session, monkeypatch):
+    """approve->place: confirming supplier A places A's PO and leaves B unplaced."""
+    _mock_copilot(monkeypatch, decision="act", confidence=0.95)
+    a = _org(client, "A", "Supplier A")
+    b = _org(client, "B", "Supplier B")
+    pa = _product(client, "PA", "Prod A")
+    pb = _product(client, "PB", "Prod B")
+    _source(client, pa["id"], a["id"], price="100.00")
+    _source(client, pb["id"], b["id"], price="100.00")
+    _decommission_assets(db_session, pa["id"], 3)
+    _decommission_assets(db_session, pb["id"], 3)
+
+    # preview
+    preview = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
+    assert preview.dry_run is True
+    assert all(d.placed_po_id is None for d in preview.decisions)
+
+    # confirm only supplier A
+    res = purchasing.run_weekly_purchasing(
+        db_session, period_days=7, approve_suppliers={a["id"]})
+    assert res.dry_run is False
+    placed = {d.supplier_id for d in res.decisions if d.placed_po_id}
+    assert placed == {a["id"]}, "only the approved supplier's PO is placed"
+    assert res.summary["placed"] == 1
+
+
+def test_confirm_can_place_a_propose_bundle(client, db_session, monkeypatch):
+    """A human approving a 'propose' bundle is valid -> it places."""
+    _mock_copilot(monkeypatch, decision="recommend", confidence=0.5)  # -> propose
+    smci = _org(client, "SMCI", "Supermicro")
+    srv = _product(client, "SRV-1U", "1U Server")
+    _source(client, srv["id"], smci["id"], price="100.00")
+    _decommission_assets(db_session, srv["id"], 4)
+
+    preview = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
+    assert {d.tier for d in preview.decisions} == {"propose"}
+
+    res = purchasing.run_weekly_purchasing(
+        db_session, period_days=7, approve_suppliers={smci["id"]})
+    assert any(d.placed_po_id for d in res.decisions), "approved propose bundle places"
+
+
+def test_confirm_never_places_escalate(client, db_session, monkeypatch):
+    """Approving an escalate bundle (no source) must NOT place anything."""
+    _mock_copilot(monkeypatch)
+    smci = _org(client, "SMCI", "Supermicro")
+    srv = _product(client, "SRV-1U", "1U Server")  # NO source -> escalate
+    _decommission_assets(db_session, srv["id"], 4)
+
+    res = purchasing.run_weekly_purchasing(
+        db_session, period_days=7, approve_suppliers={smci["id"]})
+    assert all(d.placed_po_id is None for d in res.decisions)
+    assert res.summary["placed"] == 0
+
+
+def test_confirm_rejects_stale_approval(client, db_session, monkeypatch):
+    """A supplier approved but no longer justified (need now covered) places nothing."""
+    _mock_copilot(monkeypatch, decision="act", confidence=0.95)
+    smci = _org(client, "SMCI", "Supermicro")
+    srv = _product(client, "SRV-1U", "1U Server")
+    src = _source(client, srv["id"], smci["id"], price="100.00")
+    _decommission_assets(db_session, srv["id"], 3)
+
+    # Between preview and confirm, 3 units get put on order -> need fully netted.
+    client.post(f"{B}/purchase-orders", json={
+        "order_number": "PO-COVER", "supplier_id": smci["id"],
+        "items": [{"product_id": srv["id"], "product_supplier_id": src["id"],
+                   "quantity": 3, "unit_price": "100.00"}]})
+
+    res = purchasing.run_weekly_purchasing(
+        db_session, period_days=7, approve_suppliers={smci["id"]})
+    # need is now 0 -> no decision for that product -> nothing placed
+    assert res.summary["placed"] == 0
+    assert all(d.product_id != srv["id"] for d in res.decisions)
+
+
+def test_confirm_via_api(client, monkeypatch, db_session):
+    """End-to-end through the HTTP endpoint with a procurement-authed client."""
+    _mock_copilot(monkeypatch, decision="act", confidence=0.95)
+    smci = _org(client, "SMCI", "Supermicro")
+    srv = _product(client, "SRV-1U", "1U Server")
+    _source(client, srv["id"], smci["id"], price="100.00")
+    _decommission_assets(db_session, srv["id"], 3)
+
+    preview = client.post(f"{B}/agent/purchasing-run", json={"dry_run": True}).json()
+    assert preview["summary"]["placed"] == 0
+
+    confirm = client.post(f"{B}/agent/purchasing-run/confirm",
+                          json={"approve_suppliers": [smci["id"]]})
+    assert confirm.status_code == 200, confirm.text
+    assert confirm.json()["summary"]["placed"] == 1
+
+
 def test_period_window_excludes_old_decommissions(client, db_session, monkeypatch):
     _mock_copilot(monkeypatch)
     smci = _org(client, "SMCI", "Supermicro")

@@ -38,6 +38,16 @@ class PurchasingRunRequest(BaseModel):
     period_days: int = 7
 
 
+class PurchasingConfirmRequest(BaseModel):
+    """Approve specific suppliers' bundles from a prior preview, then place them.
+
+    The run is recomputed from live data on confirm, so an approval that is no
+    longer justified (or has become escalate-tier) will not place a PO.
+    """
+    approve_suppliers: list[str]
+    period_days: int = 7
+
+
 @router.post("/sourcing-recommendation", response_model=SourcingRecommendation)
 def sourcing_recommendation(payload: SourcingRequest, db: Session = Depends(get_db),
                             _user: User = Depends(get_current_user)):
@@ -61,3 +71,14 @@ def purchasing_run(payload: PurchasingRunRequest, db: Session = Depends(get_db))
     """Run the weekly purchasing automation. dry_run=True (default) places nothing."""
     return purchasing.run_weekly_purchasing(
         db, dry_run=payload.dry_run, period_days=payload.period_days)
+
+
+@router.post("/purchasing-run/confirm", response_model=PurchasingRunResult,
+             dependencies=[Depends(_purchasing_role)])
+def purchasing_run_confirm(payload: PurchasingConfirmRequest, db: Session = Depends(get_db)):
+    """Approve->place: recompute the run and place POs only for approved suppliers
+    whose recomputed bundle is placeable (act/propose). Escalate bundles are never
+    placed here. Returns the recomputed run with placed_po_id set on confirmed ones."""
+    return purchasing.run_weekly_purchasing(
+        db, period_days=payload.period_days,
+        approve_suppliers=set(payload.approve_suppliers))
