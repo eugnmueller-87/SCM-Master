@@ -42,6 +42,19 @@ class DeploymentForecast(BaseModel):
     forecast_deployable: int
 
 
+class RebalanceTarget(BaseModel):
+    code: str
+    moved: int
+
+
+class RebalanceResult(BaseModel):
+    moved: int
+    source: str
+    targets: list[RebalanceTarget]
+    remaining_over: int = 0
+    message: str
+
+
 class InventoryItem(BaseModel):
     product_id: str
     product_code: Optional[str]

@@ -122,8 +122,9 @@ def seed_demo() -> None:
         wh = location_service.create(db, dict(code="TRANSIT-WH", name="Transit warehouse", location_type=LocationType.WAREHOUSE, capacity=200))
         cage = location_service.create(db, dict(code="CAGE-T1", name="Inbound staging cage", location_type=LocationType.WAREHOUSE, capacity=6))
         dc = location_service.create(db, dict(code="DC-FRA1", name="Frankfurt DC", location_type=LocationType.DATACENTER, capacity=168))
-        rack_a = location_service.create(db, dict(code="RACK-A12", name="Rack A12", location_type=LocationType.RACK, parent_id=dc.id, capacity=42))
-        rack_b = location_service.create(db, dict(code="RACK-B07", name="Rack B07", location_type=LocationType.RACK, parent_id=dc.id, capacity=42))
+        # Rack capacity counts mounted units (servers + components racked into them).
+        rack_a = location_service.create(db, dict(code="RACK-A12", name="Rack A12", location_type=LocationType.RACK, parent_id=dc.id, capacity=120))
+        rack_b = location_service.create(db, dict(code="RACK-B07", name="Rack B07", location_type=LocationType.RACK, parent_id=dc.id, capacity=100))
 
         # --- Helper: place a PO and optionally receive + drive lifecycle --
         po_counter = [30]

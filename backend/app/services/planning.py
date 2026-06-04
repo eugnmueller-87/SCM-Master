@@ -69,6 +69,74 @@ def inbound_pipeline(db: Session, *, as_of: Optional[date] = None) -> list[dict]
     return sorted(out, key=lambda r: (r["estimated_delivery_date"] or date.max))
 
 
+def rebalance_location(db: Session, location_id: str, *, actor: Optional[str] = None) -> dict:
+    """Move a location's overflow to the best-fit same-type location(s).
+
+    Over-capacity means too many physical units in one place, so the fix is to
+    redistribute — not to buy. We move ``used - capacity`` assets off the source
+    into locations of the SAME type that have free space (most-free first), via
+    the audited asset move. Returns what moved and where.
+    """
+    from app.services.asset import asset_service  # local import avoids cycle
+    from app.services.exceptions import NotFoundError, ValidationError
+
+    src = db.get(Location, location_id)
+    if src is None:
+        raise NotFoundError(f"Location {location_id!r} not found")
+    if src.capacity is None:
+        raise ValidationError("Location has no capacity set; nothing to rebalance")
+
+    used = db.scalar(select(func.count(Asset.id)).where(Asset.current_location_id == src.id)) or 0
+    overflow = int(used) - src.capacity
+    if overflow <= 0:
+        return {"moved": 0, "source": src.code, "targets": [],
+                "message": f"{src.code} is within capacity ({used}/{src.capacity})."}
+
+    # Candidate targets: same type, has capacity, currently has free space.
+    candidates = []
+    for loc in db.scalars(select(Location).where(
+            Location.location_type == src.location_type, Location.id != src.id)).all():
+        if loc.capacity is None:
+            continue
+        loc_used = db.scalar(select(func.count(Asset.id)).where(Asset.current_location_id == loc.id)) or 0
+        free = loc.capacity - int(loc_used)
+        if free > 0:
+            candidates.append([loc, free])
+    candidates.sort(key=lambda c: c[1], reverse=True)  # most free first
+
+    # Assets to move off the source (most recently arrived first is fine).
+    movable = db.scalars(
+        select(Asset).where(Asset.current_location_id == src.id)
+        .order_by(Asset.date_created.desc()).limit(overflow)
+    ).all()
+
+    moved = 0
+    targets: dict[str, int] = {}
+    ci = 0
+    for asset in movable:
+        # advance to a candidate with remaining free space
+        while ci < len(candidates) and candidates[ci][1] <= 0:
+            ci += 1
+        if ci >= len(candidates):
+            break  # no more room anywhere
+        target, free = candidates[ci]
+        asset_service.move(db, asset.id, target.id, actor=actor or "rebalance",
+                           note=f"Auto-rebalance from {src.code} (over capacity)")
+        candidates[ci][1] -= 1
+        moved += 1
+        targets[target.code] = targets.get(target.code, 0) + 1
+
+    remaining = overflow - moved
+    msg = f"Moved {moved} unit(s) off {src.code}"
+    if targets:
+        msg += " to " + ", ".join(f"{c} (+{n})" for c, n in targets.items())
+    if remaining > 0:
+        msg += f"; {remaining} still over — no same-type location has free space."
+    return {"moved": moved, "source": src.code,
+            "targets": [{"code": c, "moved": n} for c, n in targets.items()],
+            "remaining_over": max(0, remaining), "message": msg}
+
+
 def location_capacity(db: Session) -> list[dict]:
     """Per-location occupancy: assets currently there vs capacity."""
     locations = db.scalars(select(Location)).all()

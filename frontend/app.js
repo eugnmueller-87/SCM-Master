@@ -529,17 +529,33 @@ RENDER.capacity = async function () {
         <td class="num" style="font-weight:600">${r.used}</td>
         <td class="num muted">${r.capacity ?? "—"}</td>
         <td><div style="display:flex;align-items:center;gap:12px"><div class="cap-bar"><div class="cap-bar__fill" style="width:${Math.min(u, 1) * 100}%;background:${tone}"></div></div><span class="cap-util" style="color:${tone}">${pct(u)}</span></div></td>
-        <td>${r.over_capacity ? plainPill("Over capacity", "negative") : ""}</td>
+        <td style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
+          ${r.over_capacity ? plainPill("Over capacity", "negative") : ""}
+          ${r.over_capacity ? `<button class="btn btn--sm cap-resolve" data-loc="${r.location_id}" data-code="${esc(r.code)}" title="Move the overflow to a location with free space">Resolve</button>` : ""}
+        </td>
       </tr>`;
     }).join("");
     $("#screen").innerHTML = `
-      ${pageHead("Warehouse flow", "Capacity", "Used against capacity per location — the transit warehouse, its staging zones, and each rack in the datacenter.")}
+      ${pageHead("Warehouse flow", "Capacity", "Used against capacity per location — the transit warehouse, its staging zones, and each rack in the datacenter. Over-capacity locations can be rebalanced in one click.")}
       <div class="panel"><table class="tbl">
         <thead><tr><th>Location</th><th>Type</th><th class="num">Used</th><th class="num">Capacity</th><th style="width:200px">Utilisation</th><th></th></tr></thead>
         <tbody>${body || `<tr><td colspan="6"><div class="state"><div class="state__sub">No locations defined.</div></div></td></tr>`}</tbody>
       </table></div>`;
+    $$(".cap-resolve").forEach((b) => b.addEventListener("click", () => resolveCapacity(b.dataset.loc, b.dataset.code, b)));
   } catch (e) { $("#screen").innerHTML = errState(e.message); }
 };
+
+async function resolveCapacity(locationId, code, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Resolving…"; }
+  try {
+    const res = await api(`/planning/capacity/${locationId}/rebalance`, { method: "POST" });
+    toast(res.message || `Rebalanced ${code}`, res.moved > 0 ? "ok" : "");
+    RENDER.capacity();   // refresh the table — utilisation + pills update
+  } catch (e) {
+    toast(e.message || "Could not rebalance", "err");
+    if (btn) { btn.disabled = false; btn.textContent = "Resolve"; }
+  }
+}
 
 /* ── Spend ─────────────────────────────────────────────────────────── */
 RENDER.spend = async function () {

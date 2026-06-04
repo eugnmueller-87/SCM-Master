@@ -1,4 +1,4 @@
-"""Capacity & flow planning routes (read-only)."""
+"""Capacity & flow planning routes (reads + the one-click capacity rebalance)."""
 from __future__ import annotations
 
 from typing import List
@@ -6,16 +6,21 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_role
+from app.models.auth import Role, User
 from app.schemas.planning import (
     DeploymentForecast,
     InboundLine,
     InventoryItem,
     LocationCapacity,
+    RebalanceResult,
 )
 from app.services import planning
 
 router = APIRouter(tags=["planning"], prefix="/planning")
+
+# Moving stock is warehouse/datacenter work.
+_ops = require_role(Role.WAREHOUSE, Role.DATACENTER)
 
 
 @router.get("/inbound", response_model=List[InboundLine])
@@ -40,3 +45,12 @@ def deployment_forecast(db: Session = Depends(get_db)):
 def inventory(db: Session = Depends(get_db)):
     """Per-product stock + reorder inputs (reorder math is client-side)."""
     return planning.inventory_plan(db)
+
+
+@router.post("/capacity/{location_id}/rebalance", response_model=RebalanceResult)
+def rebalance(location_id: str, db: Session = Depends(get_db),
+              user: User = Depends(_ops)):
+    """One-click fix for an over-capacity location: move the overflow to the
+    best-fit same-type location(s). The correct response to over-capacity is to
+    redistribute, not to buy."""
+    return planning.rebalance_location(db, location_id, actor=user.email)
