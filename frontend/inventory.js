@@ -80,8 +80,9 @@ function plan(it) {
 // suggest to refill to ~85% of capacity, in MOQ-ish rounding
 const suggest = (it, rop) => { const target = Math.round(it.capacity * 0.85); return Math.max(rop - it.on_hand, target - it.on_hand - it.on_order, it.safety_stock); };
 
-/* ── live data: GET /planning/inventory (falls back to the sample) ──── */
+/* ── live data: /planning/inventory + /planning/demand (sample fallback) ─ */
 let INV_LOADED = false;
+const DEMAND = {};   // name -> {usage_rate_per_day, projected_demand, projected_shortfall, recommended_order_qty, order_by}
 async function loadInventory() {
   try {
     const rows = await api("/planning/inventory");
@@ -96,6 +97,10 @@ async function loadInventory() {
       }));
     }
   } catch (e) { /* keep embedded sample on any error */ }
+  try {
+    const dem = await api("/planning/demand");
+    (dem || []).forEach((d) => { DEMAND[d.name || d.product_code] = d; });
+  } catch (e) { /* demand column degrades to "—" */ }
   INV_LOADED = true;
 }
 
@@ -134,10 +139,11 @@ RENDER.inventory = async function () {
         </div>
       </td>
       <td class="num"><span class="inv-cover" style="color:${coverColor}">${p.cover > 365 ? "365+" : p.cover}d</span></td>
+      <td>${demandCell(it)}</td>
       <td>${p.etaDays != null ? `<span class="inv-next">${icon("truck", 14)} ${p.etaDays}d · ${shortDate(it.next_eta)}</span>` : `<span class="inv-next inv-next--none">none scheduled</span>`}</td>
       <td>${plainPill(p.status, p.tone)}</td>
     </tr>
-    <tr><td colspan="6" style="padding-top:0;border-bottom:1px solid var(--ts-line)"><div class="inv-rec" style="color:${t.fg}">${esc(p.rec)}</div></td></tr>`;
+    <tr><td colspan="7" style="padding-top:0;border-bottom:1px solid var(--ts-line)"><div class="inv-rec" style="color:${t.fg}">${esc(p.rec)}${demandRec(it)}</div></td></tr>`;
   }).join("");
 
   $("#screen").innerHTML = `<div class="fade-in">
@@ -150,11 +156,30 @@ RENDER.inventory = async function () {
     </div>
     ${legend}
     <div class="panel"><table class="tbl">
-      <thead><tr><th>Item</th><th>Held at</th><th style="width:260px">Stock vs capacity</th><th class="num">Cover</th><th>Next delivery</th><th>Action</th></tr></thead>
+      <thead><tr><th>Item</th><th>Held at</th><th style="width:260px">Stock vs capacity</th><th class="num">Cover</th><th>90-day demand</th><th>Next delivery</th><th>Action</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </div>`;
 };
+
+// forward-demand cell: projected 90-day demand + shortfall flag (from /planning/demand)
+function demandCell(it) {
+  const d = DEMAND[it.name];
+  if (!d) return `<span class="inv-next inv-next--none">—</span>`;
+  const short = d.projected_shortfall > 0;
+  const rate = d.usage_rate_per_day ? `${d.usage_rate_per_day}/d` : "0/d";
+  return `<div style="line-height:1.35">
+    <div style="font-weight:600">${Math.round(d.projected_demand)} <span style="font-weight:400;color:var(--ts-ink-mute)">in ${d.horizon_days}d</span></div>
+    <div style="font-size:12px;color:${short ? "var(--ts-negative)" : "var(--ts-ink-mute)"}">${short ? `short ${Math.round(d.projected_shortfall)}` : "covered"} · ${rate}</div>
+  </div>`;
+}
+
+function demandRec(it) {
+  const d = DEMAND[it.name];
+  if (!d || d.projected_shortfall <= 0 || !d.recommended_order_qty) return "";
+  const by = d.order_by ? ` by ${fmtDate(d.order_by)}` : "";
+  return ` <span style="color:var(--ts-ink-mute)">· Forecast: order ${d.recommended_order_qty}${by} to cover ${d.horizon_days}-day demand.</span>`;
+}
 
 // map our inventory product keys onto the PRODUCTS cache when present, else synth a cell
 function invPid(it) {

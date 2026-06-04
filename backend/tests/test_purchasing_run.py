@@ -61,6 +61,17 @@ def _decommission_assets(db_session, product_id, n, *, days_ago=1):
     db_session.commit()
 
 
+def _deploy_assets(db_session, product_id, n, *, spread_days=5):
+    """Insert n DEPLOYED assets with recent deployment dates -> a usage rate."""
+    today = date.today()
+    for i in range(n):
+        db_session.add(Asset(
+            serial_number=f"DEP-{product_id[:6]}-{i}",
+            product_id=product_id, status=AssetStatus.DEPLOYED,
+            deployed_date=today - timedelta(days=i * spread_days)))
+    db_session.commit()
+
+
 # --- tests ----------------------------------------------------------------
 
 def test_lifecycle_trigger_creates_decision_no_trigger_does_not(client, db_session, monkeypatch):
@@ -83,6 +94,23 @@ def test_lifecycle_trigger_creates_decision_no_trigger_does_not(client, db_sessi
     assert srv_dec.trigger.type == "lifecycle_replacement"
     assert srv_dec.trigger.evidence["decommissioned_in_period"] == 3
     assert srv_dec.qty == 3  # replace_ratio 1.0, no inbound to net
+
+
+def test_forecast_shortfall_triggers_a_justified_buy(client, db_session, monkeypatch):
+    """Usage history (deployments) with no stock -> forecast projects demand ->
+    a forecast_shortfall buy decision, with the usage numbers as evidence."""
+    _mock_copilot(monkeypatch, decision="act", confidence=0.95)
+    smci = _org(client, "SMCI", "Supermicro")
+    srv = _product(client, "SRV-1U", "1U Server")
+    _source(client, srv["id"], smci["id"], price="3200.00")
+    _deploy_assets(db_session, srv["id"], 12)   # steady usage, nothing on hand
+
+    res = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
+    dec = next((d for d in res.decisions if d.product_id == srv["id"]), None)
+    assert dec is not None, "forecast shortfall should justify a buy"
+    assert dec.trigger.type == "forecast_shortfall"
+    assert dec.trigger.evidence["usage_rate_per_day"] > 0
+    assert dec.qty > 0
 
 
 def test_net_against_inbound(client, db_session, monkeypatch):

@@ -113,23 +113,35 @@ def _reorder_floor_needs(db: Session) -> dict[str, dict]:
 
 
 def _forecast_shortfall(db: Session) -> dict[str, dict]:
-    """Capacity-driven shortfall: locations projected over capacity.
+    """Demand-driven shortfall from the usage-based forecast.
 
-    A conservative, data-only reading — we only raise a shortfall where the
-    planning capacity view already flags ``over_capacity``. Without a per-product
-    deployment target in the model we do not fabricate product-level demand here;
-    this trigger surfaces the capacity risk for escalation rather than a blind buy.
-    Returns an empty dict when nothing is over capacity.
+    For each product the forecast projects demand (recency-weighted usage rate +
+    end-of-life replacement) over the horizon. Where projected demand exceeds
+    what's on hand, we raise a quantified ``forecast_shortfall`` need. We use
+    ``projected_demand - on_hand`` as the GROSS need so the purchasing run's own
+    inbound-netting (Step 2) subtracts open orders once — no double-counting with
+    the forecast's own available figure.
     """
-    caps = planning.location_capacity(db)
-    over = [c for c in caps if c.get("over_capacity")]
-    if not over:
-        return {}
-    # No product mapping for a location-level breach in the current model, so we
-    # do not attach product buys to it; it is reported via the run log/escalation.
-    _log.info("forecast_shortfall: over-capacity locations detected",
-              extra={"extra_fields": {"over_capacity_locations": [c["code"] for c in over]}})
-    return {}
+    import math
+
+    out: dict[str, dict] = {}
+    for row in planning.demand_forecast(db):
+        gross = row["projected_demand"] - row["on_hand"]
+        if gross <= 0:
+            continue
+        out[row["product_id"]] = {
+            "type": "forecast_shortfall",
+            "gross_need": int(math.ceil(gross)),
+            "evidence": {
+                "usage_rate_per_day": row["usage_rate_per_day"],
+                "horizon_days": row["horizon_days"],
+                "projected_demand": row["projected_demand"],
+                "eol_replacement": row["eol_replacement"],
+                "on_hand": row["on_hand"],
+                "on_order": row["on_order"],
+            },
+        }
+    return out
 
 
 def _inbound_by_product(db: Session) -> dict[str, int]:
