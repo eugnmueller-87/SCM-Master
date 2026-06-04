@@ -139,10 +139,20 @@ From the `backend/` directory:
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\alembic upgrade head      # create/upgrade the schema
-.venv\Scripts\python -m app.seed         # (optional) load demo data
+.venv\Scripts\alembic upgrade head        # create/upgrade the schema
+.venv\Scripts\python -m app.seed_demo      # demo-ready dataset (every screen populated)
 .venv\Scripts\uvicorn app.main:app --reload
 ```
+
+> **Demo dataset.** `app.seed_demo` builds a lived-in Frankfurt-DC operation through
+> the real services: 6 suppliers, 6 products, 9 sourcing contracts across every
+> lifecycle state, 8 purchase orders spanning every status (incl. an overdue and a
+> cancelled one), ~126 serial-tracked assets driven through the full lifecycle
+> (deployed / in storage / maintenance / decommissioned / disposed), an over-capacity
+> staging cage, and the logistics control-tower shipments — so Overview, Assets,
+> Inbound, Capacity, Spend, Contracts, Inventory, Tracking and the Agent all show
+> real data. Log in with **`admin@example.com` / `admin`** (also `buyer`/`warehouse`/`dc`,
+> password = role, to demo role-gating). For a minimal dataset instead, use `app.seed`.
 
 The schema is owned by Alembic migrations — run `alembic upgrade head` to create or update it. Then open:
 
