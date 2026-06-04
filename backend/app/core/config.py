@@ -18,5 +18,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 8
 
+    # Agent / Anthropic. Set ANTHROPIC_API_KEY via env / .env to enable the copilot.
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+
 
 settings = Settings()

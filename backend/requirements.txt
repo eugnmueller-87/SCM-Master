@@ -10,5 +10,6 @@ pytest>=8.0
 pyjwt>=2.8
 bcrypt>=4.1
 python-multipart>=0.0.9
+anthropic>=0.40
 # For a Postgres deployment (e.g. docker-compose), also install:
 #   psycopg[binary]>=3.1
