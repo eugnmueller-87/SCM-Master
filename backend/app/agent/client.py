@@ -12,11 +12,12 @@ from app.core.config import settings
 _MAX_TOKENS = 2000
 
 
-def call_claude(system: str, user: str) -> str:
+def call_claude(system: str, user: str, *, max_tokens: int = _MAX_TOKENS) -> str:
     """Send one system+user turn to Claude and return the text response.
 
-    On any failure returns a string prefixed with ``[agent-error]`` describing
-    what went wrong (never raises).
+    ``max_tokens`` can be raised for calls that produce longer structured output
+    (e.g. per-product reasoning across the catalog), so the JSON isn't truncated.
+    On any failure returns a string prefixed with ``[agent-error]`` (never raises).
     """
     if not settings.anthropic_api_key:
         return "[agent-error] ANTHROPIC_API_KEY is not set"
@@ -29,7 +30,7 @@ def call_claude(system: str, user: str) -> str:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
             model=settings.anthropic_model,
-            max_tokens=_MAX_TOKENS,
+            max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
         )

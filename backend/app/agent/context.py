@@ -100,3 +100,75 @@ def build_context(db: Session) -> dict:
         "inbound": inbound_ctx,
         "tracking": tracking_ctx,
     }
+
+
+def demand_signals(db: Session) -> list[dict]:
+    """Per-product signals for AI demand reasoning: the deterministic forecast
+    PLUS the context a planner weighs around it — sourcing health, supplier
+    concentration, inbound reliability, and whether capacity can absorb a buy.
+
+    The numbers come from the live read services (real-time); the AI reasons over
+    them but never replaces them.
+    """
+    forecast = {f["product_id"]: f for f in planning.demand_forecast(db)}
+
+    # sources per product + preferred-source contract health
+    sources: dict[str, list] = {}
+    for ps in db.scalars(select(ProductSupplier)).all():
+        sources.setdefault(ps.product_id, []).append(ps)
+
+    # inbound reliability: outstanding + whether any line is overdue, per product
+    inbound_by_product: dict[str, dict] = {}
+    for r in planning.inbound_pipeline(db):
+        b = inbound_by_product.setdefault(r["product_id"], {"outstanding": 0, "overdue": False})
+        b["outstanding"] += int(r["outstanding"])
+        b["overdue"] = b["overdue"] or bool(r["overdue"])
+
+    # capacity headroom (free slots across same-purpose locations, simple sum)
+    caps = planning.location_capacity(db)
+    total_free = sum((c["free"] or 0) for c in caps if c["free"] and c["free"] > 0)
+    over_caps = [c["code"] for c in caps if c["over_capacity"]]
+
+    out: list[dict] = []
+    for pid, f in forecast.items():
+        srcs = sources.get(pid, [])
+        active = [s for s in srcs if s.active]
+        preferred = sorted(active, key=lambda s: s.preference_rank)[:1]
+        pref = preferred[0] if preferred else None
+        pref_ctx = None
+        if pref:
+            e = contracts.enrich(db, pref)
+            org = db.get(Organization, pref.supplier_id)
+            pref_ctx = {
+                "supplier": org.name if org else pref.supplier_id,
+                "contract_status": e["contract_status"],
+                "term_end": e["term_end"].isoformat() if e["term_end"] else None,
+                "lead_time_days": e["standard_lead_time_days"],
+                "unit_price": float(e["contract_price"]) if e["contract_price"] is not None else None,
+            }
+        inb = inbound_by_product.get(pid, {"outstanding": 0, "overdue": False})
+        out.append({
+            "product_id": pid,
+            "name": f["name"],
+            "category": f["category"],
+            "forecast": {
+                "usage_rate_per_day": f["usage_rate_per_day"],
+                "horizon_days": f["horizon_days"],
+                "projected_demand": f["projected_demand"],
+                "eol_replacement": f["eol_replacement"],
+                "on_hand": f["on_hand"],
+                "on_order": f["on_order"],
+                "projected_shortfall": f["projected_shortfall"],
+                "recommended_order_qty": f["recommended_order_qty"],
+            },
+            "sourcing": {
+                "active_source_count": len(active),
+                "single_source": len(active) <= 1,
+                "preferred": pref_ctx,
+            },
+            "inbound": {"outstanding": inb["outstanding"], "has_overdue": inb["overdue"]},
+        })
+    return {
+        "products": sorted(out, key=lambda r: r["forecast"]["projected_shortfall"], reverse=True),
+        "capacity": {"total_free_slots": total_free, "over_capacity_locations": over_caps},
+    }

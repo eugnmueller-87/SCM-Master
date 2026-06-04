@@ -154,13 +154,53 @@ RENDER.inventory = async function () {
       <div class="tkpi"><div class="tkpi__label">Overstock risk</div><div class="tkpi__val" style="color:#8C6510">${over}</div></div>
       <div class="tkpi"><div class="tkpi__label">On order, inbound</div><div class="tkpi__val tkpi__val--info">${INVENTORY.filter((i) => i.on_order > 0).length}</div></div>
     </div>
+    <div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px">
+      <button class="btn btn--ink" id="inv-reason"
+        title="Run AI reasoning over the live demand forecast">
+        ${icon("gauge", 15)} AI demand reasoning
+      </button>
+      <span class="muted" style="font-size:12px">Deterministic forecast above; the AI reads risks the math misses (expiring contracts, single source, overdue inbound, capacity).</span>
+    </div>
+    <div id="inv-reasoning"></div>
     ${legend}
     <div class="panel"><table class="tbl">
       <thead><tr><th>Item</th><th>Held at</th><th style="width:260px">Stock vs capacity</th><th class="num">Cover</th><th>90-day demand</th><th>Next delivery</th><th>Action</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
   </div>`;
+  const rb = $("#inv-reason");
+  if (rb) rb.addEventListener("click", () => reasonDemand(rb));
 };
+
+async function reasonDemand(btn) {
+  const box = $("#inv-reasoning");
+  btn.disabled = true; const label = btn.innerHTML; btn.innerHTML = "Reasoning…";
+  box.innerHTML = `<div class="state"><div class="state__sub">The agent is reasoning over the live forecast…</div></div>`;
+  try {
+    const res = await api("/planning/demand/reason", { method: "POST" });
+    const U = { urgent: "negative", soon: "warning", routine: "info" };
+    const ADJ = { raise: "↑ raise", lower: "↓ lower", hold: "= hold", defer: "⏸ defer" };
+    const cards = (res.items || []).map((it) => `
+      <div class="panel" style="padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <strong>${esc(it.name || it.product_id)}</strong>
+          ${plainPill((it.urgency || "routine").toUpperCase(), U[it.urgency] || "info")}
+          <span class="muted" style="font-size:12px">computed short ${Math.round(it.computed_shortfall)} · AI: ${esc(ADJ[it.adjustment] || it.adjustment)} → order ${it.recommended_qty}</span>
+          <span style="margin-left:auto;font-size:12px;color:var(--ts-ink-mute)">confidence ${Math.round((it.confidence || 0) * 100)}%</span>
+        </div>
+        <div style="margin-top:8px;font-size:14px;color:var(--ts-ink-soft);line-height:1.5">${esc(it.rationale)}</div>
+        ${(it.risks || []).length ? `<ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--ts-negative)">${it.risks.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+      </div>`).join("");
+    box.innerHTML = `<div class="fade-in" style="margin-bottom:16px">
+      <div style="font-size:13px;color:var(--ts-ink-soft);margin-bottom:10px;font-style:italic">${esc(res.summary || "")}</div>
+      ${cards || `<div class="muted">No products to analyse.</div>`}
+    </div>`;
+  } catch (e) {
+    box.innerHTML = errState(e.message || "Reasoning unavailable");
+  } finally {
+    btn.disabled = false; btn.innerHTML = label;
+  }
+}
 
 // forward-demand cell: projected 90-day demand + shortfall flag (from /planning/demand)
 function demandCell(it) {

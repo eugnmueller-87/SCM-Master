@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_role
+from app.agent import copilot
+from app.agent.copilot import AgentError
+from app.agent.schemas import DemandReasoningResult
+from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role, User
 from app.schemas.planning import (
     DemandForecastItem,
@@ -51,8 +54,21 @@ def inventory(db: Session = Depends(get_db)):
 @router.get("/demand", response_model=List[DemandForecastItem])
 def demand(db: Session = Depends(get_db)):
     """Forward demand forecast per product — recency-weighted usage rate +
-    end-of-life replacement projected over the horizon, vs on-hand + inbound."""
+    end-of-life replacement projected over the horizon, vs on-hand + inbound.
+    Deterministic and fast (no LLM) — this is the real-time monitoring read."""
     return planning.demand_forecast(db)
+
+
+@router.post("/demand/reason", response_model=DemandReasoningResult)
+def demand_reason(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """AI reasoning over the live demand forecast: per product it adjusts the
+    recommendation and flags risks the arithmetic misses (expiring contract,
+    single source, overdue inbound, no capacity). On-demand (one LLM call) so the
+    /demand read stays fast for real-time monitoring."""
+    try:
+        return copilot.reason_demand(db)
+    except AgentError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
 @router.post("/capacity/{location_id}/rebalance", response_model=RebalanceResult)

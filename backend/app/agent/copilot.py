@@ -19,8 +19,13 @@ from sqlalchemy.orm import Session
 
 from app.agent import prompts
 from app.agent.client import call_claude
-from app.agent.context import build_context
-from app.agent.schemas import AgentInsight, SourcingRecommendation
+from app.agent.context import build_context, demand_signals
+from app.agent.schemas import (
+    AgentInsight,
+    DemandReasoning,
+    DemandReasoningResult,
+    SourcingRecommendation,
+)
 from app.agent.signals import gather_insight_signals, gather_sourcing_signals
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
@@ -56,6 +61,49 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None) -> str
     if raw.startswith("[agent-error]"):
         raise AgentError(raw)
     return raw.strip()
+
+
+def reason_demand(db: Session, *, horizon_days: int = 90) -> DemandReasoningResult:
+    """AI reasoning ON TOP OF the deterministic demand forecast.
+
+    The numbers (usage rate, EOL, shortfall, recommended qty) are computed live
+    and passed in; the model interprets them per product — adjusts the
+    recommendation, flags risks the math misses (expiring contract, single
+    source, overdue inbound, no capacity), and explains why with a confidence.
+    Returns a validated structured result; retries once, then raises AgentError.
+    """
+    signals = demand_signals(db)
+    user = (
+        "Deterministic demand forecast + planning signals (live):\n"
+        + json.dumps(signals, default=str)
+        + "\n\nReturn a JSON object with keys: horizon_days (int), summary (string),"
+        " and items (array). Each item: product_id, name, computed_shortfall (number),"
+        " recommended_qty (int), adjustment ('raise'|'hold'|'lower'|'defer'),"
+        " risks (array of AT MOST 2 short strings), rationale (ONE concise sentence),"
+        " confidence (0..1), urgency ('routine'|'soon'|'urgent'). Keep it terse."
+        " Cover every product in the signals."
+    )
+    for attempt in range(2):
+        system = prompts.DEMAND_SYSTEM + (_RETRY_NUDGE if attempt else "")
+        # Larger budget: per-product reasoning across the catalog is verbose and
+        # must not truncate mid-JSON.
+        raw = call_claude(system, user, max_tokens=4000)
+        if _raw_is_error(raw):
+            if attempt == 0:
+                continue
+            raise AgentError(raw)
+        try:
+            data = json.loads(_strip_fences(raw))
+            items = [DemandReasoning.model_validate(i) for i in data.get("items", [])]
+            return DemandReasoningResult(
+                horizon_days=int(data.get("horizon_days", horizon_days)),
+                items=items, summary=str(data.get("summary", "")),
+            )
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 0:
+                continue
+            raise AgentError(f"could not parse demand reasoning: {exc}") from exc
+    raise AgentError("demand reasoning failed")  # unreachable
 
 
 def _strip_fences(text: str) -> str:

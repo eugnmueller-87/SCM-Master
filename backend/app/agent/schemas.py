@@ -48,6 +48,25 @@ class PurchasingDecision(BaseModel):
     placed_po_id: Optional[str] = None    # set only when actually placed
 
 
+class DemandReasoning(BaseModel):
+    """AI reasoning over the deterministic demand forecast for one product."""
+    product_id: str
+    name: Optional[str] = None
+    computed_shortfall: float                 # echo of the deterministic figure
+    recommended_qty: int                      # AI's adjusted recommendation
+    adjustment: Literal["raise", "hold", "lower", "defer"]  # vs the computed qty
+    risks: list[str] = Field(default_factory=list)          # what the math misses
+    rationale: str                            # why, grounded in the signals
+    confidence: float = Field(ge=0.0, le=1.0)
+    urgency: Literal["routine", "soon", "urgent"]
+
+
+class DemandReasoningResult(BaseModel):
+    horizon_days: int
+    items: list[DemandReasoning] = Field(default_factory=list)
+    summary: str                              # portfolio-level read
+
+
 class PurchasingRunResult(BaseModel):
     run_at: datetime
     dry_run: bool

@@ -1,6 +1,8 @@
 """Phase 4 tests: inbound pipeline, location capacity, deployment forecast."""
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from app.models.auth import Role
 from tests.helpers import build_scenario
 
@@ -165,6 +167,60 @@ def test_demand_no_usage_no_shortfall(client, db_session):
     assert row["usage_rate_per_day"] == 0
     assert row["projected_shortfall"] == 0
     assert row["recommended_order_qty"] == 0
+
+
+def test_demand_reason_uses_ai_over_live_signals(client, db_session, monkeypatch):
+    """The AI reasoning layer parses a structured result built from the live
+    forecast signals (call_claude mocked)."""
+    import json
+
+    from app.agent import copilot
+    from app.models.flow import Asset, AssetStatus
+
+    s = build_scenario(client)
+    today = date.today()
+    for i in range(8):
+        db_session.add(Asset(serial_number=f"X-{i}", product_id=s["product_id"],
+                             status=AssetStatus.DEPLOYED, deployed_date=today - timedelta(days=i)))
+    db_session.commit()
+
+    captured = {}
+
+    def fake(system, user, **kwargs):
+        captured["user"] = user
+        return json.dumps({
+            "horizon_days": 90,
+            "summary": "One product at risk; preferred source healthy.",
+            "items": [{
+                "product_id": s["product_id"], "name": "Server",
+                "computed_shortfall": 10, "recommended_qty": 12, "adjustment": "raise",
+                "risks": ["Single active source — one delay stalls builds"],
+                "rationale": "Usage is rising; build a buffer.",
+                "confidence": 0.8, "urgency": "soon",
+            }],
+        })
+
+    monkeypatch.setattr(copilot, "call_claude", fake)
+    r = client.post(f"{B}/planning/demand/reason", json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["horizon_days"] == 90
+    assert body["items"][0]["adjustment"] == "raise"
+    assert body["items"][0]["urgency"] == "soon"
+    # the AI was handed the live computed signals (usage rate present)
+    assert "usage_rate_per_day" in captured["user"]
+
+
+def test_demand_reason_llm_failure_502(client, monkeypatch):
+    from app.agent import copilot
+    build_scenario(client)
+    monkeypatch.setattr(copilot, "call_claude", lambda s, u, **kw: "[agent-error] no key")
+    assert client.post(f"{B}/planning/demand/reason", json={}).status_code == 502
+
+
+def test_demand_reason_requires_auth(client):
+    build_scenario(client)
+    assert client.anon().post(f"{B}/planning/demand/reason", json={}).status_code == 401
 
 
 def test_deployment_forecast_deploy_updates_counts(client):
