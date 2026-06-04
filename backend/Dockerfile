@@ -21,6 +21,7 @@ USER appuser
 
 EXPOSE 8000
 
-# Apply migrations, then serve. (For a single-container dev/demo run; in a real
-# deployment migrations would typically be a separate job.)
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Boot: migrate -> seed the demo dataset (idempotent) -> serve. Binds to the
+# platform-provided $PORT when present (Railway/Render), else 8000. The demo
+# seed is safe to re-run (it skips when the catalog is already populated).
+CMD ["sh", "-c", "alembic upgrade head && python -m app.seed_demo || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
