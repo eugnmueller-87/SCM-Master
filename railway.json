@@ -2,7 +2,7 @@
   "$schema": "https://railway.app/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "backend/Dockerfile"
+    "dockerfilePath": "Dockerfile"
   },
   "deploy": {
     "startCommand": "sh -c 'alembic upgrade head && python -m app.seed_demo || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'",

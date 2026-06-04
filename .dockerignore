@@ -1,0 +1,14 @@
+# Build context is the repo root. Keep the image lean and free of local state.
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/*.db
+**/*.sqlite3
+**/.env
+**/.env.*
+backend/tests/
+.git/
+design_handoff_scm_master/
+docs/
+ci/
