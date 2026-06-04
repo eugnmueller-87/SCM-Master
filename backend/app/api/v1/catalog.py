@@ -24,6 +24,7 @@ from app.schemas.catalog import (
     ProductSupplierUpdate,
     ProductUpdate,
 )
+from app.services import contracts
 from app.services.catalog import (
     organization_service,
     product_service,
@@ -83,20 +84,22 @@ def update_product(product_id: str, payload: ProductUpdate, db: Session = Depend
 
 @router.post("/product-suppliers", response_model=ProductSupplierRead, status_code=status.HTTP_201_CREATED)
 def create_product_supplier(payload: ProductSupplierCreate, db: Session = Depends(get_db)):
-    return product_supplier_service.create(db, payload.model_dump())
+    ps = product_supplier_service.create(db, payload.model_dump())
+    return contracts.enrich(db, ps)
 
 
 @router.get("/product-suppliers", response_model=List[ProductSupplierRead])
 def list_product_suppliers(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return product_supplier_service.list(db, skip=skip, limit=limit)
+    return [contracts.enrich(db, ps) for ps in product_supplier_service.list(db, skip=skip, limit=limit)]
 
 
 @router.get("/product-suppliers/{ps_id}", response_model=ProductSupplierRead)
 def get_product_supplier(ps_id: str, db: Session = Depends(get_db)):
-    return product_supplier_service.get_or_404(db, ps_id)
+    return contracts.enrich(db, product_supplier_service.get_or_404(db, ps_id))
 
 
 @router.patch("/product-suppliers/{ps_id}", response_model=ProductSupplierRead)
 def update_product_supplier(ps_id: str, payload: ProductSupplierUpdate, db: Session = Depends(get_db)):
     obj = product_supplier_service.get_or_404(db, ps_id)
-    return product_supplier_service.update(db, obj, payload.model_dump(exclude_unset=True))
+    updated = product_supplier_service.update(db, obj, payload.model_dump(exclude_unset=True))
+    return contracts.enrich(db, updated)

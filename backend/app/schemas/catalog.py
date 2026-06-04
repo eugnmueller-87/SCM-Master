@@ -7,6 +7,7 @@ Each entity has three shapes:
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Optional
 
@@ -80,6 +81,11 @@ class ProductSupplierCreate(BaseModel):
     currency_code: str = "EUR"
     preference_rank: int = 100
     active: bool = True
+    # Contract lifecycle (all optional).
+    contract_status: Optional[str] = None
+    term_start: Optional[date] = None
+    term_end: Optional[date] = None
+    annual_budget: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class ProductSupplierUpdate(BaseModel):
@@ -93,6 +99,10 @@ class ProductSupplierUpdate(BaseModel):
     currency_code: Optional[str] = None
     preference_rank: Optional[int] = None
     active: Optional[bool] = None
+    contract_status: Optional[str] = None
+    term_start: Optional[date] = None
+    term_end: Optional[date] = None
+    annual_budget: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class ProductSupplierRead(ReadBase):
@@ -107,3 +117,10 @@ class ProductSupplierRead(ReadBase):
     currency_code: str
     preference_rank: int
     active: bool
+    # Contract lifecycle. contract_status is the stored value when present, else
+    # derived server-side (see catalog service). ytd_spend is computed live.
+    contract_status: Optional[str] = None
+    term_start: Optional[date] = None
+    term_end: Optional[date] = None
+    annual_budget: Optional[Decimal] = None
+    ytd_spend: Optional[Decimal] = None

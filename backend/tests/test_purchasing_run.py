@@ -116,7 +116,7 @@ def test_moq_rounds_up(client, db_session, monkeypatch):
 
 def test_no_contracted_source_escalates(client, db_session, monkeypatch):
     _mock_copilot(monkeypatch)
-    smci = _org(client, "SMCI", "Supermicro")
+    _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")  # NO source created
     _decommission_assets(db_session, srv["id"], 4)
     res = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)

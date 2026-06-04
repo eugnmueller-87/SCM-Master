@@ -11,12 +11,13 @@ Everything here is computed from existing data — no new tables.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.catalog import Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 
@@ -107,3 +108,91 @@ def deployment_forecast(db: Session) -> dict:
         "deployed": int(deployed),
         "forecast_deployable": int(on_hand) + int(inbound),
     }
+
+
+# --- Inventory & reorder read model ---------------------------------------
+
+_BURN_WINDOW_DAYS = 90        # trailing window for the daily-burn estimate
+_DEFAULT_CAPACITY = 100       # per-product capacity proxy (no per-product field in the model)
+
+
+def _preferred_source(db: Session, product_id: str) -> Optional[ProductSupplier]:
+    return db.scalars(
+        select(ProductSupplier)
+        .where(ProductSupplier.product_id == product_id, ProductSupplier.active.is_(True))
+        .order_by(ProductSupplier.preference_rank)
+    ).first()
+
+
+def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
+    """Per-product stock + reorder INPUTS for the Inventory screen.
+
+    The reorder MATH (cover, reorder point, status) lives client-side; this only
+    supplies the inputs. Real vs derived:
+      - on_hand      : real — count of RECEIVED/IN_STORAGE assets;
+      - deployed_window / daily_burn : real — assets deployed in the trailing
+                       window (Asset.deployed_date) / window length;
+      - lead_time_days, unit_price   : real — from the preferred ProductSupplier;
+      - on_order, next_eta           : real — from the open inbound pipeline;
+      - capacity     : DERIVED proxy (no per-product capacity in the model) —
+                       max(default, on_hand + on_order rounded up);
+      - safety_stock : DERIVED — ~half of lead-time demand (burn x lead / 2).
+    Products with neither stock nor inbound are omitted.
+    """
+    today = today or date.today()
+    window_start = today - timedelta(days=_BURN_WINDOW_DAYS)
+
+    # on-hand counts per product
+    on_hand: dict[str, int] = {}
+    for pid, n in db.execute(
+        select(Asset.product_id, func.count(Asset.id))
+        .where(Asset.status.in_(_ON_HAND)).group_by(Asset.product_id)
+    ).all():
+        on_hand[pid] = int(n)
+
+    # deployed-in-window counts per product -> daily burn
+    deployed_window: dict[str, int] = {}
+    for pid, n in db.execute(
+        select(Asset.product_id, func.count(Asset.id))
+        .where(Asset.deployed_date.is_not(None), Asset.deployed_date >= window_start)
+        .group_by(Asset.product_id)
+    ).all():
+        deployed_window[pid] = int(n)
+
+    # open inbound per product: outstanding qty + earliest ETA
+    on_order: dict[str, int] = {}
+    next_eta: dict[str, Optional[date]] = {}
+    for row in inbound_pipeline(db, as_of=today):
+        pid = row["product_id"]
+        on_order[pid] = on_order.get(pid, 0) + int(row["outstanding"])
+        eta = row.get("estimated_delivery_date")
+        if eta and (next_eta.get(pid) is None or eta < next_eta[pid]):
+            next_eta[pid] = eta
+
+    product_ids = set(on_hand) | set(on_order)
+    out: list[dict] = []
+    for pid in product_ids:
+        product = db.get(Product, pid)
+        src = _preferred_source(db, pid)
+        oh = on_hand.get(pid, 0)
+        oo = on_order.get(pid, 0)
+        burn = round(deployed_window.get(pid, 0) / _BURN_WINDOW_DAYS, 4)
+        lead = (src.standard_lead_time_days if src and src.standard_lead_time_days else 0)
+        safety = int(round(burn * lead / 2))
+        capacity = max(_DEFAULT_CAPACITY, oh + oo)
+        eta = next_eta.get(pid)
+        out.append({
+            "product_id": pid,
+            "product_code": product.product_code if product else None,
+            "name": product.name if product else None,
+            "category": product.category if product else None,
+            "on_hand": oh,
+            "capacity": capacity,
+            "safety_stock": safety,
+            "daily_burn": burn,
+            "lead_time_days": lead,
+            "on_order": oo,
+            "next_eta": eta,
+            "unit_price": (float(src.contract_price) if src and src.contract_price is not None else None),
+        })
+    return sorted(out, key=lambda r: (r["name"] or ""))

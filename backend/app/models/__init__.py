@@ -26,6 +26,12 @@ from app.models.procurement import (  # noqa: F401
     OrderStatus,
     PurchaseOrder,
 )
+from app.models.tracking import (  # noqa: F401
+    Shipment,
+    ShipmentEvent,
+    TrkPurchaseOrder,
+    TrkSupplier,
+)
 
 __all__ = [
     "Role",
@@ -44,4 +50,8 @@ __all__ = [
     "AssetStatus",
     "AssetEvent",
     "AssetEventType",
+    "TrkSupplier",
+    "TrkPurchaseOrder",
+    "Shipment",
+    "ShipmentEvent",
 ]

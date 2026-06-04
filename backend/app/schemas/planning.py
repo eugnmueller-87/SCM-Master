@@ -40,3 +40,18 @@ class DeploymentForecast(BaseModel):
     inbound: int
     deployed: int
     forecast_deployable: int
+
+
+class InventoryItem(BaseModel):
+    product_id: str
+    product_code: Optional[str]
+    name: Optional[str]
+    category: Optional[str]
+    on_hand: int
+    capacity: int            # derived proxy (no per-product capacity in the model)
+    safety_stock: int        # derived (~half of lead-time demand)
+    daily_burn: float        # real (deployed in trailing window / window days)
+    lead_time_days: int      # real (preferred source)
+    on_order: int            # real (open inbound)
+    next_eta: Optional[date]
+    unit_price: Optional[float]

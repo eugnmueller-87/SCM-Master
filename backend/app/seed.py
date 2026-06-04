@@ -80,7 +80,9 @@ def seed() -> None:
         ps_server_smci = product_supplier_service.create(db, dict(
             product_id=server.id, supplier_id=supermicro.id, manufacturer_id=supermicro.id,
             supplier_product_code="AS-1015-STD", standard_lead_time_days=21,
-            min_order_quantity=1, contract_price=Decimal("3200.00"), preference_rank=1))
+            min_order_quantity=1, contract_price=Decimal("3200.00"), preference_rank=1,
+            contract_status="ACTIVE", term_start=date(2025, 1, 1), term_end=date(2026, 12, 31),
+            annual_budget=Decimal("120000.00")))
         product_supplier_service.create(db, dict(
             product_id=server.id, supplier_id=cdw.id, manufacturer_id=supermicro.id,
             supplier_product_code="CDW-AS1015", standard_lead_time_days=35,
@@ -155,6 +157,10 @@ def seed() -> None:
         raise
     finally:
         db.close()
+
+    # Logistics control-tower data (separate schema; idempotent).
+    from app.seed_tracking import seed_tracking
+    seed_tracking()
 
 
 if __name__ == "__main__":

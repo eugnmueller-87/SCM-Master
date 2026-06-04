@@ -15,9 +15,10 @@ identity or its purchase history.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, IdMixin, TimestampMixin
@@ -95,6 +96,16 @@ class ProductSupplier(IdMixin, TimestampMixin, Base):
     # deactivate a source and sourcing decisions follow.
     preference_rank: Mapped[int] = mapped_column(Integer, default=100)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Contract lifecycle (a ProductSupplier IS the sourcing contract here).
+    # contract_status is nullable: when unset, it is derived from term dates /
+    # `active` at read time. term_start/end drive the renewal countdown;
+    # annual_budget drives the budget-burn bar (ytd_spend is computed live from
+    # received-asset cost, not stored).
+    contract_status: Mapped[Optional[str]] = mapped_column(String(16))  # DRAFT/ACTIVE/RENEWAL_DUE/EXPIRING/EXPIRED/SUPERSEDED
+    term_start: Mapped[Optional[date]] = mapped_column(Date)
+    term_end: Mapped[Optional[date]] = mapped_column(Date)
+    annual_budget: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))
 
     product: Mapped["Product"] = relationship(back_populates="suppliers")
     supplier: Mapped["Organization"] = relationship(

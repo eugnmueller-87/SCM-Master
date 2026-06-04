@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.schemas.planning import DeploymentForecast, InboundLine, LocationCapacity
+from app.schemas.planning import (
+    DeploymentForecast,
+    InboundLine,
+    InventoryItem,
+    LocationCapacity,
+)
 from app.services import planning
 
 router = APIRouter(tags=["planning"], prefix="/planning")
@@ -29,3 +34,9 @@ def location_capacity(db: Session = Depends(get_db)):
 def deployment_forecast(db: Session = Depends(get_db)):
     """On-hand + inbound units that could reach service."""
     return planning.deployment_forecast(db)
+
+
+@router.get("/inventory", response_model=List[InventoryItem])
+def inventory(db: Session = Depends(get_db)):
+    """Per-product stock + reorder inputs (reorder math is client-side)."""
+    return planning.inventory_plan(db)

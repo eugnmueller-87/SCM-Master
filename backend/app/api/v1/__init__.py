@@ -12,6 +12,7 @@ from app.api.v1.flow import router as flow_router
 from app.api.v1.planning import router as planning_router
 from app.api.v1.procurement import router as procurement_router
 from app.api.v1.sourcing import router as sourcing_router
+from app.api.v1.tracking import router as tracking_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -22,3 +23,4 @@ api_router.include_router(asset_router)
 api_router.include_router(sourcing_router)
 api_router.include_router(planning_router)
 api_router.include_router(agent_router)
+api_router.include_router(tracking_router)

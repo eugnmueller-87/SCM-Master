@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCM Master — Operations</title>
+  <link rel="stylesheet" href="frontend/app.css" />
+</head>
+<body>
+
+  <!-- ─── Login ──────────────────────────────────────────────────────── -->
+  <div id="login-view" class="login hidden">
+    <div class="login__aside">
+      <div class="login__brand">
+        <div class="brandmark" style="background:transparent;width:34px;height:34px">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="5" width="16" height="4" rx="1" fill="var(--ts-brand-gold)"/>
+            <rect x="4" y="11" width="16" height="4" rx="1" fill="var(--ts-brand-gold)" opacity="0.62"/>
+            <rect x="4" y="17" width="16" height="2.5" rx="1" fill="var(--ts-brand-gold)" opacity="0.34"/>
+          </svg>
+        </div>
+        <div class="login__brand-word">SCM<span> Master</span></div>
+      </div>
+      <div>
+        <div class="login__pitch">One unit. From dock to <em>decommission</em>.</div>
+        <p class="login__pitch-sub">Procurement, warehouse flow and asset lifecycle on a single spine — every serial traced back to the order line it came from, the whole way through.</p>
+      </div>
+      <div class="login__foot">
+        <span>Frankfurt DC</span><span>·</span><span>Transit warehouse</span><span>·</span><span>Asset operations</span>
+      </div>
+    </div>
+    <div class="login__main">
+      <form id="login-form" class="login__card">
+        <h2 class="login__h">Sign in</h2>
+        <p class="login__sub">Operations console for hardware asset lifecycle.</p>
+        <div class="field">
+          <label class="field__label" for="login-email">Email</label>
+          <input class="input" type="email" id="login-email" value="admin@example.com" required />
+        </div>
+        <div class="field">
+          <label class="field__label" for="login-password">Password</label>
+          <input class="input" type="password" id="login-password" value="admin" required />
+        </div>
+        <button type="submit" class="btn btn--primary btn--block" style="margin-top:8px;padding:11px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          Log in
+        </button>
+        <p id="login-error" class="login__hint" style="color:var(--ts-negative)"></p>
+        <p class="login__hint">Seeded admin · <code>admin@example.com</code> / <code>admin</code></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ─── App shell ──────────────────────────────────────────────────── -->
+  <div id="app-view" class="app hidden" data-density="comfortable">
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <div class="brandmark">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+            <rect x="4" y="5" width="16" height="4" rx="1" fill="var(--ts-brand-gold)"/>
+            <rect x="4" y="11" width="16" height="4" rx="1" fill="var(--ts-brand-gold)" opacity="0.62"/>
+            <rect x="4" y="17" width="16" height="2.5" rx="1" fill="var(--ts-brand-gold)" opacity="0.34"/>
+          </svg>
+        </div>
+        <div>
+          <div class="sidebar__brand-word">SCM<span> Master</span></div>
+          <div class="sidebar__tag">Asset operations</div>
+        </div>
+      </div>
+
+      <div class="sidebar__sectionhead">Operations</div>
+      <nav class="sidebar__nav" id="nav"></nav>
+
+      <div class="sidebar__user">
+        <div class="avatar" id="user-avatar">··</div>
+        <div style="flex:1;min-width:0">
+          <div class="sidebar__user-name" id="user-name">—</div>
+          <div class="sidebar__user-sub" id="user-sub">—</div>
+        </div>
+        <button class="iconbtn" id="logout" title="Log out" style="width:28px;height:28px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="main">
+      <div class="topbar">
+        <div class="crumbs" id="crumbs"><strong>SCM Master</strong></div>
+        <div class="topbar__right">
+          <div class="searchbar">
+            <span class="searchbar__icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            </span>
+            <input placeholder="Search serials, orders, suppliers…" id="search" />
+          </div>
+          <button class="iconbtn" title="Notifications">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="content" id="screen"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+/* ── Mock /api/v1 for offline preview only (not part of the drop-in) ── */
+localStorage.setItem('scm_token','tok');
+const P=[
+ {id:'p1',product_code:'DELL-R760',name:'PowerEdge R760 · 2U server',category:'Servers',active:true},
+ {id:'p2',product_code:'AMD-9554',name:'EPYC 9554 · 64-core CPU',category:'Processors',active:true},
+ {id:'p3',product_code:'SEC-M321R',name:'64GB DDR5-4800 RDIMM',category:'Memory',active:true},
+ {id:'p4',product_code:'SMC-SC847',name:'SC847 · 4U JBOD chassis',category:'Storage',active:true}];
+const ORG=[
+ {id:'o1',name:'Dell Technologies',is_supplier:true,is_manufacturer:true,active:true},
+ {id:'o2',name:'TD Synnex',is_supplier:true,is_manufacturer:false,active:true},
+ {id:'o3',name:'Arrow Electronics',is_supplier:true,is_manufacturer:false,active:true},
+ {id:'o4',name:'Samsung Semiconductor',is_supplier:true,is_manufacturer:true,active:true},
+ {id:'o5',name:'Supermicro',is_supplier:true,is_manufacturer:true,active:true}];
+const L=[
+ {id:'l1',code:'TRANSIT-WH',name:'Transit warehouse',location_type:'WAREHOUSE',capacity:200},
+ {id:'l2',code:'CAGE-T1',name:'Inbound staging cage',location_type:'ZONE',capacity:6},
+ {id:'l3',code:'DC-FRA1',name:'Frankfurt DC',location_type:'DATACENTER',capacity:168},
+ {id:'l4',code:'RACK-A12',name:'Rack A12',location_type:'RACK',capacity:42},
+ {id:'l5',code:'RACK-B07',name:'Rack B07',location_type:'RACK',capacity:42}];
+const A=[
+ {id:'a07',serial_number:'SCM-R760-0007',product_id:'p1',status:'DEPLOYED',current_location_id:'l4',received_date:'2026-04-18',source_order_item_id:'oi1'},
+ {id:'a08',serial_number:'SCM-R760-0008',product_id:'p1',status:'DEPLOYED',current_location_id:'l4',received_date:'2026-04-18',source_order_item_id:'oi1'},
+ {id:'a09',serial_number:'SCM-R760-0009',product_id:'p1',status:'IN_STORAGE',current_location_id:'l1',received_date:'2026-05-09',source_order_item_id:'oi1'},
+ {id:'a10',serial_number:'SCM-R760-0010',product_id:'p1',status:'RECEIVED',current_location_id:'l1',received_date:'2026-05-26',source_order_item_id:'oi2'},
+ {id:'e30',serial_number:'SCM-EPYC-0030',product_id:'p2',status:'DEPLOYED',current_location_id:'l5',received_date:'2026-03-30',source_order_item_id:'oi3'},
+ {id:'e31',serial_number:'SCM-EPYC-0031',product_id:'p2',status:'DEPLOYED',current_location_id:'l4',received_date:'2026-03-30',source_order_item_id:'oi3'},
+ {id:'e32',serial_number:'SCM-EPYC-0032',product_id:'p2',status:'MAINTENANCE',current_location_id:'l5',received_date:'2026-03-30',source_order_item_id:'oi3'},
+ {id:'d04',serial_number:'SCM-DIMM-0204',product_id:'p3',status:'DEPLOYED',current_location_id:'l4',received_date:'2026-05-02',source_order_item_id:'oi4'},
+ {id:'d06',serial_number:'SCM-DIMM-0206',product_id:'p3',status:'IN_STORAGE',current_location_id:'l1',received_date:'2026-05-12',source_order_item_id:'oi4'},
+ {id:'d07',serial_number:'SCM-DIMM-0207',product_id:'p3',status:'RECEIVED',current_location_id:'l2',received_date:'2026-05-27',source_order_item_id:'oi4'},
+ {id:'s12',serial_number:'SCM-SC847-0012',product_id:'p4',status:'DEPLOYED',current_location_id:'l5',received_date:'2026-02-14',source_order_item_id:'oi5'},
+ {id:'s13',serial_number:'SCM-SC847-0013',product_id:'p4',status:'DECOMMISSIONED',current_location_id:'l5',received_date:'2026-02-14',source_order_item_id:'oi5'},
+ {id:'r06',serial_number:'SCM-R760-0006',product_id:'p1',status:'DISPOSED',current_location_id:null,received_date:'2025-11-03',source_order_item_id:'oi6'}];
+const SUP={oi1:'Dell Technologies',oi2:'TD Synnex',oi3:'Arrow Electronics',oi4:'Samsung Semiconductor',oi5:'Supermicro',oi6:'Dell Technologies'};
+const PRI={oi1:8420,oi2:8690,oi3:7120,oi4:430,oi5:3180,oi6:8420};
+const ON={oi1:'PO-2026-0042',oi2:'PO-2026-0042',oi3:'PO-2026-0039',oi4:'PO-2026-0048',oi5:'PO-2026-0033',oi6:'PO-2025-0118'};
+const EV={
+ a07:[{date_created:'2026-04-18',to_status:'RECEIVED',note:'Received against PO-2026-0042 · auto serial',actor:'whse'},{date_created:'2026-04-19',to_status:'IN_STORAGE',note:'Staged in transit warehouse'},{date_created:'2026-04-24',to_status:'DEPLOYED',note:'Installed in Rack A12, slot 14'}],
+ e32:[{date_created:'2026-03-30',to_status:'RECEIVED',note:'Received against PO-2026-0039'},{date_created:'2026-04-02',to_status:'DEPLOYED',note:'Installed in Rack B07'},{date_created:'2026-05-21',to_status:'MAINTENANCE',note:'Pulled for thermal fault — RMA pending'}]};
+const PS=[
+ {id:'ps1',product_id:'p1',supplier_id:'o1',contract_price:8420,currency_code:'EUR',standard_lead_time_days:21,min_order_quantity:1,preference_rank:1,active:true,supplier_product_code:'DELL-R760-EU',contract_status:'ACTIVE',term_start:'2025-01-01',term_end:'2026-12-31'},
+ {id:'ps2',product_id:'p1',supplier_id:'o2',contract_price:8690,currency_code:'EUR',standard_lead_time_days:14,min_order_quantity:1,preference_rank:2,active:true,supplier_product_code:'TDS-R760',contract_status:'RENEWAL_DUE',term_start:'2024-07-01',term_end:'2026-06-30'},
+ {id:'ps3',product_id:'p2',supplier_id:'o3',contract_price:7120,currency_code:'EUR',standard_lead_time_days:35,min_order_quantity:4,preference_rank:1,active:true,supplier_product_code:'ARW-9554',contract_status:'ACTIVE',term_start:'2025-03-01',term_end:'2027-02-28'},
+ {id:'ps4',product_id:'p2',supplier_id:'o2',contract_price:7350,currency_code:'EUR',standard_lead_time_days:28,min_order_quantity:2,preference_rank:2,active:true,supplier_product_code:'TDS-9554',contract_status:'EXPIRING',term_start:'2024-01-01',term_end:'2026-06-15'},
+ {id:'ps5',product_id:'p3',supplier_id:'o4',contract_price:430,currency_code:'EUR',standard_lead_time_days:18,min_order_quantity:16,preference_rank:1,active:true,supplier_product_code:'SEC-M321R',contract_status:'ACTIVE',term_start:'2025-06-01',term_end:'2027-05-31'},
+ {id:'ps6',product_id:'p3',supplier_id:'o2',contract_price:455,currency_code:'EUR',standard_lead_time_days:12,min_order_quantity:8,preference_rank:2,active:false,supplier_product_code:'TDS-DDR5',contract_status:'EXPIRED',term_start:'2023-01-01',term_end:'2025-12-31'},
+ {id:'ps7',product_id:'p4',supplier_id:'o5',contract_price:3180,currency_code:'EUR',standard_lead_time_days:25,min_order_quantity:1,preference_rank:1,active:true,supplier_product_code:'SMC-SC847',contract_status:'DRAFT',term_start:null,term_end:null}];
+const INB=[
+ {order_id:'o1',order_number:'PO-2026-0042',order_status:'PARTIALLY_RECEIVED',order_item_id:'oi1',product_id:'p1',ordered:8,received:4,outstanding:4,estimated_delivery_date:'2026-06-12',overdue:false},
+ {order_id:'o2',order_number:'PO-2026-0048',order_status:'PARTIALLY_RECEIVED',order_item_id:'oi4',product_id:'p3',ordered:32,received:16,outstanding:16,estimated_delivery_date:'2026-06-03',overdue:false},
+ {order_id:'o3',order_number:'PO-2026-0051',order_status:'PLACED',order_item_id:'oi7',product_id:'p2',ordered:6,received:0,outstanding:6,estimated_delivery_date:'2026-05-22',overdue:true},
+ {order_id:'o4',order_number:'PO-2026-0055',order_status:'APPROVED',order_item_id:'oi8',product_id:'p4',ordered:4,received:0,outstanding:4,estimated_delivery_date:'2026-06-25',overdue:false}];
+const CAP=[
+ {location_id:'l1',code:'TRANSIT-WH',name:'Transit warehouse',location_type:'WAREHOUSE',capacity:200,used:46,free:154,utilisation:0.23,over_capacity:false},
+ {location_id:'l2',code:'CAGE-T1',name:'Inbound staging cage',location_type:'ZONE',capacity:6,used:7,free:-1,utilisation:1.17,over_capacity:true},
+ {location_id:'l4',code:'RACK-A12',name:'Rack A12',location_type:'RACK',capacity:42,used:31,free:11,utilisation:0.74,over_capacity:false},
+ {location_id:'l5',code:'RACK-B07',name:'Rack B07',location_type:'RACK',capacity:42,used:39,free:3,utilisation:0.93,over_capacity:false},
+ {location_id:'l3',code:'DC-FRA1',name:'Frankfurt DC',location_type:'DATACENTER',capacity:168,used:70,free:98,utilisation:0.42,over_capacity:false}];
+const FC={on_hand:46,inbound:30,deployed:89,forecast_deployable:76};
+const SPEND={total_units:146,total_spend:403780,
+ by_supplier:[{supplier_id:'o1',supplier_name:'Dell Technologies',units:22,spend:185240},{supplier_id:'o3',supplier_name:'Arrow Electronics',units:14,spend:99680},{supplier_id:'o2',supplier_name:'TD Synnex',units:6,spend:52140},{supplier_id:'o4',supplier_name:'Samsung Semiconductor',units:96,spend:41280},{supplier_id:'o5',supplier_name:'Supermicro',units:8,spend:25440}],
+ by_category:[{category:'Servers',units:28,spend:237380},{category:'Processors',units:14,spend:99680},{category:'Memory',units:96,spend:41280},{category:'Storage',units:8,spend:25440}]};
+const INSIGHTS=[
+ {title:'PO-2026-0051 will miss the deployment window',finding:'6 EPYC units are overdue from Arrow on a 35-day lead; re-sourcing the line to TD Synnex recovers about a week.',evidence:['ETA 22 May has passed','TD Synnex lead 28d vs 35d'],assumption:'TD Synnex stock is available now.',limitation:'Unit price is ~€230 higher.',confidence:0.78,severity:'action'},
+ {title:'Two TD Synnex contracts lapse within 30 days',finding:'The R760 and EPYC secondary sources both hit renewal this quarter — losing them removes the only backup on two products.',evidence:['R760 secondary: renewal due','EPYC secondary: expiring 15 Jun'],assumption:'Primary sources stay healthy.',limitation:'No renewal terms negotiated yet.',confidence:0.72,severity:'action'},
+ {title:'Memory spend is concentrated in one source',finding:'96 of 146 received units are Samsung DDR5 on a single active contract; a lead-time slip there stalls every build.',evidence:['Samsung: 96 units · €41.280','Only one active DIMM contract'],assumption:'Build cadence holds through Q3.',limitation:'No second qualified DIMM source on file.',confidence:0.86,severity:'watch'},
+ {title:'Rack B07 is one receipt from over-capacity',finding:'B07 sits at 93%; the next inbound DIMM batch tips it over its configured limit.',evidence:['39 / 42 used','16 DIMMs inbound'],assumption:'No decommissions before arrival.',limitation:'Capacity is a configured estimate.',confidence:0.81,severity:'watch'},
+ {title:'Disposal backlog is small but ageing',finding:'2 units are decommissioned awaiting disposal; provenance is intact for RMA credit.',evidence:['SCM-SC847-0013 decommissioned','1 unit disposed YTD'],assumption:'RMA window still open.',limitation:'Vendor RMA terms not tracked here.',confidence:0.90,severity:'info'}];
+function runResult(approve){
+ const D=[
+  {product_id:'p2',supplier_id:'o3',qty:6,unit_price:7120,total:42720,trigger:{type:'forecast_shortfall',evidence:{deployable_gap:6}},tier:'act',confidence:0.91,rationale:'Covers the overdue EPYC line from the preferred source, within one-touch authority.'},
+  {product_id:'p3',supplier_id:'o4',qty:32,unit_price:430,total:13760,trigger:{type:'reorder_floor',evidence:{on_hand:1,floor:16}},tier:'propose',confidence:0.82,rationale:'On-hand DIMMs are below the reorder floor; preferred source, but it stages into a near-full rack.'},
+  {product_id:'p1',supplier_id:'o1',qty:4,unit_price:8420,total:33680,trigger:{type:'lifecycle_replacement',evidence:{decommissioned:1,deployed_age_days:540}},tier:'escalate',confidence:0.64,rationale:'Refresh candidate, but total spend exceeds one-touch authority — needs sign-off.'}];
+ let placed=0; if(approve){D.forEach(d=>{if(approve.includes(d.supplier_id)&&d.tier!=='escalate'){d.placed_po_id='PO-2026-00'+(56+placed);placed++;}});}
+ return {run_at:'2026-05-28T11:34:00Z',dry_run:!approve,period_days:7,decisions:D,summary:{acted:1,proposed:1,escalated:1,placed:placed,total_committed:90160}};
+}
+function reply(d){return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(d)});}
+const realFetch=window.fetch;
+window.fetch=function(url,opts={}){
+ url=String(url); if(!url.includes('/api/v1')) return realFetch(url,opts);
+ const path=url.split('/api/v1')[1].split('?')[0]; const qs=url.includes('?')?url.split('?')[1]:'';
+ if(path==='/auth/login') return reply({access_token:'tok',token_type:'bearer'});
+ if(path==='/auth/me') return reply({id:'u1',email:'admin@example.com',full_name:'Anders Mohr',role:'ADMIN',active:true});
+ if(path==='/products') return reply(P);
+ if(path==='/organizations') return reply(ORG);
+ if(path==='/locations') return reply(L);
+ if(path==='/product-suppliers') return reply(PS);
+ if(path==='/planning/inbound') return reply(INB);
+ if(path==='/planning/capacity') return reply(CAP);
+ if(path==='/planning/forecast') return reply(FC);
+ if(path==='/analytics/spend') return reply(SPEND);
+ if(path==='/agent/insights') return reply(INSIGHTS);
+ if(path==='/agent/purchasing-run') return reply(runResult(null));
+ if(path==='/agent/purchasing-run/confirm') return reply(runResult(JSON.parse(opts.body).approve_suppliers));
+ let m=path.match(/^\/assets\/([^/]+)\/provenance$/);
+ if(m){const a=A.find(x=>x.id===m[1]);const oi=a.source_order_item_id;return reply({asset_id:a.id,serial_number:a.serial_number,status:a.status,product_id:a.product_id,product_name:(P.find(p=>p.id===a.product_id)||{}).name,order_item_id:oi,order_id:'o',order_number:ON[oi],supplier_id:'s',supplier_name:SUP[oi],unit_price:PRI[oi]});}
+ m=path.match(/^\/assets\/([^/]+)\/events$/);
+ if(m) return reply(EV[m[1]]||[]);
+ m=path.match(/^\/assets\/([^/]+)\/transition$/);
+ if(m){const a=A.find(x=>x.id===m[1]);const b=JSON.parse(opts.body);a.status=b.target;if(b.location_id)a.current_location_id=b.location_id;return reply(a);}
+ if(path==='/assets'){const sp=new URLSearchParams(qs);const st=sp.get('status');return reply(st?A.filter(a=>a.status===st):A);}
+ return reply(null);
+};
+</script>
+<script src="frontend/app.js"></script>
+  <script src="frontend/features.js"></script>
+  <script src="frontend/tracking.js"></script>
+  <script src="frontend/inventory.js"></script>
+  <script>__scmInit();</script>
+</body>
+</html>
