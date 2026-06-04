@@ -22,5 +22,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
 
+    # Weekly purchasing automation — gates and defaults (all env-overridable).
+    auto_place_spend_cap: float = 25000.0      # ACT bundles above this can't auto-place
+    act_confidence_floor: float = 0.8          # min copilot confidence to auto-place
+    escalate_spend_threshold: float = 50000.0  # bundle total at/above this -> escalate
+    replace_ratio: float = 1.0                 # replacements per decommissioned unit
+    default_reorder_floor: int = 0             # per-product floor when none is set
+
 
 settings = Settings()
