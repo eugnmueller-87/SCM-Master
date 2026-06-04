@@ -105,6 +105,68 @@ def test_rebalance_requires_ops_role(client):
     assert viewer.post(f"{B}/planning/capacity/{cage['id']}/rebalance", json={}).status_code == 403
 
 
+def test_demand_forecast_projects_usage_and_shortfall(client, db_session):
+    """Deploying units over time creates a usage rate that projects a shortfall
+    when on-hand + inbound can't cover the horizon."""
+    from datetime import date, timedelta
+
+    from app.models.flow import Asset, AssetStatus
+
+    s = build_scenario(client)  # product + preferred source (lead 21, no MOQ)
+    today = date.today()
+    # 12 units deployed across the last 60 days (a real usage rate), product s
+    for i in range(12):
+        db_session.add(Asset(
+            serial_number=f"D-{i}", product_id=s["product_id"], status=AssetStatus.DEPLOYED,
+            deployed_date=today - timedelta(days=i * 5)))
+    db_session.commit()
+
+    rows = client.get(f"{B}/planning/demand").json()
+    row = next(r for r in rows if r["product_id"] == s["product_id"])
+    assert row["usage_rate_per_day"] > 0
+    assert row["horizon_days"] == 90
+    assert row["projected_demand"] > 0
+    # nothing on hand/inbound for these deployed units -> a shortfall + a buy rec
+    assert row["projected_shortfall"] > 0
+    assert row["recommended_order_qty"] >= row["projected_shortfall"]
+    assert row["order_by"] is not None
+
+
+def test_demand_recency_weighting_reacts_to_recent_ramp(client, db_session):
+    """Recent deployments weigh more than old ones: the same count of events
+    placed recently yields a higher usage rate than placed long ago."""
+    from datetime import date, timedelta
+
+    from app.core.config import settings
+    from app.services import planning
+
+    today = date.today()
+    recent = [today - timedelta(days=i) for i in range(5)]          # last 5 days
+    old = [today - timedelta(days=80 + i) for i in range(5)]         # ~80 days ago
+    rate_recent = planning._weighted_daily_rate(recent, today)
+    rate_old = planning._weighted_daily_rate(old, today)
+    assert rate_recent > rate_old > 0           # recency lifts the rate
+    assert settings.demand_halflife_days > 0
+
+
+def test_demand_no_usage_no_shortfall(client, db_session):
+    """A product with stock and no usage projects no demand-driven shortfall."""
+
+    from app.models.flow import Asset, AssetStatus
+
+    s = build_scenario(client)
+    # 5 units on hand, none ever deployed
+    for i in range(5):
+        db_session.add(Asset(serial_number=f"H-{i}", product_id=s["product_id"],
+                             status=AssetStatus.IN_STORAGE))
+    db_session.commit()
+    rows = client.get(f"{B}/planning/demand").json()
+    row = next(r for r in rows if r["product_id"] == s["product_id"])
+    assert row["usage_rate_per_day"] == 0
+    assert row["projected_shortfall"] == 0
+    assert row["recommended_order_qty"] == 0
+
+
 def test_deployment_forecast_deploy_updates_counts(client):
     s = build_scenario(client)
     client.post(f"{B}/purchase-orders/{s['order_id']}/receipts", json={

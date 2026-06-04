@@ -42,6 +42,26 @@ class DeploymentForecast(BaseModel):
     forecast_deployable: int
 
 
+class DemandForecastItem(BaseModel):
+    product_id: str
+    product_code: Optional[str]
+    name: Optional[str]
+    category: Optional[str]
+    usage_rate_per_day: float       # recency-weighted deployments/day
+    horizon_days: int
+    projected_usage: float          # usage_rate x horizon
+    eol_replacement: int            # refresh demand from ageing fleet within horizon
+    projected_demand: float         # usage + eol
+    on_hand: int
+    on_order: int
+    available: int                  # on_hand + on_order
+    projected_shortfall: float      # max(0, demand - available)
+    recommended_order_qty: int      # shortfall rounded to MOQ
+    order_by: Optional[date]        # place by this date to cover the horizon
+    lead_time_days: int
+    unit_price: Optional[float]
+
+
 class RebalanceTarget(BaseModel):
     code: str
     moved: int

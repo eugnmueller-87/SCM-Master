@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_role
 from app.models.auth import Role, User
 from app.schemas.planning import (
+    DemandForecastItem,
     DeploymentForecast,
     InboundLine,
     InventoryItem,
@@ -45,6 +46,13 @@ def deployment_forecast(db: Session = Depends(get_db)):
 def inventory(db: Session = Depends(get_db)):
     """Per-product stock + reorder inputs (reorder math is client-side)."""
     return planning.inventory_plan(db)
+
+
+@router.get("/demand", response_model=List[DemandForecastItem])
+def demand(db: Session = Depends(get_db)):
+    """Forward demand forecast per product — recency-weighted usage rate +
+    end-of-life replacement projected over the horizon, vs on-hand + inbound."""
+    return planning.demand_forecast(db)
 
 
 @router.post("/capacity/{location_id}/rebalance", response_model=RebalanceResult)

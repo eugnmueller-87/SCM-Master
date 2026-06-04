@@ -11,12 +11,14 @@ Everything here is computed from existing data — no new tables.
 """
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
@@ -264,3 +266,112 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
             "unit_price": (float(src.contract_price) if src and src.contract_price is not None else None),
         })
     return sorted(out, key=lambda r: (r["name"] or ""))
+
+
+# --- Demand forecast: usage-driven projection -----------------------------
+
+def _weighted_daily_rate(deploy_dates: list[date], today: date) -> float:
+    """Recency-weighted deployments/day over the trailing window.
+
+    Each in-window deployment contributes an exponentially-decayed weight by its
+    age (half-life = demand_halflife_days), so a recent ramp-up lifts the rate
+    faster than a flat average would. The effective denominator is the
+    decay-weighted length of the window, keeping the result in units/day.
+    """
+    window = settings.demand_window_days
+    halflife = max(1, settings.demand_halflife_days)
+    decay = math.log(2) / halflife
+    weighted_events = 0.0
+    for d in deploy_dates:
+        age = (today - d).days
+        if 0 <= age <= window:
+            weighted_events += math.exp(-decay * age)
+    # Effective weighted window length = integral of the decay over [0, window].
+    eff_days = (1 - math.exp(-decay * window)) / decay
+    return weighted_events / eff_days if eff_days > 0 else 0.0
+
+
+def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
+    """Per-product forward demand from real usage + end-of-life replacement.
+
+    For each product:
+      usage_rate   = recency-weighted deployments/day over the trailing window;
+      projected_usage  = usage_rate x horizon;
+      eol_replacement  = deployed assets that pass their useful-life within the
+                         horizon (refresh demand an ageing fleet generates);
+      projected_demand = projected_usage + eol_replacement;
+      available        = on-hand (RECEIVED/IN_STORAGE) + open inbound;
+      shortfall        = max(0, projected_demand - available);
+      recommended_qty  = shortfall rounded up to the source MOQ;
+      order_by         = horizon_end - lead_time (when to place to cover it).
+    Products with no usage, no stock and no inbound are omitted.
+    """
+    today = today or date.today()
+    horizon = settings.demand_horizon_days
+    life = settings.asset_useful_life_days
+
+    # All deployment dates per product (for the rate) and deployed ages (for EOL).
+    deployed = db.scalars(
+        select(Asset).where(Asset.deployed_date.is_not(None))
+    ).all()
+    deploys_by_product: dict[str, list[date]] = {}
+    eol_by_product: dict[str, int] = {}
+    for a in deployed:
+        deploys_by_product.setdefault(a.product_id, []).append(a.deployed_date)
+        # still in service (DEPLOYED/MAINTENANCE) and crosses useful-life within horizon?
+        if a.status in (AssetStatus.DEPLOYED, AssetStatus.MAINTENANCE):
+            age = (today - a.deployed_date).days
+            if life - horizon <= age < life + horizon:
+                eol_by_product[a.product_id] = eol_by_product.get(a.product_id, 0) + 1
+
+    on_hand: dict[str, int] = {}
+    for pid, n in db.execute(
+        select(Asset.product_id, func.count(Asset.id))
+        .where(Asset.status.in_(_ON_HAND)).group_by(Asset.product_id)
+    ).all():
+        on_hand[pid] = int(n)
+    inbound = {}
+    for row in inbound_pipeline(db, as_of=today):
+        inbound[row["product_id"]] = inbound.get(row["product_id"], 0) + int(row["outstanding"])
+
+    product_ids = set(deploys_by_product) | set(on_hand) | set(inbound)
+    out: list[dict] = []
+    for pid in product_ids:
+        product = db.get(Product, pid)
+        src = _preferred_source(db, pid)
+        rate = _weighted_daily_rate(deploys_by_product.get(pid, []), today)
+        projected_usage = rate * horizon
+        eol = eol_by_product.get(pid, 0)
+        projected_demand = projected_usage + eol
+        available = on_hand.get(pid, 0) + inbound.get(pid, 0)
+        shortfall = max(0.0, projected_demand - available)
+
+        moq = (src.min_order_quantity or 1) if src else 1
+        rec_qty = 0
+        if shortfall > 0:
+            rec_qty = max(int(math.ceil(shortfall)), moq)
+            if moq > 1:
+                rec_qty = int(math.ceil(rec_qty / moq) * moq)
+        lead = (src.standard_lead_time_days or 0) if src else 0
+        order_by = today + timedelta(days=max(0, horizon - lead))
+
+        out.append({
+            "product_id": pid,
+            "product_code": product.product_code if product else None,
+            "name": product.name if product else None,
+            "category": product.category if product else None,
+            "usage_rate_per_day": round(rate, 3),
+            "horizon_days": horizon,
+            "projected_usage": round(projected_usage, 1),
+            "eol_replacement": eol,
+            "projected_demand": round(projected_demand, 1),
+            "on_hand": on_hand.get(pid, 0),
+            "on_order": inbound.get(pid, 0),
+            "available": available,
+            "projected_shortfall": round(shortfall, 1),
+            "recommended_order_qty": rec_qty,
+            "order_by": order_by if rec_qty > 0 else None,
+            "lead_time_days": lead,
+            "unit_price": (float(src.contract_price) if src and src.contract_price is not None else None),
+        })
+    return sorted(out, key=lambda r: r["projected_shortfall"], reverse=True)
