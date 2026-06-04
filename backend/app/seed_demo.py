@@ -221,6 +221,11 @@ def seed_demo() -> None:
 
         db.commit()
 
+        # --- Control-tower shipments derived from the REAL POs ------------
+        # So Tracking reconciles with Procurement/Inbound (same PO numbers,
+        # suppliers and values) rather than a disjoint sample set.
+        _seed_tracking_from_pos(db)
+
         # --- Summary ------------------------------------------------------
         from app.models.flow import Asset
         counts = {s.value: db.scalar(select(__import__("sqlalchemy").func.count(Asset.id)).where(Asset.status == s)) for s in AssetStatus}
@@ -236,14 +241,108 @@ def seed_demo() -> None:
     finally:
         db.close()
 
-    from app.seed_tracking import seed_tracking
-    seed_tracking()
-
 
 def _rank(status: OrderStatus) -> int:
     order = [OrderStatus.PENDING, OrderStatus.APPROVED, OrderStatus.PLACED,
              OrderStatus.PARTIALLY_RECEIVED, OrderStatus.RECEIVED]
     return order.index(status) if status in order else -1
+
+
+def _seed_tracking_from_pos(db) -> None:
+    """Build control-tower shipments from the demo's real procurement POs.
+
+    Each open/placed PO (those with goods actually moving) becomes a tracking PO
+    + a shipment with a milestone trail keyed to its situation, so the Tracking
+    screen shows the SAME PO numbers / suppliers / values as Procurement and
+    Inbound. A couple get a richer logistics story (an ocean customs hold, a
+    delivered road shipment) for the walkthrough.
+    """
+    from datetime import datetime
+
+    from app.models.catalog import Organization
+    from app.models.procurement import OrderItem, PurchaseOrder
+    from app.models.tracking import Shipment, ShipmentEvent, TrkPurchaseOrder, TrkSupplier
+
+    if db.scalar(select(Shipment).limit(1)):
+        return
+
+    # Suppliers referenced by the demo POs (country + a transport mode/origin).
+    SUP = {
+        "Dell Technologies": ("DELL", "IE", "air", "Dublin, IE"),
+        "Supermicro": ("SMCI", "NL", "ocean", "Rotterdam, NL"),
+        "TD Synnex": ("TDS", "DE", "road", "Munich, DE"),
+        "Arrow Electronics": ("ARW", "US", "air", "Denver, US"),
+        "Samsung Semiconductor": ("SSNLF", "KR", "ocean", "Busan, KR"),
+    }
+    for name, (sid, country, _mode, _origin) in SUP.items():
+        db.add(TrkSupplier(supplier_id=sid, name=name, country=country, tier=1))
+    db.flush()
+
+    # status -> (shipment current_status, progress_idx, exception, milestone path)
+    def trail(po, sup_name, value):
+        sid, country, mode, origin = SUP[sup_name]
+        st = po.status
+        hub = "Frankfurt hub, DE"
+        dest = "Frankfurt DC, DE"
+        if st == OrderStatus.RECEIVED:
+            cur, idx, exc, reason = "delivered", 5, False, None
+            steps = [("placed", origin), ("packed", origin), ("departed_origin", origin),
+                     ("in_transit", hub), ("out_for_delivery", dest), ("delivered", dest)]
+        elif st == OrderStatus.PARTIALLY_RECEIVED:
+            cur, idx, exc, reason = "out_for_delivery", 4, False, None
+            steps = [("placed", origin), ("packed", origin), ("departed_origin", origin),
+                     ("arrived_hub", hub), ("out_for_delivery", dest)]
+        else:  # PLACED
+            # the overdue one (eta in the past) gets a customs hold exception
+            overdue = po.items and po.items[0].estimated_delivery_date and po.items[0].estimated_delivery_date < TODAY
+            if overdue and mode == "air":
+                cur, idx, exc, reason = "customs", 3, True, "Held — import documentation query"
+                steps = [("placed", origin), ("packed", origin), ("departed_origin", origin), ("customs", hub)]
+            else:
+                cur, idx, exc, reason = "in_transit", 2, False, None
+                steps = [("placed", origin), ("packed", origin), ("in_transit", hub)]
+        return sid, mode, cur, idx, exc, reason, steps
+
+    moving = {OrderStatus.PLACED, OrderStatus.PARTIALLY_RECEIVED, OrderStatus.RECEIVED}
+    pos = db.scalars(select(PurchaseOrder)).all()
+    n = 0
+    for po in pos:
+        if po.status not in moving:
+            continue
+        sup = db.get(Organization, po.supplier_id)
+        if not sup or sup.name not in SUP:
+            continue
+        # PO value = sum(line qty x unit price)
+        value = 0.0
+        eta_o = eta_c = None
+        for oi in db.scalars(select(OrderItem).where(OrderItem.order_id == po.id)).all():
+            value += float(oi.quantity) * float(oi.unit_price or 0)
+            if oi.estimated_delivery_date:
+                eta_o = oi.estimated_delivery_date
+                eta_c = oi.estimated_delivery_date
+        sid, mode, cur, idx, exc, reason, steps = trail(po, sup.name, value)
+        # a delayed current ETA on exceptions
+        if exc and eta_c:
+            eta_c = eta_c + timedelta(days=4)
+        db.add(TrkPurchaseOrder(po_id=po.order_number, supplier_id=sid,
+                                order_date=po.date_ordered, expected_delivery=eta_o,
+                                total_value=value, status="open"))
+        ship_id = f"SHP-{po.order_number[-4:]}"
+        last = steps[-1]
+        db.add(Shipment(shipment_id=ship_id, po_id=po.order_number, mode=mode,
+                        carrier={"air": "Lufthansa Cargo", "ocean": "Maersk", "road": "DB Schenker"}[mode],
+                        current_status=cur, progress_idx=idx, current_location=last[1],
+                        last_event_at=datetime(TODAY.year, TODAY.month, TODAY.day),
+                        eta_original=eta_o, eta_current=eta_c,
+                        exception_flag=exc, exception_reason=reason))
+        for seq, (status, loc) in enumerate(steps, start=1):
+            db.add(ShipmentEvent(shipment_id=ship_id, seq=seq, status=status,
+                                 location_name=loc,
+                                 event_ts=datetime(TODAY.year, TODAY.month, max(1, seq)),
+                                 notes=f"{status.replace('_', ' ').title()} — {loc}"))
+        n += 1
+    db.commit()
+    print(f"  tracking      : {n} shipments derived from real POs")
 
 
 if __name__ == "__main__":

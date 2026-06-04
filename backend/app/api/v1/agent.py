@@ -38,6 +38,20 @@ class PurchasingRunRequest(BaseModel):
     period_days: int = 7
 
 
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
+class AskRequest(BaseModel):
+    question: str
+    history: Optional[List[ChatTurn]] = None
+
+
+class AskResponse(BaseModel):
+    answer: str
+
+
 class PurchasingConfirmRequest(BaseModel):
     """Approve specific suppliers' bundles from a prior preview, then place them.
 
@@ -61,6 +75,17 @@ def sourcing_recommendation(payload: SourcingRequest, db: Session = Depends(get_
 def insights(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     try:
         return copilot.generate_insights(db, min_count=_INSIGHT_MIN)
+    except AgentError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+@router.post("/ask", response_model=AskResponse)
+def ask(payload: AskRequest, db: Session = Depends(get_db),
+        _user: User = Depends(get_current_user)):
+    """Chat: answer a use-case question grounded in a live snapshot of the system."""
+    history = [t.model_dump() for t in payload.history] if payload.history else None
+    try:
+        return AskResponse(answer=copilot.ask(db, payload.question, history))
     except AgentError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

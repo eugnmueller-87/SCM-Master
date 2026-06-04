@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import prompts
 from app.agent.client import call_claude
+from app.agent.context import build_context
 from app.agent.schemas import AgentInsight, SourcingRecommendation
 from app.agent.signals import gather_insight_signals, gather_sourcing_signals
 
@@ -31,6 +32,30 @@ _RETRY_NUDGE = (
 
 class AgentError(RuntimeError):
     """Raised when the agent cannot produce valid structured output."""
+
+
+def ask(db: Session, question: str, history: Optional[list[dict]] = None) -> str:
+    """Free-form chat answer grounded in a live snapshot of the operation.
+
+    Returns plain text (the chat bubble renders it). ``history`` is an optional
+    list of prior turns [{"role": "user"|"assistant", "content": str}] folded
+    into the prompt for follow-ups. Raises AgentError on LLM failure.
+    """
+    context = build_context(db)
+    convo = ""
+    for turn in (history or [])[-6:]:
+        who = "User" if turn.get("role") == "user" else "Assistant"
+        convo += f"\n{who}: {turn.get('content', '')}"
+    user = (
+        "CURRENT SNAPSHOT (live system state):\n"
+        + json.dumps(context, default=str)
+        + (f"\n\nEarlier in this conversation:{convo}" if convo else "")
+        + f"\n\nQuestion: {question}"
+    )
+    raw = call_claude(prompts.CHAT_SYSTEM, user)
+    if raw.startswith("[agent-error]"):
+        raise AgentError(raw)
+    return raw.strip()
 
 
 def _strip_fences(text: str) -> str:
