@@ -1,5 +1,15 @@
 # SCM Master
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-online-2ea44f?logo=railway&logoColor=white)](https://scm-master-production.up.railway.app)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
+[![Pydantic](https://img.shields.io/badge/Pydantic-2-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
+[![Tests](https://img.shields.io/badge/tests-132_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
+[![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Power BI](https://img.shields.io/badge/BI-Power_BI_exports-F2C811?logo=powerbi&logoColor=black)](docs/powerbi-analytics.md)
+
 A supply-chain management system for **hardware procurement and asset lifecycle tracking** — built for the case where a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
 
 It joins together three things that off-the-shelf tools usually keep apart:
