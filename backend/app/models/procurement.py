@@ -16,7 +16,7 @@ from sqlalchemy import Date, ForeignKey, Integer, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base, IdMixin, TimestampMixin
+from app.core.db import Base, ExternalRefMixin, IdMixin, TimestampMixin
 
 
 class OrderStatus(str, enum.Enum):
@@ -28,7 +28,7 @@ class OrderStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
-class PurchaseOrder(IdMixin, TimestampMixin, Base):
+class PurchaseOrder(IdMixin, TimestampMixin, ExternalRefMixin, Base):
     __tablename__ = "purchase_order"
 
     order_number: Mapped[str] = mapped_column(String(64), unique=True, index=True)

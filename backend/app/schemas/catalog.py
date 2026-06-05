@@ -39,6 +39,9 @@ class OrganizationRead(ReadBase):
     is_supplier: bool
     is_manufacturer: bool
     active: bool
+    # Provenance when synced from an upstream system (SAP/Coupa); null if born here.
+    source_system: Optional[str] = None
+    external_ref: Optional[str] = None
 
 
 # --- Product --------------------------------------------------------------
@@ -65,6 +68,9 @@ class ProductRead(ReadBase):
     description: Optional[str]
     category: Optional[str]
     active: bool
+    # Provenance when synced from an upstream system (SAP/Coupa); null if born here.
+    source_system: Optional[str] = None
+    external_ref: Optional[str] = None
 
 
 # --- ProductSupplier (a source for a product) -----------------------------

@@ -114,6 +114,7 @@ backend/
       security.py   # bcrypt hashing + JWT access tokens
       observability.py  # JSON logging + request-id middleware
     models/         # SQLAlchemy ORM models (catalog, procurement, flow, auth)
+    integrations/   # ERP/P2P adapter layer: Coupa CSV adapter + idempotent sync
     schemas/        # Pydantic Create/Update/Read per domain
     services/       # business rules: CRUDService base + domain services
                     #   lifecycle (state machine), asset (receiving + events),
@@ -170,6 +171,7 @@ The API lives under `/api/v1`:
 - **Assets** — `/assets` (filter by status/location), `/assets/{id}/transition`, `/move`, `/events`, `/provenance`.
 - **Sourcing & analytics** — `/products/{id}/sources`, `/analytics/spend[...]`.
 - **Planning** — `/planning/inbound`, `/planning/capacity`, `/planning/forecast`.
+- **Integrations** — `POST /integrations/coupa/import` ingests a Coupa PO export (CSV); `dry_run=true` previews, idempotent on `(source_system, external_ref)`. See [`docs/integration-architecture.md`](docs/integration-architecture.md).
 
 Most write endpoints are role-gated (send the JWT as a `Bearer` token); reads need any authenticated user. Run with Docker via `docker compose up --build`. By default this uses a local `scm.db` SQLite file; point `DATABASE_URL` at a `postgresql://` URL for production.
 
@@ -219,3 +221,17 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Observability** — JSON structured logging, a per-request correlation id (`X-Request-ID`), an access log line, and `/readyz` (DB check) alongside `/health` ([`core/observability.py`](backend/app/core/observability.py)).
 - [x] **Containerisation & CI** — [`Dockerfile`](backend/Dockerfile) (non-root) + [`docker-compose.yml`](docker-compose.yml) (Postgres), and a CI pipeline — ruff lint, migrate-check (no schema drift), pytest — in [`ci/ci.yml`](ci/ci.yml) (see [`ci/README.md`](ci/README.md) to activate).
 - [x] **Frontend** — a dependency-free operations UI ([`frontend/`](frontend/)) served by FastAPI at `/`: login, the asset board with one-click lifecycle transitions and provenance trace, inbound pipeline, capacity, and spend.
+
+### Phase 6 — Enterprise integration (SAP + Coupa) 🟡 *(in progress)*
+
+Built so SCM-Master can run *alongside* an existing ERP/P2P landscape as the
+intelligence layer rather than replace it — reading their master/transactional
+data and (next) proposing actions back as requisitions. Full design:
+[`docs/integration-architecture.md`](docs/integration-architecture.md).
+
+- [x] **External-identity model** — a `(source_system, external_ref)` key on `Organization`, `Product`, and `PurchaseOrder` so synced records map back to their source-of-truth and round-trip without duplicating.
+- [x] **Adapter layer** — a hexagonal port/adapter boundary ([`app/integrations/`](backend/app/integrations/)): adapters map an upstream wire format onto canonical records; one source-agnostic **sync engine** upserts them through the *existing* domain services (no rules duplicated).
+- [x] **Coupa inbound (CSV)** — `POST /integrations/coupa/import` ingests a Coupa PO export, deduping suppliers/materials and grouping lines into POs; **idempotent** (re-import updates, never duplicates), with a true `dry_run` preview (runs in a rolled-back SAVEPOINT).
+- [ ] **SAP inbound** — `sap.py` adapter mapping IDoc / OData (material + vendor master, PO/GR) onto the same canonical records.
+- [ ] **Write-back** — emit **requisitions** to Coupa (not POs), so Coupa keeps approval + invoice matching; backed by an outbox + idempotency keys.
+- [ ] **Scheduled / event-driven sync** and **SSO (OIDC/SAML against Azure AD)**.

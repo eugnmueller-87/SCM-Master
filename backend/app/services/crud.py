@@ -50,3 +50,18 @@ class CRUDService(Generic[ModelT]):
     def delete(self, db: Session, obj: ModelT) -> None:
         db.delete(obj)
         db.flush()
+
+    # --- integration sync support ----------------------------------------
+    # Only meaningful for models carrying ExternalRefMixin (Organization,
+    # Product, PurchaseOrder). The (source_system, external_ref) pair is the
+    # upstream system's own key, so syncing the same feed twice updates the
+    # existing row instead of duplicating it.
+
+    def get_by_external_ref(
+        self, db: Session, *, source_system: str, external_ref: str
+    ) -> Optional[ModelT]:
+        stmt = select(self.model).where(
+            self.model.source_system == source_system,
+            self.model.external_ref == external_ref,
+        )
+        return db.scalar(stmt)

@@ -42,6 +42,22 @@ class TimestampMixin:
     last_updated: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class ExternalRefMixin:
+    """Identity of a row in the *system it was synced from* (SAP, Coupa, …).
+
+    When a record originates in an upstream system rather than here, these two
+    columns let us map our row back to its source-of-truth key and round-trip
+    safely. ``source_system`` is the upstream (e.g. ``"coupa"``, ``"sap"``);
+    ``external_ref`` is that system's own identifier (a Coupa supplier number, a
+    SAP PO number). The pair is what an idempotent upsert keys on — re-importing
+    the same feed updates the existing row instead of duplicating it. Both are
+    nullable: records born *here* simply leave them unset.
+    """
+
+    source_system: Mapped["str | None"] = mapped_column(String(32), index=True)
+    external_ref: Mapped["str | None"] = mapped_column(String(128), index=True)
+
+
 def get_db():
     """FastAPI dependency: yields a session and always closes it."""
     db = SessionLocal()

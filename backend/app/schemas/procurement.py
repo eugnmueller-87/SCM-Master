@@ -69,3 +69,6 @@ class PurchaseOrderRead(ReadBase):
     currency_code: str
     date_ordered: Optional[date]
     items: List[OrderItemRead]
+    # Provenance when synced from an upstream P2P/ERP system; null if born here.
+    source_system: Optional[str] = None
+    external_ref: Optional[str] = None

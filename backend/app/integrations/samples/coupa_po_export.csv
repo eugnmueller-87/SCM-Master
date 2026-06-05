@@ -1,0 +1,6 @@
+po_number,po_status,order_date,currency,supplier_id,supplier_name,item_number,item_name,item_category,quantity,unit_price,need_by_date
+PO-2026-0001,issued,2026-05-20,EUR,SUP-DELL,Dell Technologies,MAT-SRV-1U,PowerEdge R660 1U Server,server,10,4200.00,2026-06-15
+PO-2026-0001,issued,2026-05-20,EUR,SUP-DELL,Dell Technologies,MAT-NVME-4T,4TB NVMe SSD,storage,40,520.00,2026-06-15
+PO-2026-0002,approved,2026-05-22,EUR,SUP-SMCI,Supermicro,MAT-SRV-2U,SuperServer 2U,server,6,5100.00,2026-06-20
+PO-2026-0002,approved,2026-05-22,EUR,SUP-SMCI,Supermicro,MAT-NVME-4T,4TB NVMe SSD,storage,24,520.00,2026-06-20
+PO-2026-0003,draft,2026-05-25,EUR,SUP-DELL,Dell Technologies,MAT-SW-100G,100G Switch,network,4,8800.00,2026-07-01

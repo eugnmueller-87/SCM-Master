@@ -27,6 +27,25 @@ class OrganizationService(CRUDService[Organization]):
             raise ConflictError(f"Organization code {code!r} already exists")
         return super().create(db, data)
 
+    def upsert_by_external_ref(
+        self, db: Session, *, source_system: str, external_ref: str, data: dict
+    ) -> tuple[Organization, bool]:
+        """Create or update a supplier synced from an upstream system.
+
+        Keyed on (source_system, external_ref) — the upstream's own supplier id.
+        Returns (org, created). Sidesteps the ``code`` uniqueness check on
+        re-sync, since the row is identified by its external key, not its code.
+        """
+        existing = self.get_by_external_ref(
+            db, source_system=source_system, external_ref=external_ref
+        )
+        if existing is not None:
+            return self.update(db, existing, data), False
+        obj = Organization(source_system=source_system, external_ref=external_ref, **data)
+        db.add(obj)
+        db.flush()
+        return obj, True
+
 
 class ProductService(CRUDService[Product]):
     def __init__(self):
@@ -37,6 +56,21 @@ class ProductService(CRUDService[Product]):
         if db.scalar(select(Product).where(Product.product_code == code)):
             raise ConflictError(f"Product code {code!r} already exists")
         return super().create(db, data)
+
+    def upsert_by_external_ref(
+        self, db: Session, *, source_system: str, external_ref: str, data: dict
+    ) -> tuple[Product, bool]:
+        """Create or update a material synced from an upstream system, keyed on
+        (source_system, external_ref). Returns (product, created)."""
+        existing = self.get_by_external_ref(
+            db, source_system=source_system, external_ref=external_ref
+        )
+        if existing is not None:
+            return self.update(db, existing, data), False
+        obj = Product(source_system=source_system, external_ref=external_ref, **data)
+        db.add(obj)
+        db.flush()
+        return obj, True
 
 
 class ProductSupplierService(CRUDService[ProductSupplier]):

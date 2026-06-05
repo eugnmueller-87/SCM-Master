@@ -9,6 +9,7 @@ from app.api.v1.asset import router as asset_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.flow import router as flow_router
+from app.api.v1.integrations import router as integrations_router
 from app.api.v1.planning import router as planning_router
 from app.api.v1.procurement import router as procurement_router
 from app.api.v1.sourcing import router as sourcing_router
@@ -24,3 +25,4 @@ api_router.include_router(sourcing_router)
 api_router.include_router(planning_router)
 api_router.include_router(agent_router)
 api_router.include_router(tracking_router)
+api_router.include_router(integrations_router)

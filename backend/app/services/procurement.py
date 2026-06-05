@@ -99,6 +99,74 @@ class PurchaseOrderService(CRUDService[PurchaseOrder]):
         db.flush()
         return order
 
+    # --- integration sync (upstream ERP/P2P -> us) -----------------------
+
+    def upsert_by_external_ref(
+        self,
+        db: Session,
+        *,
+        source_system: str,
+        external_ref: str,
+        header: dict,
+        items: list[dict],
+    ) -> tuple[PurchaseOrder, bool]:
+        """Create or update a PO synced from an upstream P2P/ERP system.
+
+        Keyed on (source_system, external_ref) — the upstream's own PO number.
+        On first sync the header + lines are created; on re-sync the header
+        fields are updated and the lines are fully replaced (the upstream system
+        remains the source of truth for the PO's contents). The supplier and
+        every line's product must already exist (resolve them via *their* own
+        external refs before calling this). Returns (order, created).
+
+        A received/cancelled order is treated as immutable: its lines are NOT
+        replaced on re-sync, only header metadata is refreshed — we never rewrite
+        a PO that goods or invoices have already matched against.
+        """
+        supplier_id = header["supplier_id"]
+        supplier = db.get(Organization, supplier_id)
+        if supplier is None:
+            raise NotFoundError(f"Organization {supplier_id!r} not found")
+        if not supplier.is_supplier:
+            raise ValidationError(f"Organization {supplier.name!r} is not a supplier")
+
+        existing = self.get_by_external_ref(
+            db, source_system=source_system, external_ref=external_ref
+        )
+
+        if existing is None:
+            order = PurchaseOrder(
+                source_system=source_system,
+                external_ref=external_ref,
+                status=OrderStatus.PENDING,
+                **header,
+            )
+            db.add(order)
+            db.flush()
+            for item in items:
+                self._validate_line(db, item)
+                db.add(OrderItem(order_id=order.id, **item))
+            db.flush()
+            db.refresh(order)
+            return order, True
+
+        # Re-sync: refresh header fields regardless.
+        for field, value in header.items():
+            setattr(existing, field, value)
+
+        # Replace lines only while the PO is still open (pre-receipt). Once it is
+        # PARTIALLY_RECEIVED/RECEIVED/CANCELLED, its lines are matched against
+        # receipts/invoices and must not be rewritten.
+        if existing.status in (OrderStatus.PENDING, OrderStatus.APPROVED, OrderStatus.PLACED):
+            existing.items.clear()
+            db.flush()
+            for item in items:
+                self._validate_line(db, item)
+                db.add(OrderItem(order_id=existing.id, **item))
+        db.flush()
+        db.refresh(existing)
+        return existing, False
+
     # --- supplier swap (re-sourcing a line) ------------------------------
 
     def resource_line(self, db: Session, order_id: str, order_item_id: str,

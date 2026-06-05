@@ -21,10 +21,10 @@ from typing import Optional
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base, IdMixin, TimestampMixin
+from app.core.db import Base, ExternalRefMixin, IdMixin, TimestampMixin
 
 
-class Organization(IdMixin, TimestampMixin, Base):
+class Organization(IdMixin, TimestampMixin, ExternalRefMixin, Base):
     """A company we deal with: a supplier (Dell, Supermicro) and/or a
     manufacturer (Intel, Samsung). One org can be both, so we flag roles
     rather than splitting into separate tables (mirrors OpenBoxes' Party)."""
@@ -44,7 +44,7 @@ class Organization(IdMixin, TimestampMixin, Base):
     )
 
 
-class Product(IdMixin, TimestampMixin, Base):
+class Product(IdMixin, TimestampMixin, ExternalRefMixin, Base):
     """The spec — supplier-independent. A server model, a CPU SKU, a DIMM."""
 
     __tablename__ = "product"
