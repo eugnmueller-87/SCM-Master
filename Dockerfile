@@ -25,5 +25,5 @@ USER appuser
 
 EXPOSE 8000
 
-# Boot: migrate -> seed the demo dataset (idempotent) -> serve on $PORT.
-CMD ["sh", "-c", "alembic upgrade head && python -m app.seed_demo || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Boot: migrate -> seed demo + 18mo demand history (both idempotent) -> serve on $PORT.
+CMD ["sh", "-c", "alembic upgrade head && (python -m app.seed_demo && python -m app.seed_history) || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

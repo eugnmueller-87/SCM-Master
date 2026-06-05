@@ -168,11 +168,14 @@ class AssetService(CRUDService[Asset]):
 
     def transition(self, db: Session, asset_id: str, target: AssetStatus, *,
                    location_id: Optional[str] = None, actor: Optional[str] = None,
-                   note: Optional[str] = None) -> Asset:
+                   note: Optional[str] = None, effective_date: Optional[date] = None) -> Asset:
         """Move an asset to ``target`` status, validated by the state machine.
 
-        Deploying may also set the destination location (a rack). Returning the
-        deployed_date stamp happens automatically on the first DEPLOYED.
+        Deploying may also set the destination location (a rack). The deployed_date
+        / decommissioned_date stamps default to today, but ``effective_date`` lets a
+        caller backdate them — used by the history seed to lay down dated usage the
+        demand forecast can be backtested against. It never moves a stamp that is
+        already set.
         """
         asset = self.get_or_404(db, asset_id)
         lifecycle.assert_transition(asset.status, target)
@@ -185,11 +188,12 @@ class AssetService(CRUDService[Asset]):
                 raise NotFoundError(f"Location {location_id!r} not found")
             asset.current_location_id = location_id
 
+        when = effective_date or date.today()
         asset.status = target
         if target == AssetStatus.DEPLOYED and asset.deployed_date is None:
-            asset.deployed_date = date.today()
+            asset.deployed_date = when
         if target == AssetStatus.DECOMMISSIONED and asset.decommissioned_date is None:
-            asset.decommissioned_date = date.today()
+            asset.decommissioned_date = when
 
         db.flush()
         self._log(db, asset, AssetEventType.STATUS_CHANGED,
