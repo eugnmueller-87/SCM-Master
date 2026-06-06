@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     replace_ratio: float = 1.0                 # replacements per decommissioned unit
     default_reorder_floor: int = 0             # per-product floor when none is set
 
+    # Requisition auto-place gate + outcome-feedback calibration.
+    auto_place_confidence: float = 0.85        # calibrated confidence at/above which a PR auto-converts to a PO
+    calibration_min_samples: int = 3           # min feedback rows before trust adjusts the bar
+    calibration_max_delta: float = 0.10        # most the bar can move down (trusted) or up (risky)
+
     # Demand forecasting — usage-driven projection (all env-overridable).
     demand_horizon_days: int = 90              # how far ahead the forecast projects
     demand_window_days: int = 90               # trailing usage window for the rate

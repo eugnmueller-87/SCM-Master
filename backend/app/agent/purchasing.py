@@ -329,6 +329,140 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
     )
 
 
+def run_requisition_cycle(db: Session, *, period_days: int = 7,
+                          actor: Optional[str] = None) -> dict:
+    """Stage Purchase Requisitions from detected demand, auto-placing the ones
+    that clear their *calibrated* confidence bar.
+
+    The PR/PO distinction made concrete: this never edits a PO directly. For each
+    supplier bundle it stages an editable PR (the cart). It then asks the
+    calibration service for that supplier's learned auto-place bar per line
+    (lowered for trusted product/supplier pairs, raised for ones humans keep
+    editing). If the bundle's confidence clears the bar AND the bundle is
+    placeable (act/propose, under spend caps), the PR is auto-approved into a PO
+    in the same run (reversible: it's a normal PO until received). Otherwise the
+    PR stays STAGED for a human.
+
+    Returns a summary {staged, auto_placed, requisition_ids}. Idempotent only in
+    the sense that it consumes current demand — running it twice may stage more.
+    """
+    from app.services import calibration as _calib
+    from app.services.requisition import requisition_service as _req
+
+    bundles, orphans = _compute_bundles(db, period_days)
+
+    staged_ids: list[str] = []
+    auto_ids: list[str] = []
+
+    # Orphans (no contracted source) can't be staged as a PR — a PR is keyed to a
+    # supplier and there is none. They are returned as escalations for the UI to
+    # flag "needs a new supplier", never auto-placed.
+
+    for supplier_id, lines in bundles.items():
+        bundle_total = sum(line["line_total"] for line in lines)
+        bundle_confidence = min((line["confidence"] for line in lines), default=0.0)
+        worst = "act"
+        for line in lines:
+            worst = _worse(worst, line.get("agent_decision", "act"))
+        tier = _classify(bundle_total=bundle_total, has_source=True,
+                         agent_decision=worst, confidence=bundle_confidence)
+
+        # Calibrated bar = the strictest (highest) across the bundle's lines, so a
+        # single low-trust product can't drag a whole multi-line PR into auto-place.
+        bar = max(
+            (_calib.calibrate(db, line["product_id"], supplier_id).adjusted_floor
+             for line in lines),
+            default=settings.auto_place_confidence,
+        )
+
+        pr_lines = [{
+            "product_id": line["product_id"],
+            "product_supplier_id": line["product_supplier_id"],
+            "qty": line["qty"], "unit_price": line["unit_price"],
+            "trigger_type": line["trigger"]["type"],
+            "line_confidence": line["confidence"],
+            "rationale": line.get("agent_rationale"),
+        } for line in lines]
+
+        pr = _req.stage(
+            db, supplier_id=supplier_id, confidence=bundle_confidence,
+            confidence_floor=bar, tier=tier,
+            rationale=f"bundle_tier={tier}; {len(lines)} line(s); total={bundle_total:.2f}",
+            order_by=None, lines=pr_lines)
+        staged_ids.append(pr.id)
+
+        # Auto-place only when confidence clears the calibrated bar AND the bundle
+        # is placeable (act/propose) and under the auto spend cap.
+        if (bundle_confidence >= bar and tier in ("act", "propose")
+                and bundle_total <= settings.auto_place_spend_cap):
+            _req.approve(db, pr.id, actor=actor or "agent", auto=True)
+            auto_ids.append(pr.id)
+
+    return {
+        "staged": len(staged_ids),
+        "auto_placed": len(auto_ids),
+        "escalations_no_source": len(orphans),
+        "requisition_ids": staged_ids,
+        "auto_placed_ids": auto_ids,
+    }
+
+
+def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict]], list[dict]]:
+    """Detect needs, net inbound, source, MOQ-round, and judge each line.
+
+    Returns (bundles_by_supplier, orphan_bundles). Each bundle line carries qty,
+    price, trigger, and the copilot's confidence/decision/rationale. Orphans are
+    grouped under a synthetic key per product (no real supplier) for staging as
+    escalate PRs. Shared by the requisition cycle; mirrors the run's Steps 1-4.
+    """
+    needs = _detect_needs(db, period_days)
+    inbound = _inbound_by_product(db)
+
+    net_needs: dict[str, dict] = {}
+    for pid, info in needs.items():
+        net = info["gross_need"] - inbound.get(pid, 0)
+        if net > 0:
+            net_needs[pid] = {**info, "net_need": net}
+
+    bundles: dict[str, list[dict]] = defaultdict(list)
+    orphans: list[dict] = []
+    for pid, info in net_needs.items():
+        ranked = sourcing.suggest_sources(db, pid)
+        if not ranked:
+            orphans.append({
+                "supplier_id": None, "rationale": "No contracted source — new supplier needed.",
+                "lines": [{"product_id": pid, "product_supplier_id": None,
+                           "qty": info["net_need"], "unit_price": None,
+                           "trigger_type": info["type"], "line_confidence": 0.0,
+                           "rationale": "No source"}],
+            })
+            continue
+        src = ranked[0]
+        moq = src.get("min_order_quantity") or 1
+        qty = max(info["net_need"], moq)
+        if moq > 1:
+            qty = math.ceil(qty / moq) * moq
+        unit_price = float(src["contract_price"]) if src.get("contract_price") is not None else 0.0
+
+        line = {
+            "product_id": pid, "product_supplier_id": src["product_supplier_id"],
+            "qty": qty, "unit_price": unit_price, "line_total": qty * unit_price,
+            "trigger": info,
+        }
+        try:
+            rec = copilot.recommend_sourcing(db, pid, qty)
+            line["confidence"] = rec.confidence
+            line["agent_decision"] = rec.decision
+            line["agent_rationale"] = rec.rationale
+        except copilot.AgentError as exc:
+            line["confidence"] = 0.0
+            line["agent_decision"] = "escalate"
+            line["agent_rationale"] = f"copilot unavailable: {exc}"
+        bundles[src["supplier_id"]].append(line)
+
+    return bundles, orphans
+
+
 def _worse(a: str, b: str) -> str:
     """Return the more conservative of two agent decisions (escalate > recommend > act)."""
     order = {"act": 0, "recommend": 1, "escalate": 2}

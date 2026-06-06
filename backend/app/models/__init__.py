@@ -26,6 +26,12 @@ from app.models.procurement import (  # noqa: F401
     OrderStatus,
     PurchaseOrder,
 )
+from app.models.requisition import (  # noqa: F401
+    PurchaseRequisition,
+    RequisitionFeedback,
+    RequisitionLine,
+    RequisitionStatus,
+)
 from app.models.tracking import (  # noqa: F401
     Shipment,
     ShipmentEvent,
@@ -42,6 +48,10 @@ __all__ = [
     "PurchaseOrder",
     "OrderItem",
     "OrderStatus",
+    "PurchaseRequisition",
+    "RequisitionLine",
+    "RequisitionFeedback",
+    "RequisitionStatus",
     "Location",
     "LocationType",
     "Receipt",
