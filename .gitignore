@@ -26,3 +26,6 @@ frontend/.vite/
 Thumbs.db
 .idea/
 .vscode/
+
+# Claude Code local state (scheduler locks, etc.)
+.claude/
