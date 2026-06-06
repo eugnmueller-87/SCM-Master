@@ -972,3 +972,15 @@ button { font-family: inherit; }
 .ictw-reason { grid-column: 1 / -1; font-size: 13px; color: var(--ts-ink-soft); line-height: 1.45; padding: 12px 0 2px; margin-top: 13px; border-top: 1px dashed var(--ts-line); display: none; }
 .ictw-reason::before { content: "PLAN"; font-family: var(--ts-font-mono); font-size: 9px; font-weight: 600; letter-spacing: .12em; background: var(--ts-ink-mute); color: var(--ts-paper); padding: 2px 6px; border-radius: 4px; margin-right: 9px; }
 body.ictw-ai-on .ictw-reason { display: block; }
+
+/* Capacity diagnosis — cause + recommended action under a near/over-capacity row. */
+.cap-headroom { background: var(--ts-surface); border: 1px solid var(--ts-line); border-left: 3px solid var(--ts-positive); border-radius: 8px; padding: 11px 16px; margin-bottom: 16px; font-size: 13.5px; color: var(--ts-ink-soft); }
+.cap-headroom strong { color: var(--ts-ink); font-variant-numeric: tabular-nums; }
+.cap-row--alert td { border-bottom: none; }
+.cap-cause td { padding: 0 22px 14px !important; background: var(--ts-paper-deep); border-bottom: 1px solid var(--ts-line); }
+.cap-cause__inner { padding: 10px 14px; border-left: 2px solid var(--ts-warning); }
+.cap-cause__why { font-size: 13px; color: var(--ts-ink); line-height: 1.45; }
+.cap-cause__bits { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+.cap-tag { font-size: 11.5px; color: var(--ts-ink-mute); background: var(--ts-surface); border: 1px solid var(--ts-line); border-radius: 5px; padding: 2px 8px; }
+.cap-tag--warn { color: var(--ts-warning); border-color: var(--ts-warning-soft); background: var(--ts-warning-wash); }
+.cap-actionhint { font-size: 12px; font-weight: 600; color: var(--ts-ink-mute); }

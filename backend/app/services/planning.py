@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
-from app.models.flow import Asset, AssetStatus, Location, ReceiptItem
+from app.models.flow import Asset, AssetStatus, Location, LocationType, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
@@ -161,6 +161,184 @@ def location_capacity(db: Session) -> list[dict]:
             "over_capacity": bool(loc.capacity is not None and used > loc.capacity),
         })
     return out
+
+
+_CRITICAL_UTIL = 0.85  # at/above this a location is "approaching critical"
+
+
+def capacity_diagnosis(db: Session, *, threshold: float = _CRITICAL_UTIL) -> list[dict]:
+    """For each location at/over ``threshold`` utilisation, explain WHAT is
+    filling it and recommend the RIGHT action.
+
+    Over-capacity is a *placement* problem, not a buying one: too many units we
+    already own are in one place, so the fix is to redistribute (move overflow to
+    a same-type location with room) and/or hold inbound headed there — never to
+    order more. This read surfaces the cause so that action is obvious:
+
+      - cause breakdown: units here by product and by source PO (provenance);
+      - inbound pressure: open order lines whose destination is THIS location and
+        the units still expected, i.e. what will make it worse if not deferred;
+      - recommended_action: ``rebalance`` when a same-type location has free space
+        for the overflow, else ``hold_inbound`` when inbound is the pressure, else
+        ``review`` (full with nowhere to move and nothing inbound to hold).
+
+    Returns one row per critical location, most-utilised first. Empty when
+    nothing is near capacity.
+    """
+    out: list[dict] = []
+    caps = {c["location_id"]: c for c in location_capacity(db)}
+
+    # Inbound units expected per destination location (open orders only).
+    inbound_to_loc: dict[str, int] = {}
+    inbound_pos_to_loc: dict[str, set[str]] = {}
+    for oi, order in db.execute(
+        select(OrderItem, PurchaseOrder)
+        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
+        .where(PurchaseOrder.status.in_(_OPEN_ORDER),
+               PurchaseOrder.destination_id.is_not(None))
+    ).all():
+        outstanding = oi.quantity - _received_qty(db, oi.id)
+        if outstanding <= 0:
+            continue
+        dest = order.destination_id
+        inbound_to_loc[dest] = inbound_to_loc.get(dest, 0) + outstanding
+        inbound_pos_to_loc.setdefault(dest, set()).add(order.order_number)
+
+    for loc_id, cap in caps.items():
+        util = cap["utilisation"]
+        if util is None or util < threshold:
+            continue
+
+        # What's here, by product (name) and by source PO (provenance).
+        assets = db.scalars(select(Asset).where(Asset.current_location_id == loc_id)).all()
+        by_product: dict[str, int] = {}
+        by_po: dict[str, int] = {}
+        by_status: dict[str, int] = {}
+        for a in assets:
+            prod = db.get(Product, a.product_id)
+            pname = prod.name if prod else a.product_id
+            by_product[pname] = by_product.get(pname, 0) + 1
+            by_status[a.status.value] = by_status.get(a.status.value, 0) + 1
+            if a.source_order_item_id:
+                oi = db.get(OrderItem, a.source_order_item_id)
+                if oi:
+                    order = db.get(PurchaseOrder, oi.order_id)
+                    if order:
+                        by_po[order.order_number] = by_po.get(order.order_number, 0) + 1
+
+        inbound_units = inbound_to_loc.get(loc_id, 0)
+        inbound_pos = sorted(inbound_pos_to_loc.get(loc_id, set()))
+
+        # Is there room to rebalance? A same-type location with free space.
+        room_elsewhere = 0
+        targets: list[dict] = []
+        for other in caps.values():
+            if other["location_id"] == loc_id or other["location_type"] != cap["location_type"]:
+                continue
+            free = other["free"]
+            if free and free > 0:
+                room_elsewhere += free
+                targets.append({"code": other["code"], "free": int(free)})
+        targets.sort(key=lambda t: t["free"], reverse=True)
+
+        overflow = max(0, cap["used"] - (cap["capacity"] or cap["used"]))
+        near = not cap["over_capacity"]  # at threshold but not yet over
+
+        if overflow > 0 and room_elsewhere > 0:
+            action = "rebalance"
+            summary = (f"{cap['used']}/{cap['capacity']} used — move {min(overflow, room_elsewhere)} "
+                       f"unit(s) to {targets[0]['code']} (has room). Do NOT order more.")
+        elif inbound_units > 0:
+            action = "hold_inbound"
+            summary = (f"{cap['used']}/{cap['capacity']} used and {inbound_units} more inbound "
+                       f"({', '.join(inbound_pos)}) — hold/defer that delivery; it has nowhere to land.")
+        elif overflow > 0:
+            action = "add_capacity"
+            summary = (f"{cap['used']}/{cap['capacity']} used, over capacity, and no same-type "
+                       f"location has free space — this is an infrastructure problem: add "
+                       f"capacity or decommission units. Moving won't fix it.")
+        else:
+            action = "watch"
+            summary = f"{cap['used']}/{cap['capacity']} used — approaching capacity; watch incoming."
+
+        out.append({
+            "location_id": loc_id,
+            "code": cap["code"],
+            "name": cap["name"],
+            "location_type": cap["location_type"],
+            "used": cap["used"],
+            "capacity": cap["capacity"],
+            "utilisation": util,
+            "over_capacity": cap["over_capacity"],
+            "near_capacity": near,
+            "overflow": overflow,
+            "inbound_units": inbound_units,
+            "inbound_pos": inbound_pos,
+            "by_product": [{"name": k, "units": v} for k, v in sorted(by_product.items(), key=lambda x: -x[1])],
+            "by_source_po": [{"order_number": k, "units": v} for k, v in sorted(by_po.items(), key=lambda x: -x[1])],
+            "by_status": by_status,
+            "room_elsewhere": room_elsewhere,
+            "rebalance_targets": targets,
+            "recommended_action": action,
+            "summary": summary,
+        })
+
+    out.sort(key=lambda r: r["utilisation"], reverse=True)
+    return out
+
+
+def storage_headroom(db: Session) -> dict:
+    """How many MORE units we could physically land — the cap on any order.
+
+    Goods arrive into WAREHOUSE-type locations (the transit warehouse + staging
+    zones), so the storable maximum is the free space across those, **net of what
+    is already inbound** (open orders heading there consume future space). This is
+    the safe inverse of the over-capacity rule: never order more than will fit.
+
+    Returns total storable headroom + a per-zone breakdown, so a buy can be capped
+    (and the UI can say "max N more — that's all the warehouse can take").
+    """
+    zones = []
+    total_free = 0
+    total_inbound = 0
+    caps = {c["location_id"]: c for c in location_capacity(db)}
+
+    # Inbound units per destination (open orders only).
+    inbound_to_loc: dict[str, int] = {}
+    for oi, order in db.execute(
+        select(OrderItem, PurchaseOrder)
+        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
+        .where(PurchaseOrder.status.in_(_OPEN_ORDER),
+               PurchaseOrder.destination_id.is_not(None))
+    ).all():
+        outstanding = oi.quantity - _received_qty(db, oi.id)
+        if outstanding > 0:
+            inbound_to_loc[order.destination_id] = inbound_to_loc.get(order.destination_id, 0) + outstanding
+
+    for loc_id, c in caps.items():
+        if c["location_type"] != LocationType.WAREHOUSE or c["capacity"] is None:
+            continue
+        inbound = inbound_to_loc.get(loc_id, 0)
+        # storable = free space now, minus units already on the way in
+        storable = max(0, (c["free"] or 0) - inbound)
+        total_free += (c["free"] or 0)
+        total_inbound += inbound
+        zones.append({
+            "code": c["code"], "name": c["name"],
+            "capacity": c["capacity"], "used": c["used"],
+            "free": c["free"], "inbound": inbound, "storable": storable,
+        })
+
+    zones.sort(key=lambda z: z["storable"], reverse=True)
+    # No warehouse zone with a defined capacity -> no known storage limit, so the
+    # cap doesn't apply (None, not 0 — 0 would wrongly block all purchasing).
+    storable_max = max(0, total_free - total_inbound) if zones else None
+    return {
+        "storable_max": storable_max,           # units we could order and still store (None = no defined limit)
+        "free_now": total_free,
+        "committed_inbound": total_inbound,
+        "zones": zones,
+    }
 
 
 def deployment_forecast(db: Session) -> dict:

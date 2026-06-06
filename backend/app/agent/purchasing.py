@@ -381,7 +381,8 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
             "qty": line["qty"], "unit_price": line["unit_price"],
             "trigger_type": line["trigger"]["type"],
             "line_confidence": line["confidence"],
-            "rationale": line.get("agent_rationale"),
+            "rationale": (line.get("agent_rationale") or "")
+            + (" [capped to fit warehouse storage]" if line.get("storage_capped") else ""),
         } for line in lines]
 
         pr = _req.stage(
@@ -424,6 +425,11 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
         if net > 0:
             net_needs[pid] = {**info, "net_need": net}
 
+    # Storage cap: never order more than the warehouse can land. We draw down a
+    # shared headroom budget as lines are built, so the whole run's buys fit.
+    # None means no warehouse capacity is defined -> no cap applies.
+    remaining_headroom = planning.storage_headroom(db)["storable_max"]
+
     bundles: dict[str, list[dict]] = defaultdict(list)
     orphans: list[dict] = []
     for pid, info in net_needs.items():
@@ -444,10 +450,29 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
             qty = math.ceil(qty / moq) * moq
         unit_price = float(src["contract_price"]) if src.get("contract_price") is not None else 0.0
 
+        # Cap the order at remaining storage headroom — never buy more than fits.
+        # remaining_headroom is None when no warehouse capacity is defined: then no
+        # cap applies. We respect MOQ: round DOWN to a whole multiple that fits, and
+        # skip the line entirely if not even one MOQ can be stored.
+        storage_capped = False
+        if remaining_headroom is not None and qty > remaining_headroom:
+            fit = remaining_headroom
+            if moq > 1:
+                fit = (fit // moq) * moq
+            if fit < moq:
+                _log.info("purchasing: no storage headroom for product; skipping",
+                          extra={"extra_fields": {"product_id": pid, "want": qty,
+                                                  "headroom": remaining_headroom}})
+                continue
+            qty = fit
+            storage_capped = True
+        if remaining_headroom is not None:
+            remaining_headroom -= qty
+
         line = {
             "product_id": pid, "product_supplier_id": src["product_supplier_id"],
             "qty": qty, "unit_price": unit_price, "line_total": qty * unit_price,
-            "trigger": info,
+            "trigger": info, "storage_capped": storage_capped,
         }
         try:
             rec = copilot.recommend_sourcing(db, pid, qty)

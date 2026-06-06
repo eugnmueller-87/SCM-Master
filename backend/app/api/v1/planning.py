@@ -12,12 +12,14 @@ from app.agent.schemas import DemandReasoningResult
 from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role, User
 from app.schemas.planning import (
+    CapacityDiagnosis,
     DemandForecastItem,
     DeploymentForecast,
     InboundLine,
     InventoryItem,
     LocationCapacity,
     RebalanceResult,
+    StorageHeadroom,
 )
 from app.services import planning
 
@@ -37,6 +39,21 @@ def inbound_pipeline(db: Session = Depends(get_db)):
 def location_capacity(db: Session = Depends(get_db)):
     """Per-location occupancy vs capacity."""
     return planning.location_capacity(db)
+
+
+@router.get("/capacity/diagnosis", response_model=List[CapacityDiagnosis])
+def capacity_diagnosis(db: Session = Depends(get_db)):
+    """For locations approaching/over capacity: what's filling them (by product,
+    source PO, status), any inbound that will worsen it, and the RIGHT fix —
+    rebalance or hold inbound. Over-capacity is a placement problem, never a buy."""
+    return planning.capacity_diagnosis(db)
+
+
+@router.get("/storage-headroom", response_model=StorageHeadroom)
+def storage_headroom(db: Session = Depends(get_db)):
+    """Max units we could still land (free warehouse space net of inbound) — the
+    cap on any order, so we never buy more than we can store."""
+    return planning.storage_headroom(db)
 
 
 @router.get("/forecast", response_model=DeploymentForecast)

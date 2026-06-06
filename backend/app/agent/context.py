@@ -74,6 +74,21 @@ def build_context(db: Session) -> dict:
                      "capacity": c["capacity"], "utilisation": c["utilisation"],
                      "over_capacity": c["over_capacity"]} for c in caps]
 
+    # Critical-capacity diagnosis: WHAT is filling tight locations and the right
+    # fix (rebalance / hold inbound / add capacity). Over-capacity is a placement
+    # problem, never a reason to buy — the agent should say so proactively.
+    capacity_alerts = [{
+        "code": d["code"], "used": d["used"], "capacity": d["capacity"],
+        "utilisation": d["utilisation"], "recommended_action": d["recommended_action"],
+        "inbound_units": d["inbound_units"], "inbound_pos": d["inbound_pos"],
+        "top_cause_po": d["by_source_po"][0]["order_number"] if d["by_source_po"] else None,
+        "summary": d["summary"],
+    } for d in planning.capacity_diagnosis(db)]
+
+    # Storage headroom — the max we could land per warehouse zone (free space net
+    # of inbound already heading there). Caps any order: never buy more than fits.
+    storage_headroom = planning.storage_headroom(db)
+
     # Inbound pipeline (open lines, overdue flags)
     inbound = planning.inbound_pipeline(db)
     inbound_ctx = [{"order_number": r["order_number"], "outstanding": r["outstanding"],
@@ -97,6 +112,8 @@ def build_context(db: Session) -> dict:
         "contracts": contract_rows,
         "spend": spend_ctx,
         "capacity": capacity_ctx,
+        "capacity_alerts": capacity_alerts,
+        "storage_headroom": storage_headroom,
         "inbound": inbound_ctx,
         "tracking": tracking_ctx,
     }

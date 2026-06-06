@@ -519,13 +519,30 @@ RENDER.inbound = async function () {
 };
 
 /* ── Capacity ──────────────────────────────────────────────────────── */
+// recommended-action -> button label + tone (over-capacity is placement, never a buy)
+const CAP_ACTION = {
+  rebalance:   { label: "Rebalance", tone: "negative", title: "Move the overflow to a location with free space" },
+  hold_inbound:{ label: "Hold inbound", tone: "warning", title: "Defer the incoming delivery — it has nowhere to land" },
+  add_capacity:{ label: "Add capacity", tone: "negative", title: "No room to move and over capacity — an infrastructure decision" },
+  watch:       { label: "Watch", tone: "info", title: "Approaching capacity" },
+};
+
 RENDER.capacity = async function () {
   try {
-    const rows = await api("/planning/capacity");
+    const [rows, diag, headroom] = await Promise.all([
+      api("/planning/capacity"),
+      api("/planning/capacity/diagnosis").catch(() => []),
+      api("/planning/storage-headroom").catch(() => null),
+    ]);
+    const DIAG = {};
+    (diag || []).forEach((d) => { DIAG[d.location_id] = d; });
+
     const body = rows.map((r) => {
       const u = r.utilisation != null ? r.utilisation : (r.capacity ? r.used / r.capacity : 0);
       const tone = capTone(u, r.over_capacity);
-      return `<tr>
+      const d = DIAG[r.location_id];
+      const act = d ? (CAP_ACTION[d.recommended_action] || CAP_ACTION.watch) : null;
+      const mainRow = `<tr${d ? ` class="cap-row cap-row--alert"` : ""}>
         <td><div class="cell-prod"><span class="cell-prod__icon">${icon("pin", 15)}</span>
           <div><div class="cell-prod__name">${esc(r.name)}</div><div class="cell-prod__cat ref">${esc(r.code)}</div></div></div></td>
         <td class="muted">${pretty(r.location_type)}</td>
@@ -533,13 +550,33 @@ RENDER.capacity = async function () {
         <td class="num muted">${r.capacity ?? "—"}</td>
         <td><div style="display:flex;align-items:center;gap:12px"><div class="cap-bar"><div class="cap-bar__fill" style="width:${Math.min(u, 1) * 100}%;background:${tone}"></div></div><span class="cap-util" style="color:${tone}">${pct(u)}</span></div></td>
         <td style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
-          ${r.over_capacity ? plainPill("Over capacity", "negative") : ""}
-          ${r.over_capacity ? `<button class="btn btn--sm cap-resolve" data-loc="${r.location_id}" data-code="${esc(r.code)}" title="Move the overflow to a location with free space">Resolve</button>` : ""}
+          ${r.over_capacity ? plainPill("Over capacity", "negative") : (d ? plainPill("Near capacity", "warning") : "")}
+          ${d && d.recommended_action === "rebalance" ? `<button class="btn btn--sm cap-resolve" data-loc="${r.location_id}" data-code="${esc(r.code)}" title="${esc(act.title)}">${act.label}</button>`
+            : d ? `<span class="cap-actionhint" title="${esc(act.title)}">${act.label}</span>` : ""}
         </td>
       </tr>`;
+      // cause + recommended fix expansion row
+      const causeRow = d ? `<tr class="cap-cause"><td colspan="6">
+        <div class="cap-cause__inner">
+          <div class="cap-cause__why">${esc(d.summary)}</div>
+          <div class="cap-cause__bits">
+            ${d.by_source_po.length ? `<span class="cap-tag">filled by ${d.by_source_po.slice(0,3).map((p)=>`${esc(p.order_number)} (${p.units})`).join(", ")}</span>` : ""}
+            ${d.inbound_units > 0 ? `<span class="cap-tag cap-tag--warn">+${d.inbound_units} inbound · ${d.inbound_pos.map(esc).join(", ")}</span>` : ""}
+            ${d.by_product.length ? `<span class="cap-tag">${d.by_product.slice(0,3).map((p)=>`${p.units}× ${esc(p.name)}`).join(", ")}</span>` : ""}
+          </div>
+        </div></td></tr>` : "";
+      return mainRow + causeRow;
     }).join("");
+
+    const hr = headroom && headroom.storable_max != null
+      ? `<div class="cap-headroom"><strong>${headroom.storable_max}</strong> units max we can still store
+         <span class="muted">(${headroom.free_now} free now − ${headroom.committed_inbound} already inbound)</span>
+         — any order is capped to this so nothing arrives with nowhere to go.</div>`
+      : "";
+
     $("#screen").innerHTML = `
-      ${pageHead("Warehouse flow", "Capacity", "Used against capacity per location — the transit warehouse, its staging zones, and each rack in the datacenter. Over-capacity locations can be rebalanced in one click.")}
+      ${pageHead("Warehouse flow", "Capacity", "Used against capacity per location. When a location nears its limit we show what's filling it and the right fix — rebalance, hold inbound, or add capacity. Over-capacity is a placement problem, never a reason to buy.")}
+      ${hr}
       <div class="panel"><table class="tbl">
         <thead><tr><th>Location</th><th>Type</th><th class="num">Used</th><th class="num">Capacity</th><th style="width:200px">Utilisation</th><th></th></tr></thead>
         <tbody>${body || `<tr><td colspan="6"><div class="state"><div class="state__sub">No locations defined.</div></div></td></tr>`}</tbody>

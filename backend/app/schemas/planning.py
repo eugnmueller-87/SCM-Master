@@ -62,6 +62,60 @@ class DemandForecastItem(BaseModel):
     unit_price: Optional[float]
 
 
+class CapacityCause(BaseModel):
+    name: str
+    units: int
+
+
+class CapacityPoCause(BaseModel):
+    order_number: str
+    units: int
+
+
+class CapacityRoom(BaseModel):
+    code: str
+    free: int
+
+
+class CapacityDiagnosis(BaseModel):
+    location_id: str
+    code: str
+    name: str
+    location_type: LocationType
+    used: int
+    capacity: Optional[int]
+    utilisation: Optional[float]
+    over_capacity: bool
+    near_capacity: bool
+    overflow: int
+    inbound_units: int
+    inbound_pos: list[str]
+    by_product: list[CapacityCause]
+    by_source_po: list[CapacityPoCause]
+    by_status: dict[str, int]
+    room_elsewhere: int
+    rebalance_targets: list[CapacityRoom]
+    recommended_action: str   # rebalance / hold_inbound / review / watch
+    summary: str
+
+
+class StorageZone(BaseModel):
+    code: str
+    name: str
+    capacity: int
+    used: int
+    free: Optional[int]
+    inbound: int
+    storable: int
+
+
+class StorageHeadroom(BaseModel):
+    storable_max: Optional[int]  # units we could order and still store; None = no defined limit
+    free_now: int
+    committed_inbound: int
+    zones: list[StorageZone]
+
+
 class RebalanceTarget(BaseModel):
     code: str
     moved: int
