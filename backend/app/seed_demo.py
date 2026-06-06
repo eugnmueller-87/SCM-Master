@@ -33,7 +33,7 @@ from app.models.catalog import Product
 from app.models.flow import AssetStatus, LocationType
 from app.models.procurement import OrderStatus
 from app.services.asset import asset_service
-from app.services.auth import user_service
+from app.services.auth import ensure_user
 from app.services.catalog import (
     organization_service,
     product_service,
@@ -57,17 +57,19 @@ def seed_demo() -> None:
             return
 
         # --- Users across roles (so role-gating can be demoed) ------------
-        user_service.create_user(db, email="admin@example.com", full_name="Anders Mohr",
-                                  password="admin", role=Role.ADMIN)
-        user_service.create_user(db, email="buyer@example.com", full_name="Pia Schulz",
-                                  password="buyer", role=Role.PROCUREMENT)
-        user_service.create_user(db, email="warehouse@example.com", full_name="Tomas Reuter",
-                                  password="whse", role=Role.WAREHOUSE)
-        user_service.create_user(db, email="dc@example.com", full_name="Lena Brandt",
-                                  password="dc", role=Role.DATACENTER)
+        # ensure_user (not create_user): the boot step may already have created
+        # admin/guest, and re-running must not raise on the existing rows.
+        ensure_user(db, email="admin@example.com", full_name="Anders Mohr",
+                    password="admin", role=Role.ADMIN)
+        ensure_user(db, email="buyer@example.com", full_name="Pia Schulz",
+                    password="buyer", role=Role.PROCUREMENT)
+        ensure_user(db, email="warehouse@example.com", full_name="Tomas Reuter",
+                    password="whse", role=Role.WAREHOUSE)
+        ensure_user(db, email="dc@example.com", full_name="Lena Brandt",
+                    password="dc", role=Role.DATACENTER)
         # A read-only guest for the public demo's "Explore as guest" button.
-        user_service.create_user(db, email="guest@example.com", full_name="Demo Guest",
-                                  password="guest", role=Role.VIEWER)
+        ensure_user(db, email="guest@example.com", full_name="Demo Guest",
+                    password="guest", role=Role.VIEWER)
 
         # --- Organizations ------------------------------------------------
         dell = organization_service.create(db, dict(code="DELL", name="Dell Technologies", is_supplier=True, is_manufacturer=True))

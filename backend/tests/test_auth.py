@@ -27,6 +27,20 @@ def test_login_wrong_password_401(client):
     assert r.status_code == 401
 
 
+def test_ensure_user_is_idempotent(db_session):
+    """The boot bootstrap must create a missing user once and never raise on
+    re-run — that's what keeps login working on every deploy."""
+    from app.services.auth import ensure_user, user_service
+
+    created_first = ensure_user(db_session, email="boot@example.com", full_name="Boot",
+                                password="pw", role=Role.VIEWER)
+    created_again = ensure_user(db_session, email="boot@example.com", full_name="Boot",
+                                password="pw", role=Role.VIEWER)
+    assert created_first is True
+    assert created_again is False
+    assert user_service.authenticate(db_session, "boot@example.com", "pw") is not None
+
+
 def test_login_rate_limited_429(client):
     from app.api.v1.auth import login_limiter
 

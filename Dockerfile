@@ -25,6 +25,7 @@ USER appuser
 
 EXPOSE 8000
 
-# Boot: migrate (always) -> seed demo + 18mo history ONLY when SEED_DEMO=1
-# (both idempotent) -> serve on $PORT.
-CMD ["sh", "-c", "alembic upgrade head; if [ \"$SEED_DEMO\" = \"1\" ]; then (python -m app.seed_demo && python -m app.seed_history) || true; fi; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Boot: migrate (always) -> ensure login users always exist (admin + guest,
+# idempotent, env-overridable) -> seed demo + 18mo history ONLY when SEED_DEMO=1
+# -> serve on $PORT.
+CMD ["sh", "-c", "alembic upgrade head; python -m app.services.auth || true; if [ \"$SEED_DEMO\" = \"1\" ]; then (python -m app.seed_demo && python -m app.seed_history) || true; fi; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
