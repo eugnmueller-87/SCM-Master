@@ -331,6 +331,9 @@ button { font-family: inherit; }
   min-width: 18px; text-align: center;
 }
 .navlink__count--urgent { color: var(--ts-negative); background: var(--ts-negative-wash); }
+.navlink--external { text-decoration: none; }
+.navlink__ext { margin-left: auto; color: var(--ts-ink-faint); display: flex; flex-shrink: 0; }
+.navlink--external:hover .navlink__ext { color: var(--ts-brand-gold); }
 
 .sidebar__user {
   margin-top: auto;

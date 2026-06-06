@@ -10,6 +10,14 @@ const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 let token = localStorage.getItem("scm_token") || "";
 
+// The executive analytics cockpit (separate service). Per-environment: the
+// demo build points at the demo cockpit; a prod deploy overrides this by
+// setting window.SCM_ANALYTICS_URL before app.js loads (or via a meta tag).
+const ANALYTICS_URL =
+  (typeof window !== "undefined" && window.SCM_ANALYTICS_URL) ||
+  (document.querySelector('meta[name="scm-analytics-url"]') || {}).content ||
+  "https://scm-power-bi-production.up.railway.app/";
+
 /* ── Domain constants ──────────────────────────────────────────────── */
 const LIFECYCLE = ["RECEIVED", "IN_STORAGE", "DEPLOYED", "MAINTENANCE", "DECOMMISSIONED", "DISPOSED"];
 
@@ -642,6 +650,8 @@ $("#guest-login").addEventListener("click", async (e) => {
   catch (err) { $("#login-error").textContent = err.message; btn.disabled = false; btn.textContent = label; }
 });
 $("#logout").addEventListener("click", logout);
+// Point the sidebar's SCM Analytics link at this environment's cockpit.
+(() => { const a = $("#analytics-link"); if (a) a.href = ANALYTICS_URL; })();
 
 // Boot is triggered by the host page AFTER features.js has registered its
 // nav items / agent button (see the init script in index.html).
