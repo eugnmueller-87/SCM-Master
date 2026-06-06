@@ -28,6 +28,7 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
+from app.core.safety import assert_seeding_allowed
 from app.models.auth import Role
 from app.models.catalog import Product
 from app.models.flow import AssetStatus, LocationType
@@ -50,6 +51,7 @@ def _po_number(n: int) -> str:
 
 
 def seed_demo() -> None:
+    assert_seeding_allowed("demo dataset")  # forge-lock: never seed in prod
     db = SessionLocal()
     try:
         if db.scalar(select(Product).limit(1)):

@@ -70,17 +70,29 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def is_production() -> bool:
+    """Production is decided SOLELY by SCM_ENV=prod — never inferred.
+
+    This is the one switch that forge-locks the environment: it blocks demo
+    seeding and destructive helpers (see seed scripts / safety.py). It must NOT
+    be inferred from the database dialect, because the DEMO also runs on
+    Postgres — inferring prod from Postgres would wrongly lock the demo.
+    """
+    return settings.scm_env.strip().lower() == "prod"
+
+
+def _uses_postgres() -> bool:
+    return settings.database_url.startswith("postgresql")
+
+
 def validate_production() -> None:
     """Fail closed on insecure config. Called at startup (see app.main).
 
-    A real deployment must override SECRET_KEY. We treat the app as "in
-    production" when SCM_ENV=prod OR the database is Postgres — in either case
-    a still-default or too-short secret key aborts boot. SQLite + dev is left
-    alone so local development just works.
+    Any non-SQLite (i.e. real) deployment must override SECRET_KEY with a strong
+    value, and an explicit SCM_ENV=prod always enforces it too. SQLite dev is
+    left alone so local development just works.
     """
-    is_postgres = settings.database_url.startswith("postgresql")
-    is_prod = settings.scm_env.lower() == "prod" or is_postgres
-    if not is_prod:
+    if not (is_production() or _uses_postgres()):
         return
     if settings.secret_key == _INSECURE_SECRET:
         raise RuntimeError(
@@ -91,4 +103,22 @@ def validate_production() -> None:
         raise RuntimeError(
             "Refusing to boot: SECRET_KEY must be at least 32 characters "
             f"in production (got {len(settings.secret_key)})."
+        )
+
+
+def announce_startup() -> None:
+    """Log the environment mode + DB at boot, and assert prod is on durable storage.
+
+    Makes it impossible to be unsure which mode you're serving. In production we
+    also refuse SQLite — prod must be on a persistent database, never an
+    ephemeral in-container file that a redeploy would wipe.
+    """
+    mode = "PRODUCTION (forge-locked)" if is_production() else "DEMO/DEV"
+    dialect = "postgres" if _uses_postgres() else (
+        "sqlite" if settings.database_url.startswith("sqlite") else "other")
+    print(f"[startup] mode={mode}  db={dialect}  scm_env={settings.scm_env!r}")
+    if is_production() and not _uses_postgres():
+        raise RuntimeError(
+            "Refusing to boot PRODUCTION on non-persistent storage: SCM_ENV=prod "
+            "requires a postgresql:// DATABASE_URL (SQLite resets on redeploy)."
         )

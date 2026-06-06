@@ -22,13 +22,14 @@ import app.models  # noqa: F401  -- registers all tables on Base
 from app.api.deps import get_db, require_role
 from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
-from app.core.config import settings, validate_production
+from app.core.config import announce_startup, settings, validate_production
 from app.core.db import Base
 from app.core.observability import RequestContextMiddleware, configure_logging
 from app.models.auth import Role, User
 
 configure_logging()
 validate_production()  # fail closed on insecure config before serving a single request
+announce_startup()     # log DEMO/PROD mode + DB; prod refuses non-persistent storage
 
 app = FastAPI(title=settings.app_name)
 

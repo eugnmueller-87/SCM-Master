@@ -47,3 +47,42 @@ def test_production_guard_allows_sqlite_dev(restore_settings):
     cfg = restore_settings
     cfg.settings = Settings(database_url="sqlite:///./scm.db", scm_env="dev")
     cfg.validate_production()  # no raise
+
+
+# --- forge-lock: production must never seed or run destructively -----------
+
+def test_is_production_only_from_scm_env(restore_settings):
+    cfg = restore_settings
+    # Postgres alone is NOT prod (the demo also runs on Postgres).
+    cfg.settings = Settings(database_url="postgres://u:p@h/db", scm_env="demo")
+    assert cfg.is_production() is False
+    cfg.settings = Settings(scm_env="prod")
+    assert cfg.is_production() is True
+
+
+def test_seed_guards_refuse_in_production(restore_settings):
+    cfg = restore_settings
+    from app.core.safety import ProductionSafetyError, assert_seeding_allowed
+
+    cfg.settings = Settings(scm_env="prod")
+    with pytest.raises(ProductionSafetyError, match="Refusing to seed"):
+        assert_seeding_allowed("demo dataset")
+
+
+def test_seed_guards_allow_in_demo(restore_settings):
+    cfg = restore_settings
+    from app.core.safety import assert_seeding_allowed
+
+    cfg.settings = Settings(scm_env="demo")
+    assert_seeding_allowed("demo dataset")  # no raise
+
+
+def test_production_refuses_sqlite(restore_settings):
+    cfg = restore_settings
+    cfg.settings = Settings(
+        scm_env="prod",
+        database_url="sqlite:///./scm.db",
+        secret_key="x" * 40,  # strong key so we reach the storage check
+    )
+    with pytest.raises(RuntimeError, match="non-persistent"):
+        cfg.announce_startup()

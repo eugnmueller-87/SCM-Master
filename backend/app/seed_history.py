@@ -38,6 +38,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 
 from app.core.db import SessionLocal
+from app.core.safety import assert_seeding_allowed
 from app.models.catalog import Product, ProductSupplier
 from app.models.flow import AssetStatus, Location, LocationType
 from app.models.procurement import OrderStatus
@@ -91,6 +92,7 @@ def _preferred_source(db, product_id: str) -> ProductSupplier | None:
 
 
 def seed_history() -> None:
+    assert_seeding_allowed("demand history")  # forge-lock: never seed in prod
     db = SessionLocal()
     try:
         if db.scalar(select(Location).where(Location.code == HISTORY_DC_CODE)):

@@ -60,30 +60,45 @@ def ensure_user(db: Session, *, email: str, full_name: str,
 def bootstrap_users() -> None:
     """Guarantee a usable login on every boot, independent of the demo seed.
 
-    The demo dataset is gated behind SEED_DEMO=1, so a plain production boot
-    creates no users at all — which would lock everyone out. This ensures an
-    ADMIN (and, unless disabled, a read-only guest) always exist.
+    DEMO (SCM_ENV != prod): ensures admin/admin + a read-only guest so the
+    public demo always has a one-click login.
 
-    All credentials are env-overridable; the defaults are the demo ones:
-      ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME
-      GUEST_ENABLED ("1" default; set "0" in real prod) / GUEST_PASSWORD
+    PRODUCTION (SCM_ENV=prod): forge-locked.
+      - NEVER creates the demo guest account.
+      - REFUSES the weak default admin password — a real ADMIN_PASSWORD must be
+        provided via the environment, or no admin is created (boot still serves;
+        you provision the admin deliberately).
+
+    Credentials are env-overridable: ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_NAME,
+    and (demo only) GUEST_ENABLED / GUEST_EMAIL / GUEST_PASSWORD.
     """
     import os
 
+    from app.core.config import is_production
     from app.core.db import SessionLocal
+
+    prod = is_production()
+    admin_pw = os.getenv("ADMIN_PASSWORD", "admin")
 
     db = SessionLocal()
     try:
         created = []
-        if ensure_user(
+        # In prod, refuse the demo default password — don't create a weak admin.
+        if prod and admin_pw == "admin":
+            print("PROD: ADMIN_PASSWORD not set (or still 'admin') — NOT creating "
+                  "a default admin. Set ADMIN_PASSWORD and redeploy to provision one.")
+        elif ensure_user(
             db,
             email=os.getenv("ADMIN_EMAIL", "admin@example.com"),
             full_name=os.getenv("ADMIN_NAME", "Administrator"),
-            password=os.getenv("ADMIN_PASSWORD", "admin"),
+            password=admin_pw,
             role=Role.ADMIN,
         ):
             created.append("admin")
-        if os.getenv("GUEST_ENABLED", "1") == "1" and ensure_user(
+
+        # The guest account is DEMO-ONLY — never in production.
+        guest_on = (not prod) and os.getenv("GUEST_ENABLED", "1") == "1"
+        if guest_on and ensure_user(
             db,
             email=os.getenv("GUEST_EMAIL", "guest@example.com"),
             full_name="Demo Guest",
