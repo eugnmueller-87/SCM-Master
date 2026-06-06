@@ -40,6 +40,38 @@ def _received_qty(db: Session, order_item_id: str) -> int:
     return int(total or 0)
 
 
+# --- shared aggregations (one definition, reused across the read views) ----
+
+def _on_hand_by_product(db: Session) -> dict[str, int]:
+    """Count of on-hand (RECEIVED/IN_STORAGE) assets per product id."""
+    return {
+        pid: int(n) for pid, n in db.execute(
+            select(Asset.product_id, func.count(Asset.id))
+            .where(Asset.status.in_(_ON_HAND)).group_by(Asset.product_id)
+        ).all()
+    }
+
+
+def _inbound_by_destination(db: Session) -> tuple[dict[str, int], dict[str, set[str]]]:
+    """Outstanding inbound units per destination location, plus the set of PO
+    numbers heading to each. Open orders only. Returns (units_by_loc, pos_by_loc)."""
+    units: dict[str, int] = {}
+    pos: dict[str, set[str]] = {}
+    for oi, order in db.execute(
+        select(OrderItem, PurchaseOrder)
+        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
+        .where(PurchaseOrder.status.in_(_OPEN_ORDER),
+               PurchaseOrder.destination_id.is_not(None))
+    ).all():
+        outstanding = oi.quantity - _received_qty(db, oi.id)
+        if outstanding <= 0:
+            continue
+        dest = order.destination_id
+        units[dest] = units.get(dest, 0) + outstanding
+        pos.setdefault(dest, set()).add(order.order_number)
+    return units, pos
+
+
 def inbound_pipeline(db: Session, *, as_of: Optional[date] = None) -> list[dict]:
     """Open order lines with quantity still outstanding, one row per line."""
     as_of = as_of or date.today()
@@ -180,29 +212,15 @@ def capacity_diagnosis(db: Session, *, threshold: float = _CRITICAL_UTIL) -> lis
         the units still expected, i.e. what will make it worse if not deferred;
       - recommended_action: ``rebalance`` when a same-type location has free space
         for the overflow, else ``hold_inbound`` when inbound is the pressure, else
-        ``review`` (full with nowhere to move and nothing inbound to hold).
+        ``add_capacity`` (over capacity with nowhere to move — an infrastructure
+        decision), else ``watch`` (near capacity but not yet over).
 
     Returns one row per critical location, most-utilised first. Empty when
     nothing is near capacity.
     """
     out: list[dict] = []
     caps = {c["location_id"]: c for c in location_capacity(db)}
-
-    # Inbound units expected per destination location (open orders only).
-    inbound_to_loc: dict[str, int] = {}
-    inbound_pos_to_loc: dict[str, set[str]] = {}
-    for oi, order in db.execute(
-        select(OrderItem, PurchaseOrder)
-        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
-        .where(PurchaseOrder.status.in_(_OPEN_ORDER),
-               PurchaseOrder.destination_id.is_not(None))
-    ).all():
-        outstanding = oi.quantity - _received_qty(db, oi.id)
-        if outstanding <= 0:
-            continue
-        dest = order.destination_id
-        inbound_to_loc[dest] = inbound_to_loc.get(dest, 0) + outstanding
-        inbound_pos_to_loc.setdefault(dest, set()).add(order.order_number)
+    inbound_to_loc, inbound_pos_to_loc = _inbound_by_destination(db)
 
     for loc_id, cap in caps.items():
         util = cap["utilisation"]
@@ -302,18 +320,7 @@ def storage_headroom(db: Session) -> dict:
     total_free = 0
     total_inbound = 0
     caps = {c["location_id"]: c for c in location_capacity(db)}
-
-    # Inbound units per destination (open orders only).
-    inbound_to_loc: dict[str, int] = {}
-    for oi, order in db.execute(
-        select(OrderItem, PurchaseOrder)
-        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
-        .where(PurchaseOrder.status.in_(_OPEN_ORDER),
-               PurchaseOrder.destination_id.is_not(None))
-    ).all():
-        outstanding = oi.quantity - _received_qty(db, oi.id)
-        if outstanding > 0:
-            inbound_to_loc[order.destination_id] = inbound_to_loc.get(order.destination_id, 0) + outstanding
+    inbound_to_loc, _ = _inbound_by_destination(db)
 
     for loc_id, c in caps.items():
         if c["location_type"] != LocationType.WAREHOUSE or c["capacity"] is None:
@@ -391,12 +398,7 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
     window_start = today - timedelta(days=_BURN_WINDOW_DAYS)
 
     # on-hand counts per product
-    on_hand: dict[str, int] = {}
-    for pid, n in db.execute(
-        select(Asset.product_id, func.count(Asset.id))
-        .where(Asset.status.in_(_ON_HAND)).group_by(Asset.product_id)
-    ).all():
-        on_hand[pid] = int(n)
+    on_hand = _on_hand_by_product(db)
 
     # deployed-in-window counts per product -> daily burn
     deployed_window: dict[str, int] = {}
@@ -502,12 +504,7 @@ def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
             if life - horizon <= age < life + horizon:
                 eol_by_product[a.product_id] = eol_by_product.get(a.product_id, 0) + 1
 
-    on_hand: dict[str, int] = {}
-    for pid, n in db.execute(
-        select(Asset.product_id, func.count(Asset.id))
-        .where(Asset.status.in_(_ON_HAND)).group_by(Asset.product_id)
-    ).all():
-        on_hand[pid] = int(n)
+    on_hand = _on_hand_by_product(db)
     inbound = {}
     for row in inbound_pipeline(db, as_of=today):
         inbound[row["product_id"]] = inbound.get(row["product_id"], 0) + int(row["outstanding"])

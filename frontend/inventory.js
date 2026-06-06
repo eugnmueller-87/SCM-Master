@@ -187,8 +187,7 @@ function ictwRow(it, p, i) {
 
   // the hero "next order" cell — qty + when, driven by the plan() rec
   const recQty = d.recommended_order_qty || suggest(it, p.rop);
-  const orderQty = (p.status === "Expedite") ? "Expedite inbound"
-    : (p.status === "On order") ? `Order ${recQty}` : `Order ${recQty}`;
+  const orderQty = (p.status === "Expedite") ? "Expedite inbound" : `Order ${recQty}`;
   const whenCls = chipCls === "crit" ? "now" : chipCls === "warn" ? "soon" : "future";
   const orderWhen = ictwWhen(it, p, d);
 
@@ -272,18 +271,6 @@ async function reasonDemand(btn) {
     btn.disabled = false;
     if (subEl) subEl.textContent = subWas;
   }
-}
-
-// forward-demand cell: projected 90-day demand + shortfall flag (from /planning/demand)
-function demandCell(it) {
-  const d = DEMAND[it.name];
-  if (!d) return `<span class="inv-next inv-next--none">—</span>`;
-  const short = d.projected_shortfall > 0;
-  const rate = d.usage_rate_per_day ? `${d.usage_rate_per_day}/d` : "0/d";
-  return `<div style="line-height:1.35">
-    <div style="font-weight:600">${Math.round(d.projected_demand)} <span style="font-weight:400;color:var(--ts-ink-mute)">in ${d.horizon_days}d</span></div>
-    <div style="font-size:12px;color:${short ? "var(--ts-negative)" : "var(--ts-ink-mute)"}">${short ? `short ${Math.round(d.projected_shortfall)}` : "covered"} · ${rate}</div>
-  </div>`;
 }
 
 function demandRec(it) {

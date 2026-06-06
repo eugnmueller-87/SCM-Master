@@ -145,3 +145,32 @@ def test_order_capped_at_storage_headroom(db_session, monkeypatch):
     line = bundles[org.id][0]
     assert line["qty"] <= 5, "order must be capped to the 5 storable units"
     assert line["storage_capped"] is True
+
+
+def test_weekly_run_also_respects_storage_cap(db_session, monkeypatch):
+    """Regression: the weekly run (not just the requisition cycle) must honour the
+    storage cap. Both flow through _compute_bundles, so neither can over-order."""
+    from app.agent import copilot, purchasing
+    from app.agent.schemas import SourcingRecommendation
+
+    def fake(db, pid, q=None):
+        return SourcingRecommendation(
+            product_id=pid, recommended_source_id="x", recommended_qty=q or 1,
+            rationale="m", signals={}, assumptions=[], uncertainties=[],
+            confidence=0.95, decision="act")
+    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+
+    org = _save(db_session, Organization(name="S", code="S", is_supplier=True))
+    prod = _save(db_session, Product(product_code="P", name="P"))
+    _save(db_session, ProductSupplier(product_id=prod.id, supplier_id=org.id,
+                                      preference_rank=1, min_order_quantity=1, contract_price=10))
+    wh = _wh(db_session, "WH", 100)
+    _fill(db_session, wh, 95, product_id=prod.id)   # only 5 storable
+    for i in range(40):
+        db_session.add(Asset(serial_number=f"D-{i}", product_id=prod.id,
+                             status=AssetStatus.DECOMMISSIONED, decommissioned_date=date.today()))
+    db_session.commit()
+
+    res = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
+    dec = next(d for d in res.decisions if d.product_id == prod.id)
+    assert dec.qty <= 5, "weekly run must not order more than the 5 storable units"

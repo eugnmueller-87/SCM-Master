@@ -95,7 +95,7 @@ class CapacityDiagnosis(BaseModel):
     by_status: dict[str, int]
     room_elsewhere: int
     rebalance_targets: list[CapacityRoom]
-    recommended_action: str   # rebalance / hold_inbound / review / watch
+    recommended_action: str   # rebalance / hold_inbound / add_capacity / watch
     summary: str
 
 

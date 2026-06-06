@@ -85,7 +85,7 @@ function reqCard(pr) {
   const lines = pr.lines.map((l) => {
     const p = PRODUCTS[l.product_id] || {};
     const edited = l.qty !== l.proposed_qty;
-    return `<tr data-line="${l.id}" class="${l.included ? "" : "req-line--dropped"}">
+    return `<tr data-line="${l.id}" data-unit="${Number(l.unit_price) || 0}" class="${l.included ? "" : "req-line--dropped"}">
       <td><label class="req-incl"><input type="checkbox" class="req-incl-cb" ${l.included ? "checked" : ""}/> </label></td>
       <td>${productCell(l.product_id)}</td>
       <td class="muted" style="font-size:12px">${esc(l.trigger_type || "")}</td>
@@ -145,7 +145,7 @@ function wireCards() {
       card.querySelectorAll("tr[data-line]").forEach((tr) => {
         const cb = tr.querySelector(".req-incl-cb");
         const q = tr.querySelector(".req-qty");
-        const unit = parseFloat(tr.querySelector("td.num.muted").textContent.replace(/[^0-9.]/g, "")) || 0;
+        const unit = parseFloat(tr.dataset.unit) || 0;   // from data-unit, not the rendered text
         if (cb.checked) total += (parseInt(q.value, 10) || 0) * unit;
       });
       card.querySelector(".req-total").textContent = total.toLocaleString();

@@ -122,8 +122,6 @@ def _forecast_shortfall(db: Session) -> dict[str, dict]:
     inbound-netting (Step 2) subtracts open orders once — no double-counting with
     the forecast's own available figure.
     """
-    import math
-
     out: dict[str, dict] = {}
     for row in planning.demand_forecast(db):
         gross = row["projected_demand"] - row["on_hand"]
@@ -188,91 +186,31 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
     """
     run_at = _now()
     confirming = approve_suppliers is not None
-    needs = _detect_needs(db, period_days)
-    inbound = _inbound_by_product(db)
 
-    # Step 2: net every gross need against what's already inbound.
-    net_needs: dict[str, dict] = {}
-    for pid, info in needs.items():
-        gross = info["gross_need"]
-        already = inbound.get(pid, 0)
-        net = gross - already
-        if net <= 0:
-            _log.info("purchasing: need fully covered by inbound; skipping",
-                      extra={"extra_fields": {"product_id": pid, "gross": gross,
-                                              "inbound": already}})
-            continue
-        net_needs[pid] = {**info, "net_need": net, "already_inbound": already}
+    # Steps 1-4 (detect -> net -> source -> MOQ-round -> judge) are shared with the
+    # requisition cycle via _compute_bundles, so the two entry points can never
+    # drift (and both honour the warehouse storage cap). This function adds the
+    # tiering + PO-placement that the weekly run owns.
+    bundles, orphans = _compute_bundles(db, period_days)
 
-    # Step 3: resolve contracted source + MOQ rounding + price.
-    # Bundle key = supplier_id; products with no source become escalate decisions.
-    bundles: dict[str, list[dict]] = defaultdict(list)
-    orphan_decisions: list[PurchasingDecision] = []
+    # Orphans (no contracted source) -> escalate decisions, never placed.
+    decisions: list[PurchasingDecision] = []
+    for o in orphans:
+        line = o["lines"][0]
+        trigger = DemandTrigger(type=line["trigger_type"], evidence={})
+        decisions.append(PurchasingDecision(
+            product_id=line["product_id"], supplier_id=None, qty=line["qty"],
+            unit_price=None, total=0.0, trigger=trigger, tier="escalate",
+            confidence=0.0,
+            rationale="No contracted source exists for this product — new supplier needed.",
+        ))
 
-    for pid, info in net_needs.items():
-        ranked = sourcing.suggest_sources(db, pid)
-        if not ranked:
-            trigger = DemandTrigger(type=info["type"], evidence=info["evidence"])
-            orphan_decisions.append(PurchasingDecision(
-                product_id=pid, supplier_id=None, qty=info["net_need"],
-                unit_price=None, total=0.0, trigger=trigger, tier="escalate",
-                confidence=0.0,
-                rationale="No contracted source exists for this product — new supplier needed.",
-            ))
-            _log.info("purchasing: no contracted source -> escalate",
-                      extra={"extra_fields": {"product_id": pid, "net_need": info["net_need"]}})
-            continue
-
-        src = ranked[0]  # preferred source (already ranked by preference_rank)
-        moq = src.get("min_order_quantity") or 1
-        qty = max(info["net_need"], moq)
-        if moq > 1:
-            qty = math.ceil(qty / moq) * moq
-        unit_price = float(src["contract_price"]) if src.get("contract_price") is not None else 0.0
-        bundles[src["supplier_id"]].append({
-            "product_id": pid,
-            "product_supplier_id": src["product_supplier_id"],
-            "qty": qty,
-            "unit_price": unit_price,
-            "line_total": qty * unit_price,
-            "lead_time_days": src.get("standard_lead_time_days"),
-            "trigger": info,
-        })
-
-    # Steps 4-6: ONE PO per supplier (required for invoice matching), so the
-    # whole supplier bundle is judged and tiered together — a single PO maps to a
-    # single tier and a single placed_po_id. The copilot still judges each line
-    # (it is product-specific); the bundle's tier is the conservative aggregate.
-    decisions: list[PurchasingDecision] = list(orphan_decisions)
-
+    # ONE PO per supplier (required for invoice matching), so the whole supplier
+    # bundle is judged and tiered together — a single PO maps to a single tier and
+    # a single placed_po_id.
     for supplier_id, lines in bundles.items():
         bundle_total = sum(line["line_total"] for line in lines)
-
-        # Step 4: judge each line; collect confidences and per-line agent calls.
-        line_confidences: list[float] = []
-        worst_decision = "act"  # degrades toward escalate as lines disagree
-        for line in lines:
-            try:
-                rec = copilot.recommend_sourcing(db, line["product_id"], line["qty"])
-                line["confidence"] = rec.confidence
-                line["agent_decision"] = rec.decision
-                line["agent_rationale"] = rec.rationale
-            except copilot.AgentError as exc:
-                line["confidence"] = 0.0
-                line["agent_decision"] = "escalate"
-                line["agent_rationale"] = f"copilot unavailable: {exc}"
-            line_confidences.append(line["confidence"])
-            worst_decision = _worse(worst_decision, line["agent_decision"])
-
-        # Bundle confidence = weakest link (an auto-place is only as safe as its
-        # least-confident line). Tier the bundle as a whole.
-        bundle_confidence = min(line_confidences) if line_confidences else 0.0
-        tier = _classify(
-            bundle_total=bundle_total,
-            has_source=True,
-            agent_decision=worst_decision,
-            confidence=bundle_confidence,
-        )
+        bundle_confidence, tier = _tier_bundle(lines, bundle_total)
 
         # Step 6: side effects — ONE multi-line PO per supplier.
         #   Normal run:  auto-place ACT bundles on a live (non-dry) run.
@@ -360,12 +298,7 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
 
     for supplier_id, lines in bundles.items():
         bundle_total = sum(line["line_total"] for line in lines)
-        bundle_confidence = min((line["confidence"] for line in lines), default=0.0)
-        worst = "act"
-        for line in lines:
-            worst = _worse(worst, line.get("agent_decision", "act"))
-        tier = _classify(bundle_total=bundle_total, has_source=True,
-                         agent_decision=worst, confidence=bundle_confidence)
+        bundle_confidence, tier = _tier_bundle(lines, bundle_total)
 
         # Calibrated bar = the strictest (highest) across the bundle's lines, so a
         # single low-trust product can't drag a whole multi-line PR into auto-place.
@@ -488,6 +421,23 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
     return bundles, orphans
 
 
+def _tier_bundle(lines: list[dict], bundle_total: float) -> tuple[float, str]:
+    """Aggregate a supplier bundle's per-line judgments into one (confidence, tier).
+
+    Bundle confidence = weakest link (an auto-place is only as safe as its
+    least-confident line); the agent decision degrades toward escalate as lines
+    disagree. The whole bundle gets one tier because it becomes one PO. Shared by
+    both the weekly run and the requisition cycle so tiering can't drift.
+    """
+    bundle_confidence = min((line["confidence"] for line in lines), default=0.0)
+    worst = "act"
+    for line in lines:
+        worst = _worse(worst, line.get("agent_decision", "act"))
+    tier = _classify(bundle_total=bundle_total, has_source=True,
+                     agent_decision=worst, confidence=bundle_confidence)
+    return bundle_confidence, tier
+
+
 def _worse(a: str, b: str) -> str:
     """Return the more conservative of two agent decisions (escalate > recommend > act)."""
     order = {"act": 0, "recommend": 1, "escalate": 2}
@@ -504,10 +454,9 @@ def _classify(*, bundle_total: float, has_source: bool,
         return "escalate"
     if confidence < settings.act_confidence_floor:
         return "escalate" if agent_decision == "escalate" else "propose"
-    # ACT requires ALL: agent says act, confidence floor met, under the auto cap.
-    if (agent_decision == "act"
-            and confidence >= settings.act_confidence_floor
-            and bundle_total <= settings.auto_place_spend_cap):
+    # Past here the confidence floor is met (the guard above returned otherwise).
+    # ACT also requires: agent says act, and the bundle is under the auto cap.
+    if agent_decision == "act" and bundle_total <= settings.auto_place_spend_cap:
         return "act"
     if agent_decision == "escalate":
         return "escalate"
