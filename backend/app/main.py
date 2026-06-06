@@ -19,14 +19,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  -- registers all tables on Base
-from app.api.deps import get_db
+from app.api.deps import get_db, require_role
 from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
-from app.core.config import settings
+from app.core.config import settings, validate_production
 from app.core.db import Base
 from app.core.observability import RequestContextMiddleware, configure_logging
+from app.models.auth import Role, User
 
 configure_logging()
+validate_production()  # fail closed on insecure config before serving a single request
 
 app = FastAPI(title=settings.app_name)
 
@@ -49,8 +51,9 @@ def readyz(db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/schema")
-def schema() -> dict:
-    """List the tables the domain model defines — a sanity check."""
+def schema(_admin: User = Depends(require_role(Role.ADMIN))) -> dict:
+    """List the tables the domain model defines — a sanity check. Admin-only:
+    the table inventory is internal detail, not for anonymous callers."""
     return {"tables": sorted(Base.metadata.tables.keys())}
 
 

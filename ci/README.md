@@ -1,18 +1,15 @@
 # CI workflow
 
-[`ci.yml`](ci.yml) is the GitHub Actions pipeline for this repo: **ruff lint →
-migrate-check (autogenerate must be a no-op, so models and migrations can't
-drift) → pytest**, run against `backend/`.
+The GitHub Actions pipeline now lives at
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml), where Actions will
+actually run it. It has two jobs:
 
-It lives here rather than in `.github/workflows/` because adding/updating files
-under `.github/workflows/` requires a token with the `workflow` OAuth scope. To
-activate it:
+- **test** (SQLite): ruff lint → migrate-check (autogenerate must be a no-op, so
+  models and migrations can't drift) → pytest.
+- **test-postgres**: spins up a Postgres 16 service and runs migrations + the
+  full suite against it, catching any SQLite/Postgres dialect drift.
 
-```bash
-mkdir -p .github/workflows
-cp ci/ci.yml .github/workflows/ci.yml
-git add .github/workflows/ci.yml && git commit -m "ci: activate workflow" && git push
-```
-
-(That push must be made with a credential that has the `workflow` scope — e.g.
-`gh auth refresh -s workflow` first.)
+> **Note on pushing workflow changes:** adding or updating files under
+> `.github/workflows/` requires a credential with the `workflow` OAuth scope.
+> If a push is rejected for that reason, run `gh auth refresh -s workflow`
+> first.

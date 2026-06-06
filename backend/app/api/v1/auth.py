@@ -1,11 +1,13 @@
 """Auth routes: login (OAuth2 password flow), register (admin-only), and /me."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_role
+from app.core.config import settings
+from app.core.ratelimit import FixedWindowLimiter
 from app.core.security import create_access_token
 from app.models.auth import Role, User
 from app.schemas.auth import Token, UserCreate, UserRead
@@ -13,9 +15,25 @@ from app.services.auth import user_service
 
 router = APIRouter(tags=["auth"], prefix="/auth")
 
+# Per-IP brute-force guard on login (in-process, fixed window). Defaults from
+# settings; env-overridable via LOGIN_RATE_LIMIT / LOGIN_RATE_WINDOW_SECONDS.
+login_limiter = FixedWindowLimiter(
+    limit=settings.login_rate_limit,
+    window_seconds=settings.login_rate_window_seconds,
+)
+
 
 @router.post("/login", response_model=Token)
-def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, form: OAuth2PasswordRequestForm = Depends(),
+          db: Session = Depends(get_db)):
+    client_ip = request.client.host if request.client else "unknown"
+    retry_after = login_limiter.hit(client_ip)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
     user = user_service.authenticate(db, form.username, form.password)
     if user is None:
         raise HTTPException(

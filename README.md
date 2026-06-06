@@ -231,7 +231,7 @@ The **domain model is in place**. Below is the full intended scope, sequenced in
 - [x] **Test suite** — pytest: pure unit tests for the lifecycle state machine + API integration tests over an isolated in-memory DB ([`backend/tests/`](backend/tests/)); 55 tests across every phase.
 - [x] **AuthN / AuthZ** — JWT login (bcrypt + PyJWT), a `User`/`Role` model, and role-gated writes: PROCUREMENT (orders/approvals/re-sourcing), WAREHOUSE (receiving), WAREHOUSE+DATACENTER (asset transitions); ADMIN passes all. ([`core/security.py`](backend/app/core/security.py), [`api/v1/auth.py`](backend/app/api/v1/auth.py)).
 - [x] **Observability** — JSON structured logging, a per-request correlation id (`X-Request-ID`), an access log line, and `/readyz` (DB check) alongside `/health` ([`core/observability.py`](backend/app/core/observability.py)).
-- [x] **Containerisation & CI** — [`Dockerfile`](backend/Dockerfile) (non-root) + [`docker-compose.yml`](docker-compose.yml) (Postgres), and a CI pipeline — ruff lint, migrate-check (no schema drift), pytest — in [`ci/ci.yml`](ci/ci.yml) (see [`ci/README.md`](ci/README.md) to activate).
+- [x] **Containerisation & CI** — [`Dockerfile`](backend/Dockerfile) (non-root) + [`docker-compose.yml`](docker-compose.yml) (Postgres), and a GitHub Actions pipeline in [`.github/workflows/ci.yml`](.github/workflows/ci.yml): a **SQLite** job (ruff lint → migrate-check for no schema drift → pytest) and a **Postgres** job that runs migrations + the full suite against a real Postgres service to catch dialect drift.
 - [x] **Frontend** — a dependency-free operations UI ([`frontend/`](frontend/)) served by FastAPI at `/`: login, the asset board with one-click lifecycle transitions and provenance trace, inbound pipeline, capacity, and spend.
 
 ### Phase 6 — Enterprise integration (SAP + Coupa) 🟡 *(in progress)*
@@ -247,3 +247,28 @@ data and (next) proposing actions back as requisitions. Full design:
 - [ ] **SAP inbound** — `sap.py` adapter mapping IDoc / OData (material + vendor master, PO/GR) onto the same canonical records.
 - [ ] **Write-back** — emit **requisitions** to Coupa (not POs), so Coupa keeps approval + invoice matching; backed by an outbox + idempotency keys.
 - [ ] **Scheduled / event-driven sync** and **SSO (OIDC/SAML against Azure AD)**.
+
+### Phase 7 — Autonomous agent + analytics + production hardening ✅ *(done)*
+
+- [x] **Procurement agent** — an LLM-backed copilot ([`app/agent/`](backend/app/agent/)) that detects demand, nets it against on-hand + inbound, sources to a preferred supplier, applies MOQ, and judges each bundle. High-confidence bundles auto-place; the rest wait for a human.
+- [x] **Requisitions (PR → PO) with self-calibration** — `POST /requisitions/run` stages **Purchase Requests** (editable) from live demand; ones clearing a *learned* confidence bar auto-convert to a fixed **Purchase Order**, the rest land as an editable cart (`/requisitions`, `PATCH …/lines/{id}`, `…/approve`, `…/reject`). Outcome-feedback calibration moves the bar per product/supplier (`/requisitions/calibration`). An order is never larger than the warehouse can store.
+- [x] **Capacity diagnosis** — `GET /planning/capacity/diagnosis` traces an over-capacity location to its cause (by product / source PO / status) and recommends a *placement* action (rebalance / hold inbound / add capacity), never a buy; `GET /planning/storage-headroom` caps how much can be ordered and still stored.
+- [x] **Logistics tracking** — control-tower shipments with a milestone trail, derived from the real POs so Tracking reconciles with Procurement/Inbound.
+- [x] **Demand history + forecast backtest** — ~18 months of dated usage ([`app/seed_history.py`](backend/app/seed_history.py)) so the forecast can be scored (MAPE / bias) against actuals, with flat CSV exports for Power BI.
+- [x] **Production hardening** — fail-closed config guard (refuses to boot in prod with an insecure/short `SECRET_KEY`), demo seeding gated behind `SEED_DEMO=1`, an in-process per-IP rate limit on `/auth/login` (HTTP 429 + `Retry-After`), and `/schema` locked to ADMIN.
+
+## Production deployment
+
+The public demo runs with seed data and a known password; a real deployment
+does not. Set these environment variables:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `SECRET_KEY` | **yes** | ≥32 chars. The app **refuses to boot** in production with the insecure default or a key shorter than 32 chars. |
+| `DATABASE_URL` | **yes** | A `postgresql+psycopg://…` URL. A Postgres URL alone puts the app in "production" mode for the config guard. |
+| `SCM_ENV` | recommended | Set to `prod` to enforce the secure-config guard regardless of database dialect. |
+| `SEED_DEMO` | leave **unset** | Set to `1` only for the demo. When unset, boot runs migrations but **no** demo/admin seed. |
+| `ANTHROPIC_API_KEY` | optional | Enables the procurement copilot; without it the agent falls back to deterministic rules. |
+
+Boot order on the container is always `alembic upgrade head` (migrations run
+every time); demo/history seeding runs only when `SEED_DEMO=1`.

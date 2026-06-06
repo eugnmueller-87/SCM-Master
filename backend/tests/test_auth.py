@@ -27,6 +27,20 @@ def test_login_wrong_password_401(client):
     assert r.status_code == 401
 
 
+def test_login_rate_limited_429(client):
+    from app.api.v1.auth import login_limiter
+
+    login_limiter.reset()  # isolate from any earlier login attempts in the suite
+    anon = client.anon()
+    # The default limit is 10/window; the 11th attempt from the same IP is 429.
+    for _ in range(login_limiter._limit):
+        anon.post(f"{B}/auth/login", data={"username": "admin@example.com", "password": "wrong"})
+    r = anon.post(f"{B}/auth/login", data={"username": "admin@example.com", "password": "wrong"})
+    assert r.status_code == 429
+    assert int(r.headers["Retry-After"]) > 0
+    login_limiter.reset()  # leave clean state for any later test
+
+
 def test_unauthenticated_write_is_401(client):
     # creating a product is open, but placing an order is gated
     s = build_scenario(client)  # built as admin
