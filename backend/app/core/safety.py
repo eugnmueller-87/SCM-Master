@@ -10,11 +10,27 @@ from the database — because the demo also runs on Postgres.
 """
 from __future__ import annotations
 
+import os
+
 from app.core.config import is_production
 
 
 class ProductionSafetyError(RuntimeError):
     """Raised when a destructive or demo-only action is attempted in production."""
+
+
+def should_seed_demo() -> bool:
+    """Should the boot auto-seed the demo dataset?
+
+    The demo is self-wiring: it seeds whenever this is NOT production, so a fresh
+    deploy comes up populated with no env var to set. Two explicit overrides:
+      • SCM_ENV=prod  -> never (forge-locked; also enforced in the seeders).
+      • SEED_DEMO=0   -> opt out even in demo (e.g. to inspect an empty demo DB).
+    The seeders are idempotent, so re-running on an already-seeded DB is a no-op.
+    """
+    if is_production():
+        return False
+    return os.getenv("SEED_DEMO", "1") != "0"
 
 
 def assert_seeding_allowed(what: str) -> None:

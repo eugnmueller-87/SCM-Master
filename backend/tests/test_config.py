@@ -77,6 +77,25 @@ def test_seed_guards_allow_in_demo(restore_settings):
     assert_seeding_allowed("demo dataset")  # no raise
 
 
+def test_should_seed_demo_self_wires(restore_settings, monkeypatch):
+    cfg = restore_settings
+    from app.core import safety
+
+    # Demo + no env var -> auto-seed (the self-wiring default).
+    monkeypatch.delenv("SEED_DEMO", raising=False)
+    cfg.settings = Settings(scm_env="demo")
+    assert safety.should_seed_demo() is True
+
+    # Explicit opt-out.
+    monkeypatch.setenv("SEED_DEMO", "0")
+    assert safety.should_seed_demo() is False
+
+    # Production never auto-seeds, even with SEED_DEMO=1.
+    monkeypatch.setenv("SEED_DEMO", "1")
+    cfg.settings = Settings(scm_env="prod")
+    assert safety.should_seed_demo() is False
+
+
 def test_production_refuses_sqlite(restore_settings):
     cfg = restore_settings
     cfg.settings = Settings(

@@ -32,7 +32,6 @@ Idempotent: bails out if the history datacenter already exists.
 from __future__ import annotations
 
 import hashlib
-import os
 from datetime import date, timedelta
 
 from sqlalchemy import select
@@ -176,8 +175,10 @@ def seed_history() -> None:
 
 
 if __name__ == "__main__":
-    # Same opt-in gate as seed_demo: demand history is demo-only data.
-    if os.getenv("SEED_DEMO") != "1":
-        print("SEED_DEMO != 1 — skipping history seed (set SEED_DEMO=1 to populate demo data).")
-    else:
+    # Self-wiring demo (same rule as seed_demo): seed unless prod or SEED_DEMO=0.
+    from app.core.safety import should_seed_demo
+
+    if should_seed_demo():
         seed_history()
+    else:
+        print("Skipping history seed (production, or SEED_DEMO=0).")

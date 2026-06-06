@@ -21,7 +21,6 @@ Idempotent: bails out if the catalog is already populated.
 """
 from __future__ import annotations
 
-import os
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -355,9 +354,11 @@ def _seed_tracking_from_pos(db) -> None:
 
 
 if __name__ == "__main__":
-    # Demo data is opt-in: it creates a known-password admin and is for the
-    # public demo only. Production boots with SEED_DEMO unset and skips this.
-    if os.getenv("SEED_DEMO") != "1":
-        print("SEED_DEMO != 1 — skipping demo seed (set SEED_DEMO=1 to populate demo data).")
-    else:
+    # Self-wiring demo: seed unless this is production (forge-locked) or the
+    # operator opted out with SEED_DEMO=0. Idempotent on an already-seeded DB.
+    from app.core.safety import should_seed_demo
+
+    if should_seed_demo():
         seed_demo()
+    else:
+        print("Skipping demo seed (production, or SEED_DEMO=0).")
