@@ -1,0 +1,48 @@
+diff --git a/.env.example b/.env.example
+index f957406..c2b283c 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,8 +1,23 @@
+ # Copy to .env and fill in. .env is gitignored — never commit real credentials.
+ # Used by deploy/server.js to log into the SCM Master API server-side.
++#
++# This cockpit is a thin proxy: it logs into ONE SCM Master instance and serves
++# its analytics. "Demo vs production" = which instance API_BASE points at.
++#
++#   DEMO  cockpit  ->  API_BASE = the demo SCM Master URL
++#   PROD  cockpit  ->  API_BASE = the production SCM Master URL
++#
++# The cockpit only reads, so use a read-only VIEWER account (never an admin).
+ 
++# --- DEMO (default) -------------------------------------------------------
+ API_BASE=https://scm-master-production.up.railway.app
+-API_USER=admin@example.com        # demo account — replace with a service account in production
+-API_PASS=admin                    # demo password — never use real secrets here
++API_USER=guest@example.com        # read-only guest — safe; cannot mutate data
++API_PASS=guest
++
++# --- PRODUCTION (set these on the prod cockpit service instead) -----------
++# API_BASE=https://<prod-scm-master-url>
++# API_USER=<read-only account>
++# API_PASS=<that account's password>
++
+ PORT=8080
+ REFRESH_SECONDS=300               # how often the cockpit pulls fresh data
+diff --git a/deploy/server.js b/deploy/server.js
+index 2c1396e..9683783 100644
+--- a/deploy/server.js
++++ b/deploy/server.js
+@@ -5,9 +5,11 @@ const http = require("http");
+ const fs = require("fs");
+ const path = require("path");
+ 
++// API_BASE selects the environment: demo cockpit -> demo SCM Master, prod -> prod.
++// The cockpit only reads, so default to the read-only guest (never admin).
+ const API   = process.env.API_BASE || "https://scm-master-production.up.railway.app";
+-const USER  = process.env.API_USER || "admin@example.com";
+-const PASS  = process.env.API_PASS || "admin";
++const USER  = process.env.API_USER || "guest@example.com";
++const PASS  = process.env.API_PASS || "guest";
+ const PORT  = process.env.PORT || 8080;
+ const REFRESH_MS = (process.env.REFRESH_SECONDS ? +process.env.REFRESH_SECONDS : 300) * 1000;
+ 
