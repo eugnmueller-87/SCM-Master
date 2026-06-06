@@ -104,77 +104,148 @@ async function loadInventory() {
   INV_LOADED = true;
 }
 
-/* ── render ────────────────────────────────────────────────────────── */
+/* ── render — "control tower": action-queue KPIs + a Next-order hero column ─ */
 RENDER.inventory = async function () {
   if (!INV_LOADED) { await loadInventory(); }
-  const plans = INVENTORY.map((it) => ({ it, p: plan(it) }));
-  const reorder = plans.filter((x) => ["Reorder", "Stock-out risk", "Expedite"].includes(x.p.status)).length;
+  document.body.classList.remove("ictw-ai-on");  // start with rationale rows hidden
+  // Most-urgent first, so the table reads as an action queue.
+  const ORDER = { negative: 0, warning: 1, info: 2, positive: 3 };
+  const plans = INVENTORY.map((it) => ({ it, p: plan(it) }))
+    .sort((a, b) => (ORDER[a.p.tone] - ORDER[b.p.tone]) || (a.p.cover - b.p.cover));
+
+  const act = plans.filter((x) => ["Stock-out risk", "Expedite"].includes(x.p.status)).length;
+  const reorder = plans.filter((x) => x.p.status === "Reorder").length;
+  const inbound = plans.filter((x) => x.it.on_order > 0).length;
   const over = plans.filter((x) => x.p.status === "Overstock risk").length;
 
-  const legend = `<div class="inv-legend">
-    <div class="inv-legend__item"><span class="inv-legend__sw inv-legend__sw--onhand"></span>On hand</div>
-    <div class="inv-legend__item"><span class="inv-legend__sw inv-legend__sw--onorder"></span>On order (inbound)</div>
-    <div class="inv-legend__item"><span class="inv-legend__tick"></span>Reorder point</div>
-    <div class="inv-legend__item" style="margin-left:auto;color:var(--ts-ink-faint)">Bar spans 0 → warehouse capacity per item</div>
+  const kpis = `<div class="ictw-kpis">
+    ${ictwKpi("crit", "Act today", act, act ? `${plans.filter((x)=>x.p.status==="Expedite").length} expedite · ${plans.filter((x)=>x.p.status==="Stock-out risk").length} stock-out` : "nothing urgent")}
+    ${ictwKpi("warn", "Reorder soon", reorder, "below reorder point")}
+    ${ictwKpi("ok", "Inbound", inbound, "shipments in transit")}
+    ${ictwKpi("idle", "Overstock risk", over, over ? "trim the next PO" : "none over capacity")}
   </div>`;
 
-  const rows = plans.map(({ it, p }) => {
-    const t = TONE[p.tone];
-    const ohPct = Math.min(it.on_hand / it.capacity, 1) * 100;
-    const ooW = Math.min(it.on_order / it.capacity, 1 - it.on_hand / it.capacity) * 100;
-    const ropPct = Math.min(p.rop / it.capacity, 1) * 100;
-    const ohColor = p.tone === "negative" ? "var(--ts-negative)" : p.tone === "warning" ? "var(--ts-warning)" : p.tone === "info" ? "var(--ts-info)" : "var(--ts-positive)";
-    const coverColor = p.cover <= it.lead_time_days ? "var(--ts-negative)" : p.cover < it.lead_time_days * 1.6 ? "#8C6510" : "var(--ts-ink)";
-    return `<tr>
-      <td>${productCell(invPid(it))}</td>
-      <td class="muted">${esc(it.location)}</td>
-      <td>
-        <div class="inv-bar-wrap">
-          <div class="inv-bar">
-            <div class="inv-bar__onhand" style="width:${ohPct}%;background:${ohColor}"></div>
-            ${it.on_order > 0 ? `<div class="inv-bar__onorder" style="left:${ohPct}%;width:${Math.max(ooW, 0)}%"></div>` : ""}
-            <div class="inv-bar__rop" style="left:${ropPct}%" title="Reorder point ${p.rop}"></div>
-          </div>
-          <div class="inv-scale"><span>${it.on_hand} on hand${it.on_order ? ` · +${it.on_order} inbound` : ""}</span><span>cap ${it.capacity}</span></div>
-        </div>
-      </td>
-      <td class="num"><span class="inv-cover" style="color:${coverColor}">${p.cover > 365 ? "365+" : p.cover}d</span></td>
-      <td>${demandCell(it)}</td>
-      <td>${p.etaDays != null ? `<span class="inv-next">${icon("truck", 14)} ${p.etaDays}d · ${shortDate(it.next_eta)}</span>` : `<span class="inv-next inv-next--none">none scheduled</span>`}</td>
-      <td>${plainPill(p.status, p.tone)}</td>
-    </tr>
-    <tr><td colspan="7" style="padding-top:0;border-bottom:1px solid var(--ts-line)"><div class="inv-rec" style="color:${t.fg}">${esc(p.rec)}${demandRec(it)}</div></td></tr>`;
-  }).join("");
+  const legend = `<div class="ictw-legend">
+    <div class="ictw-li"><span class="ictw-sw-fill"></span>On hand</div>
+    <div class="ictw-li"><span class="ictw-sw-in"></span>Inbound</div>
+    <div class="ictw-li"><span class="ictw-sw-re"></span>Reorder point</div>
+    <div class="ictw-li" style="margin-left:auto">bar spans 0 → capacity per item</div>
+  </div>`;
 
-  $("#screen").innerHTML = `<div class="fade-in">
-    ${pageHead("Planning", "Inventory & reorder", "Stock against warehouse capacity for every item, with the reorder point and the next delivery date — so you can see what to order, how much, and what not to overstock.")}
-    <div class="tkpis">
-      <div class="tkpi"><div class="tkpi__label">Items tracked</div><div class="tkpi__val">${INVENTORY.length}</div></div>
-      <div class="tkpi"><div class="tkpi__label">Need reordering</div><div class="tkpi__val tkpi__val--neg">${reorder}</div></div>
-      <div class="tkpi"><div class="tkpi__label">Overstock risk</div><div class="tkpi__val" style="color:#8C6510">${over}</div></div>
-      <div class="tkpi"><div class="tkpi__label">On order, inbound</div><div class="tkpi__val tkpi__val--info">${INVENTORY.filter((i) => i.on_order > 0).length}</div></div>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;margin:4px 0 14px">
-      <button class="btn btn--ink" id="inv-reason"
-        title="Run AI reasoning over the live demand forecast">
-        ${icon("gauge", 15)} AI demand reasoning
+  const rows = plans.map(({ it, p }, i) => ictwRow(it, p, i)).join("");
+
+  $("#screen").innerHTML = `<div class="fade-in ictw">
+    <div class="ictw-head">
+      ${pageHead("Inventory · Control Tower", "What to order, how much, by when",
+        "Stock and days-of-cover for every item, with the next order you need to place and anything already inbound.")}
+      <button class="ictw-aitoggle" id="inv-reason" title="Run AI reasoning over the live demand forecast">
+        <div><div class="ictw-aitoggle__lbl">AI demand reasoning</div><div class="ictw-aitoggle__sub">Risks the math misses</div></div>
+        <span class="ictw-switch"></span>
       </button>
-      <span class="muted" style="font-size:12px">Deterministic forecast above; the AI reads risks the math misses (expiring contracts, single source, overdue inbound, capacity).</span>
     </div>
+    ${kpis}
     <div id="inv-reasoning"></div>
     ${legend}
-    <div class="panel"><table class="tbl">
-      <thead><tr><th>Item</th><th>Held at</th><th style="width:260px">Stock vs capacity</th><th class="num">Cover</th><th>90-day demand</th><th>Next delivery</th><th>Action</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
+    <div class="panel ictw-panel">
+      <div class="ictw-thead">
+        <span>Item</span><span>In stock</span><span class="num">90-day need</span>
+        <span>Inbound</span><span class="num">Next order to place</span>
+      </div>
+      <div>${rows}</div>
+    </div>
   </div>`;
   const rb = $("#inv-reason");
   if (rb) rb.addEventListener("click", () => reasonDemand(rb));
 };
 
+function ictwKpi(kind, label, num, meta) {
+  return `<div class="ictw-kpi ictw-kpi--${kind}">
+    <div class="ictw-kpi__lbl"><span class="ictw-dot"></span>${esc(label)}</div>
+    <div class="ictw-kpi__num">${num}</div>
+    <div class="ictw-kpi__meta">${esc(meta)}</div>
+  </div>`;
+}
+
+// status -> chip label + tone for the hero "Next order" column
+const ICTW_CHIP = {
+  "Stock-out risk": ["STOCK-OUT", "crit"], "Expedite": ["EXPEDITE", "crit"],
+  "Reorder": ["REORDER", "warn"], "Overstock risk": ["OVERSTOCK", "warn"],
+  "On order": ["ON ORDER", "ok"], "Healthy": ["HEALTHY", "ok"],
+};
+
+function ictwRow(it, p, i) {
+  const d = DEMAND[it.name] || {};
+  const fillPct = Math.min(it.on_hand / it.capacity, 1) * 100;
+  const inbW = Math.max(Math.min(it.on_order / it.capacity, 1 - fillPct / 100) * 100, 0);
+  const roPct = Math.min(p.rop / it.capacity, 1) * 100;
+  const coverCls = p.cover <= it.lead_time_days ? "c-crit" : p.cover <= it.lead_time_days * 1.6 ? "c-warn" : "c-ok";
+  const [chipLbl, chipCls] = ICTW_CHIP[p.status] || ["—", "ok"];
+
+  // demand: projected 90-day need + shortfall, from /planning/demand
+  const need = d.projected_demand != null ? Math.round(d.projected_demand) : null;
+  const short = d.projected_shortfall != null ? Math.round(d.projected_shortfall) : null;
+  const rate = d.usage_rate_per_day != null ? `${d.usage_rate_per_day}/d` : "";
+
+  // the hero "next order" cell — qty + when, driven by the plan() rec
+  const recQty = d.recommended_order_qty || suggest(it, p.rop);
+  const orderQty = (p.status === "Expedite") ? "Expedite inbound"
+    : (p.status === "On order") ? `Order ${recQty}` : `Order ${recQty}`;
+  const whenCls = chipCls === "crit" ? "now" : chipCls === "warn" ? "soon" : "future";
+  const orderWhen = ictwWhen(it, p, d);
+
+  const inboundCell = it.on_order
+    ? `<div class="i-qty">+${it.on_order}</div><div class="i-date">${it.next_eta ? shortDate(it.next_eta) : "scheduled"}</div>${p.etaDays != null && p.etaDays < 0 ? `<div class="i-flag">overdue ${-p.etaDays}d</div>` : ""}`
+    : `<span class="i-none">—</span>`;
+
+  return `<div class="ictw-row" style="animation-delay:${i * 50}ms">
+    <div class="ictw-item">${productCell(invPid(it))}</div>
+    <div class="ictw-stock">
+      <div class="ictw-stock__top">
+        <span class="ictw-qty">${it.on_hand}</span><span class="ictw-unit">units</span>
+        <span class="ictw-cover ${coverCls}">${p.cover > 365 ? "365+" : p.cover}d cover</span>
+      </div>
+      <div class="ictw-bar">
+        <div class="ictw-bar__fill" style="width:${fillPct}%"></div>
+        ${inbW > 0 ? `<div class="ictw-bar__inb" style="left:${fillPct}%;width:${inbW}%"></div>` : ""}
+        <div class="ictw-bar__ro" style="left:${roPct}%" title="Reorder point ${p.rop}"></div>
+      </div>
+    </div>
+    <div class="ictw-demand num">
+      ${need != null ? `<div class="d-main">${need}</div>
+        <div class="d-sub ${short > 0 ? "" : "zero"}">${short > 0 ? "short " + short : "covered"}</div>
+        ${rate ? `<div class="d-rate">${rate}</div>` : ""}` : `<span class="i-none">—</span>`}
+    </div>
+    <div class="ictw-inbound">${inboundCell}</div>
+    <div class="ictw-order num">
+      <span class="ictw-ochip ${chipCls}">${chipLbl}</span>
+      <div class="o-qty">${esc(orderQty)}</div>
+      <div class="o-when ${whenCls}">${esc(orderWhen)}</div>
+    </div>
+    <div class="ictw-reason">${esc(p.rec)}${demandRec(it)}</div>
+  </div>`;
+}
+
+// human "when to order" line for the hero column
+function ictwWhen(it, p, d) {
+  if (p.status === "Expedite") return `lands in ${p.etaDays}d · add bridge buy`;
+  if (p.status === "Stock-out risk") return "now";
+  if (p.status === "Reorder") return `now · below reorder point (${p.rop})`;
+  if (p.status === "On order") {
+    const by = d.order_by ? ` · reorder by ${fmtDate(d.order_by)}` : "";
+    return `${p.etaDays != null ? p.etaDays + "d to land" : "inbound"}${by}`;
+  }
+  if (p.status === "Overstock risk") return `trim next PO by ${p.projected - it.capacity}`;
+  return "no action";
+}
+
 async function reasonDemand(btn) {
   const box = $("#inv-reasoning");
-  btn.disabled = true; const label = btn.innerHTML; btn.innerHTML = "Reasoning…";
+  btn.disabled = true;
+  btn.classList.add("ictw-aitoggle--on");
+  document.body.classList.add("ictw-ai-on");   // reveal the per-row PLAN rationale
+  const subEl = btn.querySelector(".ictw-aitoggle__sub");
+  const subWas = subEl ? subEl.textContent : "";
+  if (subEl) subEl.textContent = "Reasoning…";
   box.innerHTML = `<div class="state"><div class="state__sub">The agent is reasoning over the live forecast…</div></div>`;
   try {
     const res = await api("/planning/demand/reason", { method: "POST" });
@@ -197,8 +268,10 @@ async function reasonDemand(btn) {
     </div>`;
   } catch (e) {
     box.innerHTML = errState(e.message || "Reasoning unavailable");
+    btn.classList.remove("ictw-aitoggle--on");
   } finally {
-    btn.disabled = false; btn.innerHTML = label;
+    btn.disabled = false;
+    if (subEl) subEl.textContent = subWas;
   }
 }
 
