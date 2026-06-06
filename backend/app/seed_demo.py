@@ -65,6 +65,9 @@ def seed_demo() -> None:
                                   password="whse", role=Role.WAREHOUSE)
         user_service.create_user(db, email="dc@example.com", full_name="Lena Brandt",
                                   password="dc", role=Role.DATACENTER)
+        # A read-only guest for the public demo's "Explore as guest" button.
+        user_service.create_user(db, email="guest@example.com", full_name="Demo Guest",
+                                  password="guest", role=Role.VIEWER)
 
         # --- Organizations ------------------------------------------------
         dell = organization_service.create(db, dict(code="DELL", name="Dell Technologies", is_supplier=True, is_manufacturer=True))

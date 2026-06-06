@@ -633,6 +633,14 @@ $("#login-form").addEventListener("submit", async (e) => {
   try { await login($("#login-email").value, $("#login-password").value); }
   catch (err) { $("#login-error").textContent = err.message; }
 });
+// One-click read-only tour for casual visitors (seeded VIEWER account).
+$("#guest-login").addEventListener("click", async (e) => {
+  const btn = e.currentTarget; const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Signing in…";
+  $("#login-error").textContent = "";
+  try { await login("guest@example.com", "guest"); }
+  catch (err) { $("#login-error").textContent = err.message; btn.disabled = false; btn.textContent = label; }
+});
 $("#logout").addEventListener("click", logout);
 
 // Boot is triggered by the host page AFTER features.js has registered its
