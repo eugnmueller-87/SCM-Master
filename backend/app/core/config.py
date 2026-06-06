@@ -3,6 +3,7 @@
 Values come from environment variables (or a local .env file) so the same
 code runs against SQLite in dev and Postgres in production.
 """
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _INSECURE_SECRET = "dev-insecure-change-me-0000000000000000"
@@ -17,6 +18,22 @@ class Settings(BaseSettings):
     scm_env: str = "dev"
     # SQLite by default; swap to a postgresql:// URL via DATABASE_URL in prod.
     database_url: str = "sqlite:///./scm.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_db_url(cls, v: str) -> str:
+        """Make Railway's injected DATABASE_URL work as-is.
+
+        Hosting providers expose Postgres as ``postgresql://…`` (and sometimes
+        the legacy ``postgres://``). SQLAlchemy maps a bare ``postgresql://`` to
+        the psycopg2 driver, which we don't ship — so we pin the psycopg (v3)
+        driver we DO ship. Paste the provider's URL unchanged; this rewrites it.
+        """
+        if v.startswith("postgres://"):
+            v = "postgresql://" + v[len("postgres://"):]
+        if v.startswith("postgresql://"):
+            v = "postgresql+psycopg://" + v[len("postgresql://"):]
+        return v
 
     # Auth. Override SECRET_KEY in any real deployment (env / .env).
     secret_key: str = _INSECURE_SECRET  # >=32 bytes; override in prod
