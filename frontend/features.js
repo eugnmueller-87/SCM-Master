@@ -49,11 +49,6 @@ function budgetOf(r) {
   return { budget, spent, remaining, pct, over: spent > budget };
 }
 
-/* register the nav item (before init runs in the host page) */
-(function () {
-  const i = NAV.findIndex((n) => n.id === "capacity");
-  NAV.splice(i + 1, 0, { id: "contracts", label: "Contracts", icon: "contract" });
-})();
 CRUMBS.contracts = "Contracts";
 
 let contractCache = [];

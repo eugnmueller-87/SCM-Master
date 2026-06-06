@@ -70,8 +70,7 @@ const TRACKING = [
     ] },
 ];
 
-CRUMBS.tracking = "Tracking";
-(function () { const i = NAV.findIndex((n) => n.id === "inbound"); NAV.splice(i + 1, 0, { id: "tracking", label: "Tracking", icon: "track" }); })();
+CRUMBS.tracking = "Orders";
 
 /* ── helpers ───────────────────────────────────────────────────────── */
 const shortDate = (iso) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });

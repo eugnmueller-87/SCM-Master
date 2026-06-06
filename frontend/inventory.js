@@ -18,7 +18,6 @@
 ICONS.stock = '<path d="M3 9l9-6 9 6v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>';
 
 CRUMBS.inventory = "Inventory";
-(function () { const i = NAV.findIndex((n) => n.id === "capacity"); NAV.splice(i + 1, 0, { id: "inventory", label: "Inventory", icon: "stock" }); })();
 
 /* ── seed: per-item stock + reorder signals ────────────────────────── */
 const INVENTORY = [

@@ -17,10 +17,6 @@
 ICONS.cart = '<path d="M3 3h2l2.4 12.3a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L21 7H6"/><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/>';
 
 CRUMBS.requisitions = "Requisitions";
-(function () {
-  const i = NAV.findIndex((n) => n.id === "inventory");
-  NAV.splice(i + 1, 0, { id: "requisitions", label: "Requisitions", icon: "cart", countKey: "staged" });
-})();
 if (typeof COUNTS === "object") COUNTS.staged = null;
 
 const TIER_TONE = { act: "positive", propose: "warning", escalate: "negative" };

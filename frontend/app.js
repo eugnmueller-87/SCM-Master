@@ -44,11 +44,14 @@ const TONE = {
 };
 
 const NAV = [
-  { id: "overview", label: "Overview", icon: "gauge" },
-  { id: "assets",   label: "Assets",   icon: "box",    countKey: "assets" },
-  { id: "inbound",  label: "Inbound",  icon: "truck",  countKey: "inbound" },
-  { id: "capacity", label: "Capacity", icon: "layers" },
-  { id: "spend",    label: "Spend",    icon: "euro" },
+  { id: "overview",     label: "Overview",     icon: "gauge" },
+  { id: "inventory",    label: "Inventory",    icon: "stock" },
+  { id: "requisitions", label: "Requisitions", icon: "cart",  countKey: "staged" },
+  { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },
+  { id: "assets",       label: "Assets",       icon: "box",   countKey: "assets" },
+  { id: "capacity",     label: "Capacity",     icon: "layers" },
+  { id: "contracts",    label: "Contracts",    icon: "contract" },
+  { id: "spend",        label: "Spend",        icon: "euro" },
 ];
 
 /* ── Icons (Lucide stroke language) ────────────────────────────────── */
@@ -197,7 +200,7 @@ function renderNav() {
   $("#nav").innerHTML = NAV.map((n) => {
     const active = currentTab === n.id;
     const c = n.countKey ? COUNTS[n.countKey] : null;
-    const urgent = n.id === "inbound" && COUNTS.overdue > 0;
+    const urgent = n.id === "tracking" && COUNTS.overdue > 0;
     const badge = c != null ? `<span class="navlink__count${urgent ? " navlink__count--urgent" : ""}">${c}</span>` : "";
     return `<button class="navlink${active ? " navlink--active" : ""}" data-tab="${n.id}">
       <span class="navlink__icon">${icon(n.icon, 16)}</span><span>${n.label}</span>${badge}</button>`;
