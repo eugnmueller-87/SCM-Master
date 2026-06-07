@@ -15,3 +15,4 @@ omit =
     app/seed_history.py
     app/seed_tracking.py
     app/seed_costing.py
+    app/seed_tco.py
