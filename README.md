@@ -1,14 +1,14 @@
 # SCM Master
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-online-2ea44f?logo=railway&logoColor=white)](https://scm-master-production.up.railway.app)
+[![Analytics Cockpit](https://img.shields.io/badge/Analytics-cockpit-F2C811?logo=powerbi&logoColor=black)](https://scm-power-bi-production.up.railway.app)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
-[![Pydantic](https://img.shields.io/badge/Pydantic-2-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
-[![Tests](https://img.shields.io/badge/tests-132_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Tests](https://img.shields.io/badge/tests-166_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
-[![Power BI](https://img.shields.io/badge/BI-Power_BI_exports-F2C811?logo=powerbi&logoColor=black)](docs/powerbi-analytics.md)
 
 A supply-chain management system for **hardware procurement and asset lifecycle tracking** — built for the case where a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
 
@@ -255,20 +255,51 @@ data and (next) proposing actions back as requisitions. Full design:
 - [x] **Capacity diagnosis** — `GET /planning/capacity/diagnosis` traces an over-capacity location to its cause (by product / source PO / status) and recommends a *placement* action (rebalance / hold inbound / add capacity), never a buy; `GET /planning/storage-headroom` caps how much can be ordered and still stored.
 - [x] **Logistics tracking** — control-tower shipments with a milestone trail, derived from the real POs so Tracking reconciles with Procurement/Inbound.
 - [x] **Demand history + forecast backtest** — ~18 months of dated usage ([`app/seed_history.py`](backend/app/seed_history.py)) so the forecast can be scored (MAPE / bias) against actuals, with flat CSV exports for Power BI.
-- [x] **Production hardening** — fail-closed config guard (refuses to boot in prod with an insecure/short `SECRET_KEY`), demo seeding gated behind `SEED_DEMO=1`, an in-process per-IP rate limit on `/auth/login` (HTTP 429 + `Retry-After`), and `/schema` locked to ADMIN.
+- [x] **Production hardening** — fail-closed config guard (refuses to boot in prod with an insecure/short `SECRET_KEY`), an in-process per-IP rate limit on `/auth/login` (HTTP 429 + `Retry-After`), and `/schema` locked to ADMIN.
+- [x] **Forge-locked production + self-wiring demo** — `SCM_ENV=prod` makes the app refuse to seed, refuse demo accounts, and refuse non-persistent (SQLite) storage; the demo auto-seeds on every boot. Ships the Postgres driver and auto-pins it on `DATABASE_URL`.
+- [x] **Two-stack live deployment** — isolated demo and production stacks on separate Railway projects + databases (each with its own [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI)); production deploys from a dedicated `production` branch. Runbook in [docs/DEPLOY.md](docs/DEPLOY.md).
 
-## Production deployment
+## Live deployment — two isolated stacks
 
-The public demo runs with seed data and a known password; a real deployment
-does not. Set these environment variables:
+The system runs as **two completely separate stacks** that share no database and
+cannot affect each other — a public demo and a forge-locked production:
 
-| Variable | Required | Notes |
+| | **Demo** | **Production** |
 | --- | --- | --- |
-| `SECRET_KEY` | **yes** | ≥32 chars. The app **refuses to boot** in production with the insecure default or a key shorter than 32 chars. |
-| `DATABASE_URL` | **yes** | A `postgresql+psycopg://…` URL. A Postgres URL alone puts the app in "production" mode for the config guard. |
-| `SCM_ENV` | recommended | Set to `prod` to enforce the secure-config guard regardless of database dialect. |
-| `SEED_DEMO` | leave **unset** | Set to `1` only for the demo. When unset, boot runs migrations but **no** demo/admin seed. |
-| `ANTHROPIC_API_KEY` | optional | Enables the procurement copilot; without it the agent falls back to deterministic rules. |
+| App | [scm-master-production](https://scm-master-production.up.railway.app) | own Railway project + Postgres |
+| Analytics cockpit | [scm-power-bi-production](https://scm-power-bi-production.up.railway.app) | own cockpit, wired to the prod API |
+| Data | self-seeds on boot (always populated) | **empty** — real data only |
+| Mode | `SCM_ENV` unset | `SCM_ENV=prod` (forge-locked) |
 
-Boot order on the container is always `alembic upgrade head` (migrations run
-every time); demo/history seeding runs only when `SEED_DEMO=1`.
+The **analytics cockpit** ([SCM-POWER-BI](https://github.com/eugnmueller-87/SCM-POWER-BI))
+is a thin server-side proxy: it logs into one SCM Master instance, pulls the
+analytics endpoints, and serves an executive dashboard — so each environment's
+cockpit reflects only its own data.
+
+### Production is forge-locked
+
+When `SCM_ENV=prod`, the app refuses to do anything that could corrupt real data:
+
+- **Never seeds** — the demo seeders refuse to run, even if `SEED_DEMO=1` is set by mistake.
+- **No demo accounts** — no guest user, and it rejects the weak default admin password.
+- **Persistent storage only** — refuses to boot on SQLite (must be Postgres).
+- **Fails closed** — won't boot with an insecure or <32-char `SECRET_KEY`.
+
+The demo, by contrast, **self-wires**: it auto-seeds a lived-in dataset on every
+boot (no flag needed), so it is never empty.
+
+### Environment variables
+
+| Variable | Demo | Production |
+| --- | --- | --- |
+| `DATABASE_URL` | own Postgres (or SQLite) | own Postgres (`postgresql://…` — driver is auto-pinned) |
+| `SCM_ENV` | unset | `prod` |
+| `SECRET_KEY` | any | **strong, ≥32 chars** (enforced) |
+| `ADMIN_PASSWORD` | — | a real password (no weak default in prod) |
+| `SEED_DEMO` | `1` or unset (auto-seeds) | leave unset / `0` |
+| `ANTHROPIC_API_KEY` | optional | optional (same key fine for both) |
+| `SCM_ANALYTICS_URL` | demo cockpit URL | prod cockpit URL |
+
+Boot order is always `alembic upgrade head` → ensure login users → self-wiring
+demo seed (skipped in prod) → serve. See [docs/DEPLOY.md](docs/DEPLOY.md) for the
+full runbook (provisioning each stack, wiring the cockpit, branch strategy).
