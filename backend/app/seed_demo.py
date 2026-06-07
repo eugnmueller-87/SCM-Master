@@ -227,6 +227,10 @@ def seed_demo() -> None:
         for a in cage_assets:
             asset_service.move(db, a.id, cage.id, actor="warehouse")
 
+        # --- Should-cost: commodities + classes + a BOM for the R760 ------
+        from app.seed_costing import seed_costing
+        seed_costing(db)
+
         db.commit()
 
         # --- Control-tower shipments derived from the REAL POs ------------
