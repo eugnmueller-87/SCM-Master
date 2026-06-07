@@ -31,3 +31,7 @@ Thumbs.db
 
 # Claude Code local state (scheduler locks, etc.)
 .claude/
+
+# Coverage artifacts
+.coverage
+htmlcov/
