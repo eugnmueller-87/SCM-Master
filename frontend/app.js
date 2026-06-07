@@ -653,6 +653,12 @@ $("#logout").addEventListener("click", logout);
 // Point the sidebar's SCM Analytics link at this environment's cockpit.
 (() => { const a = $("#analytics-link"); if (a) a.href = ANALYTICS_URL; })();
 
+// On production, hide demo-only login affordances (guest button + sample
+// credentials hint). The backend reports this via the public /health endpoint.
+fetch("/health").then((r) => r.json()).then((h) => {
+  if (h && h.is_production) $$(".demo-only").forEach((el) => el.remove());
+}).catch(() => {});
+
 // Boot is triggered by the host page AFTER features.js has registered its
 // nav items / agent button (see the init script in index.html).
 window.__scmInit = function () { if (token) boot(); else logout(); };

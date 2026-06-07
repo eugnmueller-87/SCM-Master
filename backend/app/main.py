@@ -22,7 +22,7 @@ import app.models  # noqa: F401  -- registers all tables on Base
 from app.api.deps import get_db, require_role
 from app.api.errors import register_error_handlers
 from app.api.v1 import api_router
-from app.core.config import announce_startup, settings, validate_production
+from app.core.config import announce_startup, is_production, settings, validate_production
 from app.core.db import Base
 from app.core.observability import RequestContextMiddleware, configure_logging
 from app.models.auth import Role, User
@@ -40,8 +40,9 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/health")
 def health() -> dict:
-    """Liveness: the process is up and serving."""
-    return {"status": "ok", "app": settings.app_name}
+    """Liveness: the process is up and serving. ``is_production`` lets the login
+    page hide demo-only hints (guest button, sample credentials) on prod."""
+    return {"status": "ok", "app": settings.app_name, "is_production": is_production()}
 
 
 @app.get("/readyz")
