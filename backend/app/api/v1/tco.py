@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.auth import User
-from app.schemas.tco import AssetTCO, PortfolioTCO
+from app.schemas.tco import AssetTCO, PortfolioTCO, TCOByClassRow
 from app.services import tco as svc
 
 router = APIRouter(tags=["tco"])
@@ -36,3 +36,10 @@ def portfolio_tco(baseline: float = Query(..., gt=0, description="revenue/cost b
                   exclude_landed_types: Optional[List[str]] = Query(None),
                   db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
     return svc.portfolio_tco(db, Decimal(str(baseline)), exclude_landed_types=exclude_landed_types)
+
+
+@router.get("/tco/by-class", response_model=List[TCOByClassRow])
+def tco_by_class(exclude_landed_types: Optional[List[str]] = Query(None),
+                 db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
+    """Per-category TCO breakdown (only assets with recorded cost layers)."""
+    return svc.tco_by_class(db, exclude_landed_types=exclude_landed_types)

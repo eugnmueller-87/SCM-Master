@@ -208,5 +208,54 @@ def portfolio_tco(db: Session, baseline: Decimal,
     }
 
 
+def tco_by_class(db: Session,
+                 exclude_landed_types: Optional[Iterable[str]] = None) -> list[dict]:
+    """Per-product-category TCO breakdown — only assets that have TCO layers.
+
+    For the analytics/cockpit view: groups the waterfall by the asset's product
+    category (storage/compute/gpu/switch). Assets with no cost layers recorded
+    (e.g. baseline demo assets) are excluded so the breakdown reflects modelled
+    TCO, not acquisition-only rows.
+    """
+    from app.models.catalog import Product
+
+    has_layer_ids = set(db.scalars(select(LandedCost.asset_id)).all()) | \
+        set(db.scalars(select(OpexLedger.asset_id)).all())
+
+    buckets: dict[str, dict] = {}
+    for asset in db.scalars(select(Asset)).all():
+        if asset.id not in has_layer_ids:
+            continue
+        prod = db.get(Product, asset.product_id)
+        cat = (prod.category if prod and prod.category else "other")
+        r = asset_tco(db, asset.id, exclude_landed_types=exclude_landed_types)
+        w = r["waterfall"]
+        b = buckets.setdefault(cat, {
+            "category": cat, "assets": 0, "acquisition": _ZERO, "landed": _ZERO,
+            "deployment": _ZERO, "opex": _ZERO, "eol": _ZERO, "recovery": _ZERO,
+            "tco_total": _ZERO,
+        })
+        b["assets"] += 1
+        for k in ("acquisition", "landed", "deployment", "opex", "eol", "recovery"):
+            b[k] += _d(w[k])
+        b["tco_total"] += _d(r["tco_total"])
+
+    out = []
+    for b in buckets.values():
+        out.append({
+            "category": b["category"],
+            "assets": b["assets"],
+            "acquisition": float(b["acquisition"]),
+            "landed": float(b["landed"]),
+            "deployment": float(b["deployment"]),
+            "opex": float(b["opex"]),
+            "eol": float(b["eol"]),
+            "recovery": float(b["recovery"]),
+            "tco_total": float(b["tco_total"]),
+            "avg_tco": float(b["tco_total"] / b["assets"]) if b["assets"] else 0.0,
+        })
+    return sorted(out, key=lambda x: -x["tco_total"])
+
+
 # Re-export for callers that pass enum members to the filter.
-__all__ = ["asset_tco", "portfolio_tco", "CurrencyMixError", "LandedCostType"]
+__all__ = ["asset_tco", "portfolio_tco", "tco_by_class", "CurrencyMixError", "LandedCostType"]

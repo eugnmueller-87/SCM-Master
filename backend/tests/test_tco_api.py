@@ -92,6 +92,21 @@ def test_portfolio_requires_positive_baseline(client, db_session):
     assert client.get(f"{B}/tco/portfolio?baseline=0").status_code == 422
 
 
+def test_tco_by_class_endpoint(client, db_session):
+    a = _asset_with_full_tco(db_session)
+    # the asset's product has no category set → groups under "other"
+    r = client.get(f"{B}/tco/by-class")
+    assert r.status_code == 200, r.text
+    rows = r.json()
+    assert len(rows) >= 1
+    row = rows[0]
+    assert row["assets"] == 1
+    assert row["acquisition"] == 20857.51
+    assert row["avg_tco"] == row["tco_total"]  # one asset → avg == total
+    _ = a
+
+
 def test_tco_endpoints_require_auth(client):
     anon = client.anon()
     assert anon.get(f"{B}/tco/portfolio?baseline=1000").status_code == 401
+    assert anon.get(f"{B}/tco/by-class").status_code == 401

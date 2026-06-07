@@ -49,3 +49,16 @@ class PortfolioTCO(BaseModel):
     total_cost_pct: float  # ΣTCO / baseline (includes hardware)
     tscmc_pct: float       # Σ(TCO − acquisition) / baseline (SCOR: excludes acquisition)
     excluded_landed_types: list[str]
+
+
+class TCOByClassRow(BaseModel):
+    category: str
+    assets: int
+    acquisition: float
+    landed: float
+    deployment: float
+    opex: float
+    eol: float
+    recovery: float
+    tco_total: float
+    avg_tco: float

@@ -231,6 +231,13 @@ def seed_demo() -> None:
         from app.seed_costing import seed_costing
         seed_costing(db)
 
+        # --- TCO: synthetic per-asset cost layers (controlled dataset) -----
+        # A smaller run than the standalone CLI default (120 vs 400) keeps the
+        # demo DB light while still spanning all 4 classes. Idempotent +
+        # forge-locked inside seed_tco itself.
+        from app.seed_tco import seed_tco
+        seed_tco(db, seed=42, n_assets=120)
+
         db.commit()
 
         # --- Control-tower shipments derived from the REAL POs ------------
