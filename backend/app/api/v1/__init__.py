@@ -8,6 +8,7 @@ from app.api.v1.agent import router as agent_router
 from app.api.v1.asset import router as asset_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.catalog import router as catalog_router
+from app.api.v1.costing import router as costing_router
 from app.api.v1.exports import router as exports_router
 from app.api.v1.flow import router as flow_router
 from app.api.v1.integrations import router as integrations_router
@@ -30,3 +31,4 @@ api_router.include_router(tracking_router)
 api_router.include_router(integrations_router)
 api_router.include_router(exports_router)
 api_router.include_router(requisitions_router)
+api_router.include_router(costing_router)

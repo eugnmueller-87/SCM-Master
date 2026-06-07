@@ -11,6 +11,16 @@ from app.models.catalog import (  # noqa: F401
     Product,
     ProductSupplier,
 )
+from app.models.costing import (  # noqa: F401
+    BOM,
+    BOMLine,
+    Commodity,
+    CommodityPrice,
+    ComponentClass,
+    CostingMethod,
+    CostParams,
+    ShouldCostRun,
+)
 from app.models.flow import (  # noqa: F401
     Asset,
     AssetEvent,
@@ -45,6 +55,14 @@ __all__ = [
     "Organization",
     "Product",
     "ProductSupplier",
+    "BOM",
+    "BOMLine",
+    "Commodity",
+    "CommodityPrice",
+    "ComponentClass",
+    "CostingMethod",
+    "CostParams",
+    "ShouldCostRun",
     "PurchaseOrder",
     "OrderItem",
     "OrderStatus",
