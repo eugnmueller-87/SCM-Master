@@ -42,6 +42,16 @@ from app.models.requisition import (  # noqa: F401
     RequisitionLine,
     RequisitionStatus,
 )
+from app.models.tco import (  # noqa: F401
+    DeploymentCost,
+    DeploymentTask,
+    DepreciationMethod,
+    EolCost,
+    LandedCost,
+    LandedCostType,
+    OpexLedger,
+    RecoveryValue,
+)
 from app.models.tracking import (  # noqa: F401
     Shipment,
     ShipmentEvent,
@@ -82,4 +92,12 @@ __all__ = [
     "TrkPurchaseOrder",
     "Shipment",
     "ShipmentEvent",
+    "LandedCost",
+    "LandedCostType",
+    "DeploymentCost",
+    "DeploymentTask",
+    "OpexLedger",
+    "EolCost",
+    "RecoveryValue",
+    "DepreciationMethod",
 ]

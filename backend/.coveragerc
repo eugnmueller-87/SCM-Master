@@ -1,0 +1,17 @@
+# Coverage configuration.
+#
+# Seed / synthetic-data generators are operational scripts, not application
+# logic — they build demo datasets and are never unit-tested (testing a data
+# generator chases coverage rather than correctness). They are omitted so the
+# coverage gate measures the real app-code denominator. The pattern is scoped
+# narrowly to the seed modules only — it must NOT mask any real app code.
+#
+# (Phase 3 note: the new synthetic TCO generator still gets ONE invariant smoke
+# test for correctness — that it runs and produces consistent cross-layer rows.)
+[run]
+omit =
+    app/seed.py
+    app/seed_demo.py
+    app/seed_history.py
+    app/seed_tracking.py
+    app/seed_costing.py
