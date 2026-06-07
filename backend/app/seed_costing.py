@@ -63,6 +63,71 @@ def _months_back(n: int) -> date:
     return date(total // 12, total % 12 + 1, 1)
 
 
+# Should-cost demo products — a SPREAD of config shapes so the cockpit's
+# should-cost page is worth switching around: from a lean flash JBOF (~5% gap)
+# to an over-priced memory appliance (~23% gap). Each: (code, name, category,
+# description, quote €, [(class, label, qty, kwargs)…]). Quotes are hand-set
+# against the base-month indices (DRAM ×1.8, NAND ×1.5) to give varied gaps.
+def _td(base, conv, ovh):
+    return dict(base_material_cost=base, conversion_cost=conv, overhead_pct=Decimal(str(ovh)))
+
+
+def _ref(lst, disc):
+    return dict(list_price=lst, discount_pct=Decimal(str(disc)))
+
+
+_DEMO_BOMS = [
+    ("SCN-STORAGE-1", "Storage Node SN-1 · 4U appliance", "Storage",
+     "DRAM/NVMe-dense storage appliance (should-cost hero config)", "24650.00", [
+         ("MEMORY", "64GB DDR5 RDIMM ×24", 24, _td(110, 6, 0.12)),
+         ("STORAGE", "NVMe TLC module ×24", 24, _td(90, 4, 0.10)),
+         ("CHASSIS", "4U chassis ×1", 1, _td(180, 40, 0.10)),
+         ("PSU", "2400W PSU ×2", 2, _td(120, 18, 0.10)),
+         ("MOTHERBOARD", "Mainboard ×1", 1, _td(420, 60, 0.10)),
+         ("NIC", "ConnectX-7 ×1", 1, _td(700, 40, 0.10)),
+         ("CPU", "EPYC 9554 ×1", 1, _ref(7120, 0.22)),
+     ]),
+    ("SCN-COMPUTE-1", "Compute Node CN-1 · GPU server", "Servers",
+     "GPU/CPU-heavy compute node — silicon-dominated (low commodity exposure)", "29900.00", [
+         ("MEMORY", "64GB DDR5 RDIMM ×8", 8, _td(110, 6, 0.12)),
+         ("CHASSIS", "2U chassis ×1", 1, _td(140, 30, 0.10)),
+         ("PSU", "2400W PSU ×2", 2, _td(120, 18, 0.10)),
+         ("NIC", "ConnectX-7 ×1", 1, _td(700, 40, 0.10)),
+         ("CPU", "EPYC 9554 ×2", 2, _ref(7120, 0.22)),
+         ("GPU", "L40S ×1", 1, _ref(6800, 0.0)),  # allocation market — 0% band-bottom
+     ]),
+    ("SCN-MEM-APPLIANCE", "Memory Appliance MA-1 · in-memory node", "Memory",
+     "Memory-maxed node — fattest negotiation target (over-priced vs floor)", "23900.00", [
+         ("MEMORY", "64GB DDR5 RDIMM ×32", 32, _td(110, 6, 0.12)),
+         ("CHASSIS", "2U chassis ×1", 1, _td(140, 30, 0.10)),
+         ("PSU", "2400W PSU ×2", 2, _td(120, 18, 0.10)),
+         ("MOTHERBOARD", "Mainboard ×1", 1, _td(420, 60, 0.10)),
+         ("NIC", "ConnectX-7 ×1", 1, _td(700, 40, 0.10)),
+         ("CPU", "EPYC 9554 ×1", 1, _ref(7120, 0.22)),
+     ]),
+    ("SCN-EDGE-1", "Edge Node EN-1 · 1U balanced", "Servers",
+     "Balanced 1U edge node — small, well-priced (lean gap)", "8650.00", [
+         ("MEMORY", "64GB DDR5 RDIMM ×4", 4, _td(110, 6, 0.12)),
+         ("STORAGE", "NVMe TLC module ×4", 4, _td(90, 4, 0.10)),
+         ("CHASSIS", "1U chassis ×1", 1, _td(120, 30, 0.10)),
+         ("PSU", "1200W PSU ×1", 1, _td(120, 18, 0.10)),
+         ("MOTHERBOARD", "Mainboard ×1", 1, _td(380, 50, 0.10)),
+         ("NIC", "10G NIC ×1", 1, _td(500, 30, 0.10)),
+         ("CPU", "EPYC 9354 ×1", 1, _ref(4500, 0.25)),
+     ]),
+    ("SCN-FLASH-JBOF", "Flash JBOF FJ-1 · all-flash shelf", "Storage",
+     "NAND-dense all-flash shelf — already lean vs floor (low gap)", "22100.00", [
+         ("STORAGE", "NVMe TLC module ×48", 48, _td(90, 4, 0.10)),
+         ("MEMORY", "64GB DDR5 RDIMM ×8", 8, _td(110, 6, 0.12)),
+         ("CHASSIS", "4U chassis ×1", 1, _td(180, 40, 0.10)),
+         ("PSU", "2400W PSU ×2", 2, _td(120, 18, 0.10)),
+         ("MOTHERBOARD", "Mainboard ×1", 1, _td(420, 60, 0.10)),
+         ("NIC", "ConnectX-7 ×1", 1, _td(700, 40, 0.10)),
+         ("CPU", "EPYC 9554 ×1", 1, _ref(7120, 0.22)),
+     ]),
+]
+
+
 # Per-commodity 12-month multiplier path (×baseline). DRAM has the deliberate
 # spike (~4× peak) telling the memory-crunch story; others drift mildly.
 _SERIES = {
@@ -107,52 +172,37 @@ def seed_costing(db: Session) -> None:
         db.flush()
         classes[code] = cls
 
-    # A DEDICATED should-cost hero product: a DRAM/NVMe-dominated storage node
-    # (single modest CPU, lots of memory + flash) so the commodity teardown is
-    # the MAJORITY of the floor — the part with citable sources carries the
-    # number, and the memory-spike sensitivity actually moves it. The quote is
-    # designed together with the BOM (~30% over the computed floor → ~15%
-    # gap-to-target, ~23% gap-to-floor) so the demo lands. Mirrors the spec §8a
-    # hero worked example. The R760 etc. are deliberately left without a BOM.
-    hero = db.scalar(select(Product).where(Product.product_code == "SCN-STORAGE-1"))
-    if hero is None:
-        hero = Product(product_code="SCN-STORAGE-1", name="Storage Node SN-1 · 4U appliance",
-                       category="Storage", description="DRAM/NVMe-dense storage appliance (should-cost hero config)")
-        db.add(hero)
-        db.flush()
-
-    if db.scalar(select(BOM).where(BOM.product_id == hero.id)) is None:
-        bom = BOM(product_id=hero.id, notes="Hero should-cost teardown: DRAM/NVMe-dominated storage node.")
+    # A SPREAD of dedicated should-cost products (commodity-dense → silicon-heavy,
+    # lean → over-priced) so the cockpit page is worth switching around. Each gets
+    # its own BOM + a preferred-supplier quote. The R760 etc. are left without a
+    # BOM on purpose (the should-cost view is its own curated set).
+    supplier = db.scalar(select(Organization).where(Organization.is_supplier.is_(True)))
+    seeded = 0
+    for code, name, category, desc, quote, lines in _DEMO_BOMS:
+        prod = db.scalar(select(Product).where(Product.product_code == code))
+        if prod is None:
+            prod = Product(product_code=code, name=name, category=category, description=desc)
+            db.add(prod)
+            db.flush()
+        if db.scalar(select(BOM).where(BOM.product_id == prod.id)) is not None:
+            continue
+        bom = BOM(product_id=prod.id, notes=f"Should-cost teardown: {desc}")
         db.add(bom)
         db.flush()
-        lines = [
-            ("MEMORY", "64GB DDR5 RDIMM ×24", 24, dict(base_material_cost=110, conversion_cost=6, overhead_pct=Decimal("0.12"))),
-            ("STORAGE", "NVMe TLC module ×24", 24, dict(base_material_cost=90, conversion_cost=4, overhead_pct=Decimal("0.10"))),
-            ("CHASSIS", "4U chassis ×1", 1, dict(base_material_cost=180, conversion_cost=40, overhead_pct=Decimal("0.10"))),
-            ("PSU", "2400W PSU ×2", 2, dict(base_material_cost=120, conversion_cost=18, overhead_pct=Decimal("0.10"))),
-            ("MOTHERBOARD", "Mainboard ×1", 1, dict(base_material_cost=420, conversion_cost=60, overhead_pct=Decimal("0.10"))),
-            ("NIC", "ConnectX-7 ×1", 1, dict(base_material_cost=700, conversion_cost=40, overhead_pct=Decimal("0.10"))),
-            ("CPU", "EPYC 9554 ×1", 1, dict(list_price=7120, discount_pct=Decimal("0.22"))),  # single modest CPU
-        ]
         for cls_code, label, qty, kw in lines:
             db.add(BOMLine(bom_id=bom.id, component_class_id=classes[cls_code].id,
                            label=label, qty=qty, **kw))
         db.add(CostParams(bom_id=bom.id))  # defaults: 6% / 8% / 10%
-        db.flush()
-
-        # A preferred supplier whose contract price is the quote we negotiate
-        # against — set ~30% over the floor computed at the base-month indices
-        # (DRAM ×1.8, NAND ×1.5). Floor ≈ €18,961 → quote €24,650.
-        supplier = db.scalar(select(Organization).where(Organization.is_supplier.is_(True)))
         if supplier is not None:
             db.add(ProductSupplier(
-                product_id=hero.id, supplier_id=supplier.id,
-                contract_price=Decimal("24650.00"), preference_rank=1,
+                product_id=prod.id, supplier_id=supplier.id,
+                contract_price=Decimal(quote), preference_rank=1,
                 standard_lead_time_days=28, min_order_quantity=1,
             ))
-            db.flush()
+        db.flush()
+        seeded += 1
 
     print("Costing seed complete:")
     print(f"  commodities: {len(_COMMODITIES)} (12-mo series each; DRAM spike ~4x)")
     print(f"  component classes: {len(_CLASSES)}")
-    print("  hero product: SCN-STORAGE-1 (BOM + €24,650 quote, ~30% over floor)")
+    print(f"  should-cost products with BOM + quote: {seeded}")
