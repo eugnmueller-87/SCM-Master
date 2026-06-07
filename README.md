@@ -6,7 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-166_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-215_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 
@@ -258,6 +258,19 @@ data and (next) proposing actions back as requisitions. Full design:
 - [x] **Production hardening** — fail-closed config guard (refuses to boot in prod with an insecure/short `SECRET_KEY`), an in-process per-IP rate limit on `/auth/login` (HTTP 429 + `Retry-After`), and `/schema` locked to ADMIN.
 - [x] **Forge-locked production + self-wiring demo** — `SCM_ENV=prod` makes the app refuse to seed, refuse demo accounts, and refuse non-persistent (SQLite) storage; the demo auto-seeds on every boot. Ships the Postgres driver and auto-pins it on `DATABASE_URL`.
 - [x] **Two-stack live deployment** — isolated demo and production stacks on separate Railway projects + databases (each with its own [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI)); production deploys from a dedicated `production` branch. Runbook in [docs/DEPLOY.md](docs/DEPLOY.md).
+
+### Phase 8 — Cost intelligence: should-cost + TCO ✅ *(done)*
+
+The procurement IP layer — turn a vendor quote into a defensible number, then
+follow the asset's whole-life cost. Both are **deterministic engines** (the
+LLM, where used, only proposes; tested code decides), specced before code in
+[docs/should_cost_model.md](docs/should_cost_model.md).
+
+- [x] **Should-cost engine** — a 5-element clean-sheet teardown ([`app/services/costing.py`](backend/app/services/costing.py)) that rebuilds a server config from components: memory/flash/metal/PCB indexed to **commodity markets**, CPU/GPU as a list-price benchmark band. Produces a **cost floor** and a fair **target price**; the gap to a vendor quote is the addressable negotiation saving. `POST /products/{id}/should-cost`, `GET …/cost-gap`, `GET …/sensitivity` (floor vs DRAM/NAND ±X%), plus `analytics/should-cost/{by-supplier,savings}`. Self-calibrating commodity series with a deliberate memory spike.
+- [x] **Total Cost of Ownership (TCO)** — per-asset waterfall ([`app/services/tco.py`](backend/app/services/tco.py)): `acquisition + landed + deployment + lifetime OpEx + end-of-life − recovery`, anchored on **actual-paid** acquisition (via the provenance chain) with the should-cost target surfaced as a derived variance. Five layer tables, multi-row landed/deployment, 60-month OpEx ledgers. `GET /assets/{id}/tco`, `GET /tco/portfolio`, `GET /tco/by-class` — with an optional landed-type exclusion filter for **tariff scenarios** and a fail-loud non-EUR guard.
+- [x] **TSCMC, correctly defined** — the portfolio rollup exposes per-layer subtotals and **two** labelled ratios: `total_cost_pct` (ΣTCO ÷ baseline) and `tscmc_pct` (Σ(TCO − acquisition) ÷ baseline) — the SCOR/APQC Total Supply-Chain Management Cost deliberately **excludes** acquisition.
+- [x] **Deterministic synthetic generator** ([`app/seed_tco.py`](backend/app/seed_tco.py)) — ~400 assets across storage/compute/GPU/switch, internally consistent across every cost layer, seedable + reproducible. Surfaces the headline insight: on GPU nodes, **lifetime OpEx can exceed the purchase price**.
+- [x] **Cockpit pages** — "Should-Cost / Margin Lever" and "TCO" tabs in the [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI), reading the live API.
 
 ## Live deployment — two isolated stacks
 
