@@ -47,7 +47,7 @@ def seed() -> None:
         # --- A bootstrap admin (log in, then create other users via the API) --
         user_service.create_user(
             db, email="admin@example.com", full_name="Admin",
-            password="admin", role=Role.ADMIN)
+            password="admin", role=Role.ADMIN)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
 
         # --- Organizations: manufacturers and suppliers -------------------
         supermicro = organization_service.create(db, dict(

@@ -61,16 +61,16 @@ def seed_demo() -> None:
         # ensure_user (not create_user): the boot step may already have created
         # admin/guest, and re-running must not raise on the existing rows.
         ensure_user(db, email="admin@example.com", full_name="Anders Mohr",
-                    password="admin", role=Role.ADMIN)
+                    password="admin", role=Role.ADMIN)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
         ensure_user(db, email="buyer@example.com", full_name="Pia Schulz",
-                    password="buyer", role=Role.PROCUREMENT)
+                    password="buyer", role=Role.PROCUREMENT)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
         ensure_user(db, email="warehouse@example.com", full_name="Tomas Reuter",
-                    password="whse", role=Role.WAREHOUSE)
+                    password="whse", role=Role.WAREHOUSE)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
         ensure_user(db, email="dc@example.com", full_name="Lena Brandt",
-                    password="dc", role=Role.DATACENTER)
+                    password="dc", role=Role.DATACENTER)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
         # A read-only guest for the public demo's "Explore as guest" button.
         ensure_user(db, email="guest@example.com", full_name="Demo Guest",
-                    password="guest", role=Role.VIEWER)
+                    password="guest", role=Role.VIEWER)  # nosec B106 — demo-only seed creds; never run in prod (forge-lock)
 
         # --- Organizations ------------------------------------------------
         dell = organization_service.create(db, dict(code="DELL", name="Dell Technologies", is_supplier=True, is_manufacturer=True))

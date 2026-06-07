@@ -6,7 +6,7 @@ code runs against SQLite in dev and Postgres in production.
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_INSECURE_SECRET = "dev-insecure-change-me-0000000000000000"
+_INSECURE_SECRET = "dev-insecure-change-me-0000000000000000"  # nosec B105 — sentinel default; validate_production() refuses to boot prod with it
 
 
 class Settings(BaseSettings):
