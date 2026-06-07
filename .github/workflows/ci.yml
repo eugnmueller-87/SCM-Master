@@ -24,7 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install ruff
+          pip install ruff pytest-cov
 
       - name: Lint (ruff)
         run: ruff check app
@@ -46,12 +46,15 @@ jobs:
           print("No schema drift.")
           PY
 
-      - name: Tests
-        run: pytest -q
+      - name: Tests (with coverage gate)
+        run: pytest -q --cov=app --cov-report=term-missing --cov-fail-under=80
 
-  # Catch SQLite/Postgres dialect drift: run migrations + the suite against a
-  # real Postgres service (same engine as production).
-  test-postgres:
+  # Prove the Postgres path (production's engine) works: apply migrations on a
+  # real Postgres 16, then run a focused smoke test (readiness + a CRUD
+  # round-trip). The main suite above is bound to in-memory SQLite via
+  # conftest, so this job deliberately runs ONLY tests/test_pg_smoke.py rather
+  # than claiming Postgres coverage it doesn't have.
+  migrate-smoke-postgres:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -88,8 +91,44 @@ jobs:
           pip install -r requirements.txt
           pip install "psycopg[binary]>=3.1"
 
-      - name: Migrate (Postgres)
+      - name: Migrate (Postgres) — proves migrations apply cleanly on Postgres
         run: alembic upgrade head
 
-      - name: Tests (Postgres)
-        run: pytest -q
+      - name: Postgres smoke test (readiness + CRUD round-trip)
+        run: pytest -q tests/test_pg_smoke.py
+
+  # Security SAST — scan the app only (NOT tests; fixtures legitimately contain
+  # literals). Demo seed creds + the insecure-default sentinel are annotated
+  # `# nosec` with rationale, so this is clean. Fails the build on any finding.
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit
+
+      - name: Bandit (app only)
+        run: bandit -r backend/app
+
+  # Dependency CVE audit — audits the declared project deps, NOT the CI
+  # toolchain's own pip (which avoids unrelated pip-self advisories). Fails on a
+  # vulnerable dependency.
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: pip-audit (declared project dependencies)
+        run: pip-audit -r backend/requirements.txt
