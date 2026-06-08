@@ -6,6 +6,13 @@ SQLite) is enforced in code and **regression-tested** — see
 siblings. Code being correct and the **deployed instance** being configured
 correctly are two different things; this checklist verifies the live box.
 
+> **No secret was leaked.** The production `ADMIN_PASSWORD` exists only as a
+> Railway env var on the prod project — it was never typed, shown, or committed,
+> so there is **nothing to rotate**. The only password seen anywhere is the
+> **demo's** `admin/admin`, which is public **by design** (synthetic-data
+> sandbox). The check below is therefore *verification that prod is configured
+> right*, not remediation of an exposure.
+
 > ⚠️ Naming trap. The **demo** stack's URL is
 > `scm-master-production.up.railway.app` — "production" there is Railway's
 > auto-name for the demo project's *prod environment*, NOT the forge-locked
@@ -45,7 +52,8 @@ curl -s "$PROD/readyz"                      # expect: ok / ready
 curl -s -o /dev/null -w "%{http_code}\n" -X POST "$PROD/api/v1/auth/login" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=password&username=admin@example.com&password=admin"
-# expect: 401  (a 200 here is a LIVE FINDING — rotate ADMIN_PASSWORD now)
+# expect: 401  (a 200 here means prod is MISCONFIGURED — ADMIN_PASSWORD is still
+#                "admin" or unset on the prod service; set a real one + redeploy)
 
 # c) No guest account in prod.
 curl -s -o /dev/null -w "%{http_code}\n" -X POST "$PROD/api/v1/auth/login" \
