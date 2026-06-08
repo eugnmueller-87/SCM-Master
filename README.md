@@ -6,7 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-273_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-298_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Agent safety](https://img.shields.io/badge/agent_safety-29_scenarios-8A2BE2?logo=shieldsdotio&logoColor=white)](backend/tests/agent_eval/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
@@ -156,6 +156,38 @@ stateDiagram-v2
     DISPOSED --> [*]
 ```
 
+### Purchase flow (how a PO is born)
+
+A purchase order is never placed blind. **Three origination paths** all converge
+on the same guarded, sourced, approvable pipeline — *"the LLM advises, deterministic
+code decides"* end to end:
+
+```mermaid
+flowchart TD
+    AG["🤖 Agent<br/>(weekly run / requisition cycle)<br/>detects demand"]
+    MAN["🧑 Manual order<br/>(buyer: 'something broke')<br/>catalog product or package"]
+    PKG["📦 Package<br/>(e.g. Compute rack)<br/>expands to lines"]
+
+    PKG --> MAN
+    AG --> SRC
+    MAN --> SRC["Source each line<br/>→ preferred ProductSupplier<br/>(MOQ, contract price)"]
+
+    SRC --> GUARD{"🏭 Capacity guard<br/>fits warehouse<br/>free-to-order?"}
+    GUARD -- "no" --> REJECT["Refused / clamped<br/>(422 — never over-order)"]
+    GUARD -- "yes" --> STAGE["Stage requisition(s)<br/>one per supplier"]
+
+    STAGE --> GATE{"Deterministic gate<br/>confidence ≥ calibrated bar?<br/>under spend cap?"}
+    GATE -- "clears" --> AUTO["Auto-place PO"]
+    GATE -- "below bar" --> HUMAN["Editable cart<br/>→ human approves → PO"]
+
+    AUTO --> PO["PurchaseOrder<br/>(one per supplier,<br/>for invoice matching)"]
+    HUMAN --> PO
+```
+
+The capacity guard and the confidence gate are both enforced **server-side** — a
+UI can't bypass them — and both are regression-tested (the [agent-safety harness](backend/tests/agent_eval/)
+for the gate, the over-order tests for the guard).
+
 ## Domain model
 
 The data model is organised into three modules under [`backend/app/models/`](backend/app/models/):
@@ -278,6 +310,8 @@ The API lives under `/api/v1`:
 - **Integrations** — `POST /integrations/coupa/import` ingests a Coupa PO export (CSV); `dry_run=true` previews, idempotent on `(source_system, external_ref)`. See [`docs/integration-architecture.md`](docs/integration-architecture.md).
 - **Analytics exports (BI)** — `/analytics/exports/forecast-accuracy.csv`, `/demand-history.csv`, `/spend.csv`: flat CSV facts for Power BI/Tableau, including the demand forecast **backtested** against ~18 months of seeded history. See [`docs/powerbi-analytics.md`](docs/powerbi-analytics.md).
 - **Requisitions (auto-buy + approval)** — `POST /requisitions/run` stages Purchase Requests from live demand; ones clearing a **learned** confidence bar auto-convert to a PO, the rest wait as an editable cart (`/requisitions`, `PATCH …/lines/{id}`, `…/approve`, `…/reject`). Outcome-feedback calibration adjusts the bar per product/supplier (`/requisitions/calibration`).
+- **Manual order (buyer-initiated)** — `POST /requisitions/manual` places an on-demand order for any catalog product **or a package** (`GET /requisitions/packages` — reusable bundles like "Compute rack"), sourced and **capacity-guarded server-side**: an order that would exceed warehouse free-to-order is refused (422), never placed. Stages a requisition per supplier for approval.
+- **Capacity & flow** — `GET /planning/capacity-flow`: one metric — warehouse capacity, committed (on-hand + inbound), free-to-order, daily in/out flow, weeks-of-cover and days-to-depletion. The single source of truth the order UI, the over-order guard, and the cockpit tile all read.
 - **Agent (advisory)** — `POST /agent/sourcing-recommendation`, `GET /agent/insights`, `POST /agent/ask` (grounded chat), and the deterministic auto-buy `POST /agent/purchasing-run` (+ `/confirm`). The LLM only proposes confidence/decision/rationale; the gate decides.
 - **Should-cost** — `POST /products/{id}/should-cost`, `GET …/cost-gap`, `GET …/sensitivity`, plus `analytics/should-cost/{by-supplier,savings}`: a commodity-indexed cost floor and the addressable gap to a vendor quote.
 - **TCO** — `GET /assets/{id}/tco` (per-asset waterfall), `GET /tco/portfolio` (TSCMC rollup), `GET /tco/by-class` — with a landed-type exclusion filter for tariff scenarios.
@@ -383,6 +417,19 @@ unit-tested) and [`planning.py`](backend/app/services/planning.py).
 - [x] **Service-level safety stock** — replaces the `burn × lead ÷ 2` heuristic with `z(service_level) × σ(demand over lead time)`, with σ measured on **lead-time buckets** so batch lumpiness is captured (not smoothed away), and **no fabricated lead-time-variability term**. Wired server-side: `inventory_plan` emits `reorder_point` / `reorder_status`, consumed by the UI. Effect: buffer moves **toward** the volatile, long-lead, high-value SKU and **away** from the steady commodity — the inverse of, and correction to, the heuristic.
 - [x] **ABC classification** — Pareto by annualised value → A/B/C, mapped to per-class service levels (A = 0.98 protects the vital few hardest; C = 0.90 runs the trivial many leaner), exposed on the planning output.
 - [x] **Tested as a guarantee** — TSB known-value + the four Syntetos–Boylan quadrants, safety stock rising with service level and with variability (falling to 0 when variability is 0), and ABC on a known Pareto distribution. Plus a **forge-lock regression test** that asserts production refuses a weak/default admin.
+
+### Phase 10 — Manual ordering + capacity intelligence ✅ *(done)*
+
+The buyer-initiated order path (place an order when *something breaks*), built on
+one capacity metric that's enforced, not just displayed — see the
+[purchase flow](#purchase-flow-how-a-po-is-born) above.
+
+- [x] **One capacity-vs-flow metric** — `GET /planning/capacity-flow` ([`services/planning.py`](backend/app/services/planning.py)): warehouse capacity, committed (on-hand + inbound), **free-to-order**, daily **in vs out** flow (net = filling/draining), **weeks-of-cover** and **days-to-depletion**. A thin composition of existing services (one definition of "coverage", reusing the Phase-9 burn math) that backs all three consumers below.
+- [x] **Server-side over-order guard** — `check_order_capacity` / `assert_order_fits`: an order that would push committed past free-to-order is **refused or clamped**. Enforced on the order path (not the UI), so it can't be bypassed — the same principle as the agent gate.
+- [x] **Manual order** — `POST /requisitions/manual` ([`services/ordering.py`](backend/app/services/ordering.py)): order any catalog product or a **package**, sourced to the preferred supplier, capacity-guarded, staged as a requisition per supplier. A **"New order"** modal under Orders shows live capacity before you commit.
+- [x] **Order packages** — a `Package` model ([`models/ordering.py`](backend/app/models/ordering.py)): named, reusable bundles (Compute rack, Storage node, GPU pod) that expand to order lines ×N packs. Distinct from a costing BOM (which decomposes one product) — a package groups separately-stocked products bought together.
+- [x] **Cockpit tile** — a "Warehouse capacity & flow" tile on the [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI) Overview, reading the same endpoint: committed vs free, in/out flow, coverage and depletion at a glance.
+- [x] **Tested** — capacity-flow math (committed/free, daily-in from ETA, coverage + depletion), the guard (fits → ok, partial → clamp, full → reject, over-order → 422), package expansion, and the manual-order API end-to-end.
 
 ## Live deployment — two isolated stacks
 
