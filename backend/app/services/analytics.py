@@ -61,7 +61,7 @@ def _unit_price(order_item: OrderItem) -> Decimal:
 
 def spend_by_supplier(db: Session, year: int | None = None) -> list[dict]:
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0"), "name": None})
-    for asset, oi, order, _product in _received_spend_rows(db, year):
+    for _asset, oi, order, _product in _received_spend_rows(db, year):
         bucket = totals[order.supplier_id]
         bucket["units"] += 1
         bucket["spend"] += _unit_price(oi)
@@ -96,7 +96,7 @@ def spend_by_product(db: Session, year: int | None = None) -> list[dict]:
 
 def spend_by_category(db: Session, year: int | None = None) -> list[dict]:
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0")})
-    for asset, oi, _order, product in _received_spend_rows(db, year):
+    for _asset, oi, _order, product in _received_spend_rows(db, year):
         cat = product.category or "(uncategorised)"
         totals[cat]["units"] += 1
         totals[cat]["spend"] += _unit_price(oi)
