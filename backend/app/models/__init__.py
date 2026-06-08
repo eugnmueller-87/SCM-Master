@@ -31,6 +31,10 @@ from app.models.flow import (  # noqa: F401
     Receipt,
     ReceiptItem,
 )
+from app.models.ordering import (  # noqa: F401
+    Package,
+    PackageLine,
+)
 from app.models.procurement import (  # noqa: F401
     OrderItem,
     OrderStatus,

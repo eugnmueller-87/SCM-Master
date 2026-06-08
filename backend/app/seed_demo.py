@@ -250,6 +250,25 @@ def seed_demo() -> None:
         from app.seed_tco import seed_tco
         seed_tco(db, seed=42, n_assets=120)
 
+        # --- Order packages (reusable bundles for the manual-order flow) --
+        from app.services import ordering
+        ordering.create_package(db, code="PKG-COMPUTE-RACK", name="Compute rack",
+            description="A populated compute rack: server + CPUs + memory + power.",
+            lines=[{"product_id": srv.id, "quantity": 1},
+                   {"product_id": cpu.id, "quantity": 2},
+                   {"product_id": dimm.id, "quantity": 8},
+                   {"product_id": psu.id, "quantity": 2}])
+        ordering.create_package(db, code="PKG-STORAGE-NODE", name="Storage node",
+            description="JBOD chassis with a NIC and redundant power.",
+            lines=[{"product_id": jbod.id, "quantity": 1},
+                   {"product_id": nic.id, "quantity": 1},
+                   {"product_id": psu.id, "quantity": 2}])
+        ordering.create_package(db, code="PKG-GPU-POD", name="GPU training pod",
+            description="A GPU server with accelerators and high-speed NICs.",
+            lines=[{"product_id": srv.id, "quantity": 1},
+                   {"product_id": gpu.id, "quantity": 4},
+                   {"product_id": nic.id, "quantity": 2}])
+
         db.commit()
 
         # --- Control-tower shipments derived from the REAL POs ------------
