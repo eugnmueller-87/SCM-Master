@@ -32,6 +32,12 @@ It runs **live** as two isolated stacks — a public [demo](https://scm-master-p
 that self-seeds a lived-in operation, and a forge-locked production stack — each
 with its own [analytics cockpit](https://scm-power-bi-production.up.railway.app).
 
+> **📦 Capstone context.** This repository is the **working MVP (stretch deliverable)** of the
+> AI-bootcamp Final Project. The full consultant package — use-case definition, no-code POC, ROI &
+> risk assessment, EU AI Act + GDPR compliance, strategic plan, and the slide deck — lives in
+> **[final-project-eugen](https://github.com/eugnmueller-87/final-project-eugen)**. This repo is the
+> "the AI actually runs" half of that submission.
+
 ## The problem this solves
 
 Buying hardware for a datacenter is not a procurement problem an ERP solves well.
