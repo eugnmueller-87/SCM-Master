@@ -7,10 +7,13 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
+
 from app.models.catalog import Organization, Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.services import planning
+from app.services.exceptions import ValidationError
 
 TODAY = date(2026, 6, 1)
 
@@ -120,3 +123,44 @@ def test_capacity_flow_endpoint(client, db_session):
     body = r.json()
     assert body["capacity"] == 100 and body["on_hand"] == 10
     assert "weeks_of_cover" in body and "days_to_depletion" in body
+
+
+# --- the over-order GUARD ---------------------------------------------------
+
+def test_guard_allows_order_that_fits(db_session):
+    # cap 100, 20 used → free_to_order 80. Order 50 fits.
+    _warehouse(db_session, "G1", 100, used=20)
+    check = planning.check_order_capacity(db_session, 50, today=TODAY)
+    assert check["verdict"] == "ok"
+    assert check["allowed"] == 50
+
+
+def test_guard_clamps_partial_fit(db_session):
+    # cap 100, 90 used → free 10. Order 40 → clamp to 10.
+    _warehouse(db_session, "G2", 100, used=90)
+    check = planning.check_order_capacity(db_session, 40, today=TODAY)
+    assert check["verdict"] == "clamp"
+    assert check["allowed"] == 10
+
+
+def test_guard_rejects_when_full(db_session):
+    # cap 10, 10 used → free 0. Any order rejected.
+    _warehouse(db_session, "G3", 10, used=10)
+    check = planning.check_order_capacity(db_session, 5, today=TODAY)
+    assert check["verdict"] == "reject"
+    assert check["allowed"] == 0
+
+
+def test_guard_uncapped_without_warehouse(db_session):
+    # No warehouse → no storage limit → everything allowed.
+    check = planning.check_order_capacity(db_session, 9999, today=TODAY)
+    assert check["verdict"] == "ok"
+    assert check["allowed"] == 9999
+
+
+def test_assert_order_fits_raises_on_overorder(db_session):
+    _warehouse(db_session, "G4", 100, used=95)   # free 5
+    with pytest.raises(ValidationError, match="exceeds warehouse free-to-order"):
+        planning.assert_order_fits(db_session, 20, today=TODAY)
+    # and it returns cleanly when it fits
+    assert planning.assert_order_fits(db_session, 3, today=TODAY)["verdict"] == "ok"

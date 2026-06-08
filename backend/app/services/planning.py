@@ -407,6 +407,52 @@ def capacity_flow(db: Session, *, today: Optional[date] = None) -> dict:
     }
 
 
+def check_order_capacity(db: Session, requested_units: int, *,
+                         today: Optional[date] = None) -> dict:
+    """The over-order GUARD — does `requested_units` fit in the free warehouse space?
+
+    Reads the same ``capacity_flow`` free-to-order figure the UI shows, so the
+    limit is enforced server-side (a UI-only check would be bypassable). Returns:
+      - verdict : "ok" (fits) | "clamp" (only some fits) | "reject" (none fits);
+      - allowed : how many units may actually be ordered (== requested when ok);
+      - free_to_order, requested, committed_pct : context for the message.
+    When no warehouse capacity is defined (free_to_order is None) there is no cap,
+    so everything is allowed. Callers decide whether to clamp to ``allowed`` or
+    refuse — :func:`assert_order_fits` is the fail-closed variant.
+    """
+    flow = capacity_flow(db, today=today)
+    free = flow["free_to_order"]
+    req = max(0, int(requested_units))
+    if free is None:                       # no defined storage limit -> no cap
+        return {"verdict": "ok", "allowed": req, "free_to_order": None,
+                "requested": req, "committed_pct": flow["committed_pct"]}
+    if req <= free:
+        verdict = "ok"
+    elif free > 0:
+        verdict = "clamp"
+    else:
+        verdict = "reject"
+    return {"verdict": verdict, "allowed": min(req, free), "free_to_order": free,
+            "requested": req, "committed_pct": flow["committed_pct"]}
+
+
+def assert_order_fits(db: Session, requested_units: int, *,
+                      today: Optional[date] = None) -> dict:
+    """Fail-closed guard: raise ValidationError if the order can't fully fit.
+
+    Use on the money-moving order path so an over-order is REFUSED, not silently
+    placed. Returns the check dict on success (verdict 'ok')."""
+    from app.services.exceptions import ValidationError
+
+    check = check_order_capacity(db, requested_units, today=today)
+    if check["verdict"] != "ok":
+        raise ValidationError(
+            f"Order of {check['requested']} units exceeds warehouse free-to-order "
+            f"capacity ({check['free_to_order']}). Reduce to {check['allowed']} or "
+            f"free up space first.")
+    return check
+
+
 def deployment_forecast(db: Session) -> dict:
     """Units that could reach service: on-hand (not yet deployed) + inbound."""
     on_hand = db.scalar(
