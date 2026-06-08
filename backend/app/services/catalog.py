@@ -27,6 +27,56 @@ class OrganizationService(CRUDService[Organization]):
             raise ConflictError(f"Organization code {code!r} already exists")
         return super().create(db, data)
 
+    def onboard_new(self, db: Session, data: dict) -> Organization:
+        """Create a supplier that must clear onboarding before it can be ordered
+        from. Forces ``onboarding_status=DRAFT`` regardless of input, so a new
+        supplier is never silently orderable. (Plain ``create`` keeps the
+        APPROVED default for seeded/imported orgs and back-compat.)"""
+        data = {**data, "is_supplier": True, "onboarding_status": "DRAFT"}
+        return self.create(db, data)
+
+    def record_risk(self, db: Session, org: Organization, *, risk_level: str,
+                    risk_notes: Optional[str], assessed_at) -> Organization:
+        org.risk_level = risk_level
+        org.risk_notes = risk_notes
+        org.risk_assessed_at = assessed_at
+        if org.onboarding_status == "DRAFT":
+            org.onboarding_status = "IN_REVIEW"
+        db.flush()
+        return org
+
+    def record_document(self, db: Session, org: Organization, *, kind: str,
+                        signed: bool, reference: Optional[str], signed_at) -> Organization:
+        """Record a DPA or NDA as signed (metadata of record, no file bytes)."""
+        if kind not in ("dpa", "nda"):
+            raise ValidationError(f"Unknown document kind {kind!r} (expected dpa/nda)")
+        setattr(org, f"{kind}_signed", signed)
+        setattr(org, f"{kind}_signed_at", signed_at if signed else None)
+        setattr(org, f"{kind}_reference", reference if signed else None)
+        if signed and org.onboarding_status == "DRAFT":
+            org.onboarding_status = "IN_REVIEW"
+        db.flush()
+        return org
+
+    def approve(self, db: Session, org: Organization) -> Organization:
+        """Approve a supplier for ordering — only if the hard gate is satisfied
+        (risk assessed AND both DPA and NDA signed)."""
+        if not org.onboarding_complete:
+            missing = []
+            if org.risk_level is None:
+                missing.append("risk assessment")
+            if not org.dpa_signed:
+                missing.append("signed DPA")
+            if not org.nda_signed:
+                missing.append("signed NDA")
+            raise ValidationError(
+                "Cannot approve supplier — onboarding incomplete. Missing: "
+                + ", ".join(missing) + "."
+            )
+        org.onboarding_status = "APPROVED"
+        db.flush()
+        return org
+
     def upsert_by_external_ref(
         self, db: Session, *, source_system: str, external_ref: str, data: dict
     ) -> tuple[Organization, bool]:

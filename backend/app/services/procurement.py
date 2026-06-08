@@ -43,6 +43,14 @@ class PurchaseOrderService(CRUDService[PurchaseOrder]):
             raise NotFoundError(f"Organization {data['supplier_id']!r} not found")
         if not supplier.is_supplier:
             raise ValidationError(f"Organization {supplier.name!r} is not a supplier")
+        # Hard compliance gate: no order may be placed against a supplier that
+        # hasn't cleared onboarding (risk assessed + DPA/NDA signed -> APPROVED).
+        if not supplier.is_orderable:
+            raise ValidationError(
+                f"Supplier {supplier.name!r} is not onboarded "
+                f"(status: {supplier.onboarding_status}). Complete onboarding "
+                "— risk assessment + signed DPA and NDA — before ordering."
+            )
 
         destination_id = data.get("destination_id")
         if destination_id and db.get(Location, destination_id) is None:

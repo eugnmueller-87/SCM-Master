@@ -7,6 +7,7 @@ once, centrally, in app.api.errors.
 """
 from __future__ import annotations
 
+from datetime import date as _date
 from typing import List
 
 from fastapi import APIRouter, Depends, status
@@ -23,6 +24,8 @@ from app.schemas.catalog import (
     ProductSupplierRead,
     ProductSupplierUpdate,
     ProductUpdate,
+    SupplierDocument,
+    SupplierRiskAssessment,
 )
 from app.services import contracts
 from app.services.catalog import (
@@ -55,6 +58,42 @@ def get_organization(org_id: str, db: Session = Depends(get_db)):
 def update_organization(org_id: str, payload: OrganizationUpdate, db: Session = Depends(get_db)):
     obj = organization_service.get_or_404(db, org_id)
     return organization_service.update(db, obj, payload.model_dump(exclude_unset=True))
+
+
+# --- Supplier onboarding (compliance gate) --------------------------------
+# A supplier created here starts DRAFT and is NOT orderable until it clears the
+# gate: a risk assessment + signed DPA and NDA, then explicit approval. Documents
+# are metadata of record (signer/date/reference), not stored file bytes.
+
+@router.post("/suppliers/onboard", response_model=OrganizationRead, status_code=status.HTTP_201_CREATED)
+def onboard_supplier(payload: OrganizationCreate, db: Session = Depends(get_db)):
+    """Register a new supplier in DRAFT (not yet orderable)."""
+    return organization_service.onboard_new(db, payload.model_dump())
+
+
+@router.post("/suppliers/{org_id}/risk-assessment", response_model=OrganizationRead)
+def assess_supplier_risk(org_id: str, payload: SupplierRiskAssessment, db: Session = Depends(get_db)):
+    org = organization_service.get_or_404(db, org_id)
+    return organization_service.record_risk(
+        db, org, risk_level=payload.risk_level, risk_notes=payload.risk_notes,
+        assessed_at=_date.today())
+
+
+@router.post("/suppliers/{org_id}/documents/{kind}", response_model=OrganizationRead)
+def record_supplier_document(org_id: str, kind: str, payload: SupplierDocument,
+                             db: Session = Depends(get_db)):
+    """Record a DPA or NDA as signed (kind = 'dpa' | 'nda')."""
+    org = organization_service.get_or_404(db, org_id)
+    return organization_service.record_document(
+        db, org, kind=kind.lower(), signed=payload.signed,
+        reference=payload.reference, signed_at=payload.signed_at or _date.today())
+
+
+@router.post("/suppliers/{org_id}/approve", response_model=OrganizationRead)
+def approve_supplier(org_id: str, db: Session = Depends(get_db)):
+    """Approve a supplier for ordering — enforces the hard gate."""
+    org = organization_service.get_or_404(db, org_id)
+    return organization_service.approve(db, org)
 
 
 # --- Products -------------------------------------------------------------

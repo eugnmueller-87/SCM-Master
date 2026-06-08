@@ -57,7 +57,8 @@ let openContractId = null;
 RENDER.contracts = async function () {
   $("#screen").innerHTML = `
     ${pageHead("Sourcing", "Contracts", "Every supplier source is a sourcing contract — price, lead time and minimum order, tracked through its life from draft to expiry.", "")}
-    <div class="toolbar"><div class="toolbar__spacer"></div><span class="toolbar__count" id="contract-count"></span></div>
+    <div class="toolbar"><button class="btn btn--ink" id="onboard-supplier-btn">${icon("plus", 14)} Onboard supplier</button><div class="toolbar__spacer"></div><span class="toolbar__count" id="contract-count"></span></div>
+    <div id="onboard-modal-host"></div>
     <div class="panel"><table class="tbl">
       <thead><tr><th>Supplier</th><th>Scope</th><th class="num">Contract price</th><th style="width:210px">YTD spend vs budget</th><th class="num">Renewal</th><th>Status</th><th style="width:32px"></th></tr></thead>
       <tbody id="contract-rows"><tr><td colspan="7"><div class="state"><div class="state__sub">Loading…</div></div></td></tr></tbody>
@@ -96,7 +97,140 @@ RENDER.contracts = async function () {
   } catch (e) {
     $("#contract-rows").innerHTML = `<tr><td colspan="7">${errState(e.message)}</td></tr>`;
   }
+  const ob = $("#onboard-supplier-btn");
+  if (ob) ob.addEventListener("click", openOnboardWizard);
 };
+
+/* ── Supplier onboarding wizard — risk + DPA/NDA gate before a supplier can be
+   ordered from. Reuses the New-Order modal chrome (.ordm). Four steps:
+   1 details → 2 risk → 3 agreements → 4 review + approve. ─────────────────── */
+let _onboard = null;   // {id, step, name, risk_level, dpa, nda}
+
+async function openOnboardWizard() {
+  _onboard = { id: null, step: 1, name: "", code: "", risk_level: "", risk_notes: "", dpa: false, nda: false, dpaRef: "", ndaRef: "" };
+  renderOnboard();
+}
+
+function closeOnboard() { const h = $("#onboard-modal-host"); if (h) h.innerHTML = ""; _onboard = null; }
+
+const ONBOARD_STEPS = ["Supplier", "Risk", "Agreements", "Review"];
+
+function renderOnboard() {
+  const host = $("#onboard-modal-host"); if (!host || !_onboard) return;
+  const s = _onboard;
+  const stepper = ONBOARD_STEPS.map((label, i) => {
+    const n = i + 1;
+    const cls = n < s.step ? "step--done" : n === s.step ? "step--current" : "";
+    return `<div class="ob-step ${cls}"><span class="ob-step__n">${n < s.step ? "✓" : n}</span>${esc(label)}</div>`;
+  }).join('<span class="ob-step__sep"></span>');
+
+  host.innerHTML = `<div class="ordm__veil" id="ob-veil"></div>
+    <div class="ordm" role="dialog" aria-label="Onboard supplier">
+      <div class="ordm__head">
+        <div><div class="ordm__eyebrow">Compliance · Sourcing</div><h2 class="ordm__title">Onboard supplier</h2></div>
+        <button class="ordm__x" id="ob-x">×</button>
+      </div>
+      <div class="ob-steps">${stepper}</div>
+      <div class="ordm__body" id="ob-body">${onboardStepBody()}</div>
+      <div class="ordm__foot">
+        <span class="muted" id="ob-hint">${onboardHint()}</span>
+        <span style="flex:1"></span>
+        ${s.step > 1 ? `<button class="btn btn--ghost" id="ob-back">Back</button>` : `<button class="btn btn--ghost" id="ob-cancel">Cancel</button>`}
+        <button class="btn btn--ink" id="ob-next">${s.step < 4 ? "Continue" : `${icon("shield", 14)} Approve &amp; activate`}</button>
+      </div>
+    </div>`;
+
+  $("#ob-x").onclick = closeOnboard;
+  $("#ob-veil").onclick = closeOnboard;
+  const cancel = $("#ob-cancel"); if (cancel) cancel.onclick = closeOnboard;
+  const back = $("#ob-back"); if (back) back.onclick = () => { _onboard.step--; renderOnboard(); };
+  $("#ob-next").onclick = onboardNext;
+  wireOnboardInputs();
+}
+
+function onboardStepBody() {
+  const s = _onboard;
+  if (s.step === 1) return `
+    <div class="ordm__row"><label>Supplier name</label>
+      <input id="ob-name" value="${esc(s.name)}" placeholder="e.g. Acme Components GmbH" autofocus/></div>
+    <div class="ordm__row"><label>Code <span class="muted">(optional)</span></label>
+      <input id="ob-code" value="${esc(s.code)}" placeholder="e.g. ACME"/></div>
+    <p class="muted" style="margin:4px 2px 0">The supplier starts in <b>DRAFT</b> — not orderable until onboarding completes.</p>`;
+  if (s.step === 2) return `
+    <div class="ordm__row"><label>Risk level</label>
+      <div class="ob-risk">${["LOW", "MEDIUM", "HIGH"].map((r) => `
+        <button type="button" class="ob-chip ${s.risk_level === r ? "is-on" : ""}" data-risk="${r}">${r[0] + r.slice(1).toLowerCase()}</button>`).join("")}</div></div>
+    <div class="ordm__row"><label>Assessment notes <span class="muted">(optional)</span></label>
+      <textarea id="ob-notes" rows="3" placeholder="Single-region? PII handling? Financial stability?">${esc(s.risk_notes)}</textarea></div>`;
+  if (s.step === 3) return `
+    <p class="muted" style="margin:0 2px 10px">Both agreements must be signed. Recorded as documents of record (reference + date) — no files stored.</p>
+    <div class="ob-doc ${s.dpa ? "is-on" : ""}" data-doc="dpa">
+      <label class="ob-doc__check"><input type="checkbox" id="ob-dpa" ${s.dpa ? "checked" : ""}/> <b>DPA</b> — Data Processing Agreement signed</label>
+      <input id="ob-dpa-ref" class="ob-doc__ref" value="${esc(s.dpaRef)}" placeholder="reference / filename / signer" ${s.dpa ? "" : "disabled"}/>
+    </div>
+    <div class="ob-doc ${s.nda ? "is-on" : ""}" data-doc="nda">
+      <label class="ob-doc__check"><input type="checkbox" id="ob-nda" ${s.nda ? "checked" : ""}/> <b>NDA</b> — Non-Disclosure Agreement signed</label>
+      <input id="ob-nda-ref" class="ob-doc__ref" value="${esc(s.ndaRef)}" placeholder="reference / filename / signer" ${s.nda ? "" : "disabled"}/>
+    </div>`;
+  // step 4 — review
+  const ok = s.name && s.risk_level && s.dpa && s.nda;
+  return `
+    <table class="ob-review">
+      <tr><td>Supplier</td><td><b>${esc(s.name) || "—"}</b>${s.code ? ` <span class="muted">(${esc(s.code)})</span>` : ""}</td></tr>
+      <tr><td>Risk level</td><td>${s.risk_level ? plainPill(s.risk_level, s.risk_level === "HIGH" ? "neg" : s.risk_level === "MEDIUM" ? "warn" : "ok") : '<span class="muted">not assessed</span>'}</td></tr>
+      <tr><td>DPA</td><td>${s.dpa ? `✓ signed${s.dpaRef ? ` <span class="muted">· ${esc(s.dpaRef)}</span>` : ""}` : '<span class="muted">— not signed</span>'}</td></tr>
+      <tr><td>NDA</td><td>${s.nda ? `✓ signed${s.ndaRef ? ` <span class="muted">· ${esc(s.ndaRef)}</span>` : ""}` : '<span class="muted">— not signed</span>'}</td></tr>
+    </table>
+    <p class="muted" style="margin:10px 2px 0">${ok ? "All checks satisfied — approving will make this supplier orderable." : "Onboarding incomplete — go back and complete every step before approving."}</p>`;
+}
+
+function onboardHint() {
+  const s = _onboard;
+  return ["Step 1 of 4 · supplier details", "Step 2 of 4 · risk assessment", "Step 3 of 4 · agreements", "Step 4 of 4 · review & approve"][s.step - 1];
+}
+
+async function onboardNext() {
+  const s = _onboard;
+  try {
+    if (s.step === 1) {
+      s.name = $("#ob-name").value.trim(); s.code = $("#ob-code").value.trim();
+      if (!s.name) { toast("Supplier name is required", "err"); return; }
+      if (!s.id) {                                   // create on first advance
+        const org = await api("/suppliers/onboard", { method: "POST", body: { name: s.name, code: s.code || null } });
+        s.id = org.id;
+      }
+      s.step = 2; renderOnboard(); wireOnboardInputs(); return;
+    }
+    if (s.step === 2) {
+      if (!s.risk_level) { toast("Pick a risk level", "err"); return; }
+      s.risk_notes = ($("#ob-notes") || {}).value || "";
+      await api(`/suppliers/${s.id}/risk-assessment`, { method: "POST", body: { risk_level: s.risk_level, risk_notes: s.risk_notes || null } });
+      s.step = 3; renderOnboard(); wireOnboardInputs(); return;
+    }
+    if (s.step === 3) {
+      s.dpa = $("#ob-dpa").checked; s.nda = $("#ob-nda").checked;
+      s.dpaRef = ($("#ob-dpa-ref") || {}).value || ""; s.ndaRef = ($("#ob-nda-ref") || {}).value || "";
+      if (!s.dpa || !s.nda) { toast("Both DPA and NDA must be signed", "err"); return; }
+      await api(`/suppliers/${s.id}/documents/dpa`, { method: "POST", body: { signed: true, reference: s.dpaRef || null } });
+      await api(`/suppliers/${s.id}/documents/nda`, { method: "POST", body: { signed: true, reference: s.ndaRef || null } });
+      s.step = 4; renderOnboard(); wireOnboardInputs(); return;
+    }
+    // step 4 — approve
+    await api(`/suppliers/${s.id}/approve`, { method: "POST" });
+    toast(`${s.name} onboarded — now orderable`, "ok");
+    closeOnboard();
+    if (typeof ORGS === "object") ORGS[s.id] = { name: s.name, is_supplier: true };
+  } catch (e) {
+    toast(e.message || "Onboarding step failed", "err");
+  }
+}
+
+function wireOnboardInputs() {
+  const s = _onboard;
+  $$("[data-risk]").forEach((b) => b.onclick = () => { s.risk_level = b.dataset.risk; $$("[data-risk]").forEach((x) => x.classList.toggle("is-on", x === b)); });
+  const dpa = $("#ob-dpa"); if (dpa) dpa.onchange = () => { const r = $("#ob-dpa-ref"); if (r) r.disabled = !dpa.checked; $(".ob-doc[data-doc='dpa']").classList.toggle("is-on", dpa.checked); };
+  const nda = $("#ob-nda"); if (nda) nda.onchange = () => { const r = $("#ob-nda-ref"); if (r) r.disabled = !nda.checked; $(".ob-doc[data-doc='nda']").classList.toggle("is-on", nda.checked); };
+}
 
 function toggleContract(id) {
   const host = $(`#contract-rows tr[data-chost="${id}"]`);
