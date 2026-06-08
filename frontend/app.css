@@ -821,6 +821,27 @@ button { font-family: inherit; }
 .tbar { height: 2px; flex: 1; background: var(--ts-line); margin: 0 3px; border-radius: 2px; }
 .tbar--done { background: var(--ts-info); }
 
+/* ===== New Order modal ==================================================== */
+.ordm__veil { position: fixed; inset: 0; background: rgba(20,20,25,.45); z-index: 60; }
+.ordm { position: fixed; z-index: 61; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: min(620px, 94vw); max-height: 88vh; overflow: auto; background: var(--ts-surface-raised);
+  border: 1px solid var(--ts-line); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.28); }
+.ordm__head { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 24px 12px; }
+.ordm__eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--ts-ink-mute); }
+.ordm__title { font-family: var(--ts-font-display); font-size: 24px; letter-spacing: -.02em; line-height: 1; margin-top: 2px; }
+.ordm__x { border: none; background: transparent; font-size: 24px; line-height: 1; color: var(--ts-ink-mute); cursor: pointer; }
+.ordm__cap { margin: 0 24px; padding: 10px 14px; background: var(--ts-paper-deep); border: 1px solid var(--ts-line);
+  border-radius: 8px; font-size: 12.5px; color: var(--ts-ink-soft); }
+.ordm__body { padding: 16px 24px 4px; }
+.ordm__row { margin-bottom: 14px; }
+.ordm__row label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+.ordm__row select, .ordm__row input { padding: 7px 9px; border: 1px solid var(--ts-line); border-radius: 7px; font: inherit; font-size: 13px; }
+.ordm__or { text-align: center; font-size: 11.5px; color: var(--ts-ink-mute); margin: 6px 0 12px; text-transform: uppercase; letter-spacing: .4px; }
+.ordm__lines { width: 100%; margin-top: 4px; border-collapse: collapse; }
+.ordm__lines td { padding: 7px 6px; border-bottom: 1px solid var(--ts-line); font-size: 13px; }
+.ordm__rm { border: none; background: transparent; color: var(--ts-negative); font-size: 12px; cursor: pointer; }
+.ordm__foot { display: flex; align-items: center; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--ts-line); margin-top: 8px; }
+
 /* Master-detail: shipment cards on the left, the event timeline pinned on the
    right so it's visible without scrolling past every card. Collapses to a single
    column on narrow screens (timeline first, so it stays above the fold there). */

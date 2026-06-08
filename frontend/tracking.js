@@ -160,7 +160,10 @@ RENDER.tracking = async function () {
   }).join("");
 
   $("#screen").innerHTML = `<div class="fade-in">
-    ${pageHead("Control tower", "Tracking", "Live per-order delivery tracking — one milestone track per shipment. A delayed line flags the whole order; tap any order for its scan-by-scan timeline.")}
+    ${pageHead("Control tower", "Tracking",
+      "Live per-order delivery tracking — one milestone track per shipment. A delayed line flags the whole order; tap any order for its scan-by-scan timeline.",
+      `<button class="btn btn--ink" id="new-order-btn">${icon("cart", 15)} New order</button>`)}
+    <div id="order-modal-host"></div>
     <div class="tkpis">
       <div class="tkpi"><div class="tkpi__label">Open orders</div><div class="tkpi__val">${open}</div></div>
       <div class="tkpi"><div class="tkpi__label">Delayed / at risk</div><div class="tkpi__val tkpi__val--neg">${delayed}</div></div>
@@ -174,7 +177,126 @@ RENDER.tracking = async function () {
   </div>`;
   $$("#track-cards .tcard").forEach((c) => c.addEventListener("click", () => { trackSel = c.dataset.po; renderTimeline(); $$("#track-cards .tcard").forEach((x) => x.classList.toggle("tcard--sel", x.dataset.po === trackSel)); }));
   renderTimeline();
+  const nob = $("#new-order-btn");
+  if (nob) nob.addEventListener("click", openOrderModal);
 };
+
+/* ── New Order modal: catalog OR package, capacity-aware, capacity-guarded ── */
+let _orderLines = [];   // [{product_id, quantity}]
+
+async function openOrderModal() {
+  // Pull catalog, packages, and the live capacity-flow in parallel.
+  const [products, packages, cap] = await Promise.all([
+    api("/products?limit=500").catch(() => []),
+    api("/requisitions/packages").catch(() => []),
+    api("/planning/capacity-flow").catch(() => null),
+  ]);
+  _orderLines = [];
+  const host = $("#order-modal-host");
+  const prodOpts = (products || []).map((p) => `<option value="${p.id}">${esc(p.name)} (${esc(p.product_code)})</option>`).join("");
+  const pkgOpts = (packages || []).map((p) => `<option value="${p.id}">${esc(p.name)} — ${p.lines.length} line(s)</option>`).join("");
+
+  host.innerHTML = `<div class="ordm__veil" id="ordm-veil"></div>
+    <div class="ordm" role="dialog" aria-label="New order">
+      <div class="ordm__head">
+        <div><div class="ordm__eyebrow">Procurement</div><h2 class="ordm__title">New order</h2></div>
+        <button class="ordm__x" id="ordm-x">×</button>
+      </div>
+      <div class="ordm__cap" id="ordm-cap">${capLine(cap)}</div>
+      <div class="ordm__body">
+        <div class="ordm__row">
+          <label>Package <span class="muted">(one-click bundle)</span></label>
+          <div style="display:flex;gap:8px">
+            <select id="ordm-pkg" style="flex:1"><option value="">— choose a package —</option>${pkgOpts}</select>
+            <input id="ordm-packs" type="number" min="1" value="1" title="how many packs" style="width:70px"/>
+            <button class="btn btn--ghost" id="ordm-addpkg">Add</button>
+          </div>
+        </div>
+        <div class="ordm__or">or pick individual products</div>
+        <div class="ordm__row">
+          <div style="display:flex;gap:8px">
+            <select id="ordm-prod" style="flex:1">${prodOpts}</select>
+            <input id="ordm-qty" type="number" min="1" value="1" style="width:70px"/>
+            <button class="btn btn--ghost" id="ordm-addprod">Add</button>
+          </div>
+        </div>
+        <table class="ordm__lines" id="ordm-lines"><tbody></tbody></table>
+      </div>
+      <div class="ordm__foot">
+        <span class="muted" id="ordm-summary">No lines yet.</span>
+        <span style="flex:1"></span>
+        <button class="btn btn--ghost" id="ordm-cancel">Cancel</button>
+        <button class="btn btn--ink" id="ordm-place" disabled>${icon("check", 14)} Stage order</button>
+      </div>
+    </div>`;
+
+  const close = () => { host.innerHTML = ""; };
+  $("#ordm-x").onclick = close; $("#ordm-cancel").onclick = close; $("#ordm-veil").onclick = close;
+
+  $("#ordm-addprod").onclick = () => {
+    const sel = $("#ordm-prod"); const qty = parseInt($("#ordm-qty").value, 10) || 1;
+    addOrderLine(sel.value, sel.options[sel.selectedIndex].text, qty);
+  };
+  $("#ordm-addpkg").onclick = async () => {
+    const pid = $("#ordm-pkg").value; if (!pid) return;
+    const packs = parseInt($("#ordm-packs").value, 10) || 1;
+    const pkg = (packages || []).find((p) => p.id === pid);
+    if (!pkg) return;
+    pkg.lines.forEach((ln) => {
+      const prod = (products || []).find((p) => p.id === ln.product_id);
+      addOrderLine(ln.product_id, prod ? prod.name : ln.product_id, ln.quantity * packs);
+    });
+  };
+  $("#ordm-place").onclick = () => placeOrder(close);
+  renderOrderLines();
+}
+
+function capLine(cap) {
+  if (!cap || cap.free_to_order == null) return `<span class="muted">No warehouse capacity defined — no storage limit applies.</span>`;
+  const pct = cap.committed_pct != null ? Math.round(cap.committed_pct * 100) : 0;
+  const cover = cap.weeks_of_cover != null ? `${cap.weeks_of_cover}w cover` : "—";
+  return `<b>${cap.free_to_order}</b> units free to order · <b>${pct}%</b> committed of ${cap.capacity}
+    · in ${cap.daily_in}/d, out ${cap.daily_out}/d · ${cover}`;
+}
+
+function addOrderLine(productId, label, qty) {
+  if (!productId || qty <= 0) return;
+  const existing = _orderLines.find((l) => l.product_id === productId);
+  if (existing) existing.quantity += qty;
+  else _orderLines.push({ product_id: productId, label, quantity: qty });
+  renderOrderLines();
+}
+
+function renderOrderLines() {
+  const tb = $("#ordm-lines").querySelector("tbody");
+  tb.innerHTML = _orderLines.map((l, i) => `<tr>
+    <td>${esc(l.label)}</td>
+    <td class="num"><input type="number" min="1" value="${l.quantity}" data-i="${i}" class="ordm-qedit" style="width:64px"/></td>
+    <td><button class="ordm__rm" data-i="${i}">remove</button></td></tr>`).join("");
+  const total = _orderLines.reduce((s, l) => s + l.quantity, 0);
+  $("#ordm-summary").textContent = _orderLines.length ? `${_orderLines.length} line(s) · ${total} units` : "No lines yet.";
+  $("#ordm-place").disabled = _orderLines.length === 0;
+  tb.querySelectorAll(".ordm-qedit").forEach((inp) => inp.onchange = () => {
+    const v = parseInt(inp.value, 10) || 1; _orderLines[+inp.dataset.i].quantity = Math.max(1, v); renderOrderLines();
+  });
+  tb.querySelectorAll(".ordm__rm").forEach((b) => b.onclick = () => { _orderLines.splice(+b.dataset.i, 1); renderOrderLines(); });
+}
+
+async function placeOrder(close) {
+  const btn = $("#ordm-place"); btn.disabled = true;
+  try {
+    const res = await api("/requisitions/manual", { method: "POST",
+      body: { lines: _orderLines.map((l) => ({ product_id: l.product_id, quantity: l.quantity })) } });
+    const bits = [`${res.requisition_ids.length} requisition(s) staged`];
+    if (res.orphans && res.orphans.length) bits.push(`${res.orphans.length} need a supplier`);
+    toast(bits.join(" · "), "ok");
+    close();
+  } catch (e) {
+    // The capacity guard (422) and any other refusal land here.
+    toast(e.message || "Order refused", "err");
+    btn.disabled = false;
+  }
+}
 
 function renderTimeline() {
   const o = TRACKING.find((x) => x.po === trackSel) || TRACKING[0];
