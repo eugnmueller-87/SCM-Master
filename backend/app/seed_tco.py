@@ -74,6 +74,18 @@ _CLASSES: dict[str, _Profile] = {
     "switch":  _Profile(9000, (150, 400), (60, 75), (0.08, 0.14), (24, 48), (2, 4)),
 }
 
+# The Product.category actually STORED — canonical Title Case, so the synthetic
+# TCO assets share one vocabulary with the demo catalog (`Storage`, not a second
+# lowercase `storage` bucket) and the analytics/spend board shows one bar per
+# category. The internal class key (the `_CLASSES` keys above) is unchanged, so
+# per-class TCO profiles and grouping are unaffected.
+_DISPLAY_CATEGORY = {
+    "storage": "Storage",   # merges with the demo's "Storage" bucket
+    "compute": "Compute",
+    "gpu":     "GPU",
+    "switch":  "Networking",  # a switch is networking gear → demo's "Networking"
+}
+
 
 def _month_start(d: date, n: int) -> date:
     total = d.year * 12 + (d.month - 1) + n
@@ -101,7 +113,8 @@ def seed_tco(db: Session, *, seed: int = 42, n_assets: int = 400,
     # One product per class (the asset carries the class via its product).
     products = {}
     for cls in _CLASSES:
-        p = Product(product_code=f"TCO-{cls.upper()}", name=f"Synthetic {cls} node", category=cls)
+        p = Product(product_code=f"TCO-{cls.upper()}", name=f"Synthetic {cls} node",
+                    category=_DISPLAY_CATEGORY[cls])
         db.add(p)
         products[cls] = p
     db.flush()
