@@ -37,6 +37,37 @@ class Organization(IdMixin, TimestampMixin, ExternalRefMixin, Base):
     is_manufacturer: Mapped[bool] = mapped_column(Boolean, default=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # --- Supplier onboarding / compliance gate -------------------------------
+    # A supplier must clear onboarding before it can be ordered from: a quick
+    # risk assessment plus a signed DPA and NDA on record. Documents are tracked
+    # as metadata only (signer + date) — a document of record, not file storage.
+    # ``onboarding_status`` is the gate; ``is_orderable`` derives the verdict.
+    # Legacy/seeded suppliers default to APPROVED so existing flows are unaffected.
+    onboarding_status: Mapped[str] = mapped_column(String(16), default="APPROVED")  # DRAFT/IN_REVIEW/APPROVED/REJECTED
+    risk_level: Mapped[Optional[str]] = mapped_column(String(8))  # LOW/MEDIUM/HIGH
+    risk_notes: Mapped[Optional[str]] = mapped_column(Text)
+    risk_assessed_at: Mapped[Optional[date]] = mapped_column(Date)
+    dpa_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    dpa_signed_at: Mapped[Optional[date]] = mapped_column(Date)
+    dpa_reference: Mapped[Optional[str]] = mapped_column(String(255))  # doc-of-record: filename/ref/signer
+    nda_signed: Mapped[bool] = mapped_column(Boolean, default=False)
+    nda_signed_at: Mapped[Optional[date]] = mapped_column(Date)
+    nda_reference: Mapped[Optional[str]] = mapped_column(String(255))
+
+    @property
+    def onboarding_complete(self) -> bool:
+        """The hard gate: risk assessed AND both agreements signed."""
+        return (
+            self.risk_level is not None
+            and self.dpa_signed
+            and self.nda_signed
+        )
+
+    @property
+    def is_orderable(self) -> bool:
+        """A supplier can be ordered from only when active and APPROVED."""
+        return self.is_supplier and self.active and self.onboarding_status == "APPROVED"
+
     # Source rows where this org is the seller.
     supplied_products: Mapped[list["ProductSupplier"]] = relationship(
         back_populates="supplier",

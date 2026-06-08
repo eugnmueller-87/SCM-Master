@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.base import ReadBase
 
@@ -39,9 +39,44 @@ class OrganizationRead(ReadBase):
     is_supplier: bool
     is_manufacturer: bool
     active: bool
+    # Onboarding / compliance gate.
+    onboarding_status: str
+    risk_level: Optional[str] = None
+    risk_notes: Optional[str] = None
+    risk_assessed_at: Optional[date] = None
+    dpa_signed: bool = False
+    dpa_signed_at: Optional[date] = None
+    dpa_reference: Optional[str] = None
+    nda_signed: bool = False
+    nda_signed_at: Optional[date] = None
+    nda_reference: Optional[str] = None
+    is_orderable: bool = False
     # Provenance when synced from an upstream system (SAP/Coupa); null if born here.
     source_system: Optional[str] = None
     external_ref: Optional[str] = None
+
+
+class SupplierRiskAssessment(BaseModel):
+    """Record a quick supplier risk assessment (step 1 of onboarding)."""
+    risk_level: str  # LOW / MEDIUM / HIGH
+    risk_notes: Optional[str] = None
+
+    @field_validator("risk_level")
+    @classmethod
+    def _valid_risk(cls, v: str) -> str:
+        allowed = {"LOW", "MEDIUM", "HIGH"}
+        u = v.strip().upper()
+        if u not in allowed:
+            raise ValueError(f"risk_level must be one of {sorted(allowed)}")
+        return u
+
+
+class SupplierDocument(BaseModel):
+    """Mark a compliance document (DPA / NDA) as signed — metadata of record,
+    no file bytes. ``reference`` is the filename / DocuSign ref / signer note."""
+    signed: bool = True
+    reference: Optional[str] = None
+    signed_at: Optional[date] = None  # defaults to today when omitted
 
 
 # --- Product --------------------------------------------------------------

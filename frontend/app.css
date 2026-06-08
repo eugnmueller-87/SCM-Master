@@ -841,6 +841,36 @@ button { font-family: inherit; }
 .ordm__lines td { padding: 7px 6px; border-bottom: 1px solid var(--ts-line); font-size: 13px; }
 .ordm__rm { border: none; background: transparent; color: var(--ts-negative); font-size: 12px; cursor: pointer; }
 .ordm__foot { display: flex; align-items: center; gap: 10px; padding: 14px 24px 20px; border-top: 1px solid var(--ts-line); margin-top: 8px; }
+.ordm__row textarea { width: 100%; padding: 7px 9px; border: 1px solid var(--ts-line); border-radius: 7px; font: inherit; font-size: 13px; resize: vertical; }
+.ordm__row input { width: 100%; box-sizing: border-box; }
+
+/* ── Supplier onboarding wizard ─────────────────────────────────────────── */
+.ob-steps { display: flex; align-items: center; gap: 8px; padding: 4px 24px 0; flex-wrap: wrap; }
+.ob-step { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--ts-ink-mute); }
+.ob-step__n { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%;
+  background: var(--ts-paper-deep); border: 1px solid var(--ts-line); font-size: 11px; }
+.ob-step--current { color: var(--ts-ink); }
+.ob-step--current .ob-step__n { background: var(--ts-ink-night); color: var(--ts-paper); border-color: var(--ts-ink-night); }
+.ob-step--done { color: var(--ts-ink-soft); }
+.ob-step--done .ob-step__n { background: var(--ts-brand-gold); color: var(--ts-ink-night); border-color: var(--ts-brand-gold); }
+.ob-step__sep { flex: 0 0 16px; height: 1px; background: var(--ts-line); }
+
+.ob-risk { display: flex; gap: 8px; }
+.ob-chip { padding: 8px 16px; border: 1px solid var(--ts-line); border-radius: 8px; background: var(--ts-surface-raised);
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ts-ink-soft); cursor: pointer; transition: .12s; }
+.ob-chip:hover { border-color: var(--ts-ink-mute); }
+.ob-chip.is-on { background: var(--ts-ink-night); color: var(--ts-paper); border-color: var(--ts-ink-night); }
+
+.ob-doc { border: 1px solid var(--ts-line); border-radius: 9px; padding: 12px 14px; margin-bottom: 10px; transition: .12s; }
+.ob-doc.is-on { border-color: var(--ts-brand-gold); background: color-mix(in srgb, var(--ts-brand-gold) 7%, transparent); }
+.ob-doc__check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.ob-doc__ref { margin-top: 9px; width: 100%; box-sizing: border-box; padding: 6px 9px; border: 1px solid var(--ts-line);
+  border-radius: 6px; font: inherit; font-size: 12.5px; }
+.ob-doc__ref:disabled { opacity: .5; }
+
+.ob-review { width: 100%; border-collapse: collapse; }
+.ob-review td { padding: 9px 4px; border-bottom: 1px solid var(--ts-line); font-size: 13px; }
+.ob-review td:first-child { color: var(--ts-ink-mute); width: 130px; font-size: 12px; font-weight: 600; }
 
 /* Master-detail: shipment cards on the left, the event timeline pinned on the
    right so it's visible without scrolling past every card. Collapses to a single
