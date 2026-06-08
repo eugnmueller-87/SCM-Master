@@ -167,8 +167,10 @@ RENDER.tracking = async function () {
       <div class="tkpi"><div class="tkpi__label">Out for delivery</div><div class="tkpi__val tkpi__val--info">${ofd}</div></div>
       <div class="tkpi"><div class="tkpi__label">Delivered</div><div class="tkpi__val tkpi__val--pos">${delivered}</div></div>
     </div>
-    <div id="track-cards">${cards}</div>
-    <div id="track-timeline"></div>
+    <div class="track-split">
+      <div id="track-cards">${cards}</div>
+      <div id="track-timeline"></div>
+    </div>
   </div>`;
   $$("#track-cards .tcard").forEach((c) => c.addEventListener("click", () => { trackSel = c.dataset.po; renderTimeline(); $$("#track-cards .tcard").forEach((x) => x.classList.toggle("tcard--sel", x.dataset.po === trackSel)); }));
   renderTimeline();

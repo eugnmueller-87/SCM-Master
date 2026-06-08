@@ -821,6 +821,16 @@ button { font-family: inherit; }
 .tbar { height: 2px; flex: 1; background: var(--ts-line); margin: 0 3px; border-radius: 2px; }
 .tbar--done { background: var(--ts-info); }
 
+/* Master-detail: shipment cards on the left, the event timeline pinned on the
+   right so it's visible without scrolling past every card. Collapses to a single
+   column on narrow screens (timeline first, so it stays above the fold there). */
+.track-split { display: grid; grid-template-columns: 1fr 420px; gap: 24px; align-items: start; }
+.track-split #track-timeline { position: sticky; top: 16px; }
+@media (max-width: 1100px) {
+  .track-split { grid-template-columns: 1fr; }
+  .track-split #track-timeline { position: static; order: -1; margin-bottom: 18px; }
+}
+
 /* event timeline panel */
 .tlpanel { background: var(--ts-paper-deep); border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); padding: 22px 24px 24px; margin-top: 8px; }
 .tlpanel__head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
