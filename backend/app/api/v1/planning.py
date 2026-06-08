@@ -13,6 +13,7 @@ from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role, User
 from app.schemas.planning import (
     CapacityDiagnosis,
+    CapacityFlow,
     DemandForecastItem,
     DeploymentForecast,
     InboundLine,
@@ -54,6 +55,15 @@ def storage_headroom(db: Session = Depends(get_db)):
     """Max units we could still land (free warehouse space net of inbound) — the
     cap on any order, so we never buy more than we can store."""
     return planning.storage_headroom(db)
+
+
+@router.get("/capacity-flow", response_model=CapacityFlow)
+def capacity_flow(db: Session = Depends(get_db)):
+    """One capacity-vs-flow metric: warehouse capacity, committed (on-hand+inbound),
+    free-to-order, daily in/out flow, weeks-of-cover and days-to-depletion. The
+    single source of truth the order UI, the over-order guard, and the cockpit tile
+    all read."""
+    return planning.capacity_flow(db)
 
 
 @router.get("/forecast", response_model=DeploymentForecast)

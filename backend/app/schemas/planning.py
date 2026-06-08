@@ -116,6 +116,23 @@ class StorageHeadroom(BaseModel):
     zones: list[StorageZone]
 
 
+class CapacityFlow(BaseModel):
+    """One warehouse capacity-vs-flow picture (the over-order guard reads this)."""
+    as_of: str
+    capacity: int
+    on_hand: int
+    inbound: int
+    committed: int                       # on_hand + inbound
+    free_to_order: Optional[int]         # hard cap a new order must respect; None = no limit
+    committed_pct: Optional[float]
+    daily_in: float                      # incoming units/day
+    daily_out: float                     # outgoing units/day (burn)
+    net_flow_per_day: float              # >0 filling, <0 draining
+    weeks_of_cover: Optional[float]
+    days_to_depletion: Optional[float]
+    zones: list[StorageZone]
+
+
 class RebalanceTarget(BaseModel):
     code: str
     moved: int

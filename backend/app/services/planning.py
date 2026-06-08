@@ -349,6 +349,64 @@ def storage_headroom(db: Session) -> dict:
     }
 
 
+def capacity_flow(db: Session, *, today: Optional[date] = None) -> dict:
+    """ONE warehouse capacity-vs-flow picture — the single source of truth for the
+    'can we store more / when do we run dry' question.
+
+    Thin composition of existing services (no parallel definitions):
+      - capacity / used / free / inbound  ← storage_headroom (warehouse zones);
+      - daily_in   = inbound units ÷ days-until-ETA, summed over the open pipeline;
+      - daily_out  = Σ daily_burn across SKUs (the same burn inventory_plan uses);
+      - on_hand    = units physically in warehouse zones now (= Σ used);
+      - weeks_of_cover  = on_hand ÷ daily_out ÷ 7   (how long current stock lasts);
+      - days_to_depletion = on_hand ÷ daily_out      (when we hit zero at current burn);
+      - committed_pct = (used + inbound) ÷ capacity  (the over-order guard reads this).
+
+    Returned per-zone AND as a portfolio rollup. ``storable_max`` is the hard cap a
+    new order must respect (None = no warehouse capacity defined → no cap).
+    """
+    today = today or date.today()
+    head = storage_headroom(db)
+    zones = head["zones"]
+
+    # daily_in: spread each open inbound line's outstanding qty over the days until
+    # its ETA (min 1 day), so a big PO landing tomorrow counts as a fast inflow.
+    daily_in = 0.0
+    for row in inbound_pipeline(db, as_of=today):
+        out = int(row.get("outstanding", 0))
+        eta = row.get("estimated_delivery_date")
+        days = max(1, (eta - today).days) if eta else 30
+        daily_in += out / days
+
+    # daily_out: the same recency-weighted burn the inventory plan uses (one
+    # definition of consumption, not a second one).
+    daily_out = sum(r["daily_burn"] for r in inventory_plan(db, today=today))
+
+    on_hand = sum(z["used"] for z in zones)
+    total_cap = sum(z["capacity"] for z in zones) or 0
+    total_inbound = head["committed_inbound"]
+    committed = on_hand + total_inbound
+
+    weeks_cover = round(on_hand / daily_out / 7, 1) if daily_out > 0 else None
+    days_deplete = round(on_hand / daily_out, 1) if daily_out > 0 else None
+
+    return {
+        "as_of": today.isoformat(),
+        "capacity": total_cap,
+        "on_hand": on_hand,
+        "inbound": total_inbound,
+        "committed": committed,                                  # on_hand + inbound
+        "free_to_order": head["storable_max"],                   # the hard cap (None = no limit)
+        "committed_pct": round(committed / total_cap, 4) if total_cap else None,
+        "daily_in": round(daily_in, 2),                          # incoming units/day
+        "daily_out": round(daily_out, 2),                        # outgoing units/day (burn)
+        "net_flow_per_day": round(daily_in - daily_out, 2),      # >0 filling, <0 draining
+        "weeks_of_cover": weeks_cover,                           # how long on-hand lasts
+        "days_to_depletion": days_deplete,                       # when on-hand hits 0
+        "zones": zones,
+    }
+
+
 def deployment_forecast(db: Session) -> dict:
     """Units that could reach service: on-hand (not yet deployed) + inbound."""
     on_hand = db.scalar(
