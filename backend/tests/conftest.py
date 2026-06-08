@@ -20,6 +20,60 @@ from app.core.security import create_access_token, hash_password
 from app.main import app as fastapi_app
 from app.models.auth import Role, User
 
+# ---------------------------------------------------------------------------
+# Agent-eval harness wiring (CLI option + marker + markdown report).
+#
+# pytest only loads ``pytest_addoption`` from the rootdir conftest (and plugins),
+# never from a nested package conftest — so the ``--md-report`` flag and the
+# ``agent_eval`` marker must be registered HERE. The flag stays inert for every
+# other test run; only the agent-eval suite records rows for the report.
+# ---------------------------------------------------------------------------
+
+_AGENT_EVAL_ROWS: list[dict] = []
+
+
+def pytest_addoption(parser):
+    group = parser.getgroup("agent_eval")
+    group.addoption(
+        "--md-report", action="store_true", default=False,
+        help="Print a markdown scenario/category/invariant/pass-fail table after the run.",
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "agent_eval: agent safety evaluation — deterministic gate vs stubbed LLM advice.",
+    )
+
+
+def record_agent_eval_result(*, scenario_id: str, category: str,
+                             invariant: str, passed: bool) -> None:
+    """Log one harness row for the optional markdown report (called by the test body)."""
+    _AGENT_EVAL_ROWS.append({
+        "id": scenario_id, "category": category,
+        "invariant": invariant, "passed": passed,
+    })
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Emit a presentable markdown table when --md-report is set and rows exist."""
+    if not config.getoption("--md-report") or not _AGENT_EVAL_ROWS:
+        return
+    tw = terminalreporter
+    tw.write_line("")
+    tw.write_line("## Agent Safety Evaluation — Results")
+    tw.write_line("")
+    tw.write_line("| Scenario | Category | Invariant under test | Result |")
+    tw.write_line("|---|---|---|---|")
+    for r in sorted(_AGENT_EVAL_ROWS, key=lambda x: (x["category"], x["id"])):
+        mark = "PASS" if r["passed"] else "FAIL"
+        tw.write_line(f"| {r['id']} | {r['category']} | {r['invariant']} | {mark} |")
+    passed = sum(1 for r in _AGENT_EVAL_ROWS if r["passed"])
+    tw.write_line("")
+    tw.write_line(f"**{passed}/{len(_AGENT_EVAL_ROWS)} scenarios held the line.**")
+    tw.write_line("")
+
 
 @pytest.fixture
 def db_session():

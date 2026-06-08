@@ -97,6 +97,36 @@ jobs:
       - name: Postgres smoke test (readiness + CRUD round-trip)
         run: pytest -q tests/test_pg_smoke.py
 
+  # Agent safety evaluation — drive the REAL deterministic placement/sourcing
+  # gate with ONLY the Claude call stubbed (app.agent.copilot.call_claude). It
+  # feeds reasonable AND hostile LLM advice and asserts the deterministic layer
+  # holds the line ("LLM advises, deterministic code decides").
+  #
+  # NO ANTHROPIC_API_KEY is needed or set: the LLM seam is monkeypatched, so this
+  # job runs fully offline and at zero API cost. --md-report prints a presentable
+  # scenario/category/invariant/pass-fail table to the job log.
+  agent-eval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Agent safety evaluation (no API key — LLM seam is stubbed)
+        run: pytest -m agent_eval --md-report
+
   # Security SAST — scan the app only (NOT tests; fixtures legitimately contain
   # literals). Demo seed creds + the insecure-default sentinel are annotated
   # `# nosec` with rationale, so this is clean. Fails the build on any finding.
