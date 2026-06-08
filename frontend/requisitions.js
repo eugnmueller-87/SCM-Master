@@ -21,7 +21,9 @@ if (typeof COUNTS === "object") COUNTS.staged = null;
 
 const TIER_TONE = { act: "positive", propose: "warning", escalate: "negative" };
 const supName = (id) => (ORGS[id] ? ORGS[id].name : (id || "—").slice(0, 8));
-const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+// `pct` is provided globally by app.js — do NOT redeclare it here. A second
+// top-level `const pct` is a SyntaxError that aborts parsing this whole file,
+// which silently breaks the Requisitions route (blank "Loading…").
 
 /* ── data ──────────────────────────────────────────────────────────── */
 async function loadReqs() {
