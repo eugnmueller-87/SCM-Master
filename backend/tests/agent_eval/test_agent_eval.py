@@ -13,12 +13,26 @@ from app.agent import purchasing
 from .adversarial import ADVERSARIAL_SCENARIOS
 from .conftest import record_result
 from .correctness import CORRECTNESS_SCENARIOS
+from .requisition_scenarios import REQUISITION_SCENARIOS
 from .scenarios import SCENARIOS, AdviceFromWorld, Scenario
 
 # Register all scenario sets into the single collection point at import time, so
 # the parametrize below sees them at collection.
 SCENARIOS.extend(CORRECTNESS_SCENARIOS)
 SCENARIOS.extend(ADVERSARIAL_SCENARIOS)
+SCENARIOS.extend(REQUISITION_SCENARIOS)
+
+
+def _run(scenario: Scenario, db, world):
+    """Drive the deterministic entry point this scenario targets."""
+    if scenario.runner == "requisition":
+        return purchasing.run_requisition_cycle(db, period_days=7)
+    kwargs = {}
+    if scenario.approve_suppliers is not None:
+        kwargs["approve_suppliers"] = scenario.approve_suppliers(world)
+    else:
+        kwargs["dry_run"] = False
+    return purchasing.run_weekly_purchasing(db, period_days=7, **kwargs)
 
 
 @pytest.mark.agent_eval
@@ -33,17 +47,15 @@ def test_scenario(scenario: Scenario, db_session, stub_llm):
         reply = reply(world)
     stub_llm(reply)
 
-    kwargs = {}
-    if scenario.approve_suppliers is not None:
-        kwargs["approve_suppliers"] = scenario.approve_suppliers(world)
-    else:
-        kwargs["dry_run"] = False
-
-    result = purchasing.run_weekly_purchasing(db_session, period_days=7, **kwargs)
-
     passed = False
     try:
-        scenario.expect(result, world, db_session)
+        if scenario.expect_raises is not None:
+            # Fail-closed scenarios: the run (or a follow-up the expect drives)
+            # must raise. The expect callback performs the action and asserts.
+            scenario.expect(scenario, world, db_session, _run)
+        else:
+            result = _run(scenario, db_session, world)
+            scenario.expect(result, world, db_session)
         passed = True
     finally:
         record_result(

@@ -19,6 +19,11 @@ from sqlalchemy.orm import Session
 
 from app.models.catalog import Organization, Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType
+from app.models.requisition import (
+    PurchaseRequisition,
+    RequisitionFeedback,
+    RequisitionStatus,
+)
 
 # ---------------------------------------------------------------------------
 # World handles — what a scenario's setup returns, so its expectations can refer
@@ -96,6 +101,28 @@ def make_warehouse(db: Session, code: str, *, capacity: int, used: int = 0) -> L
     return loc
 
 
+def seed_feedback(db: Session, product: Product, supplier: Organization, *,
+                  action: str, n: int) -> None:
+    """Write `n` RequisitionFeedback rows for (product, supplier) — calibration history.
+
+    This is the hostile-STATE lever for the requisition path: a flood of forged
+    'approved' rows tries to lower the learned auto-place bar, 'rejected' rows
+    raise it. The calibration service reads these to move the bar (clamped). A
+    parent PLACED requisition is created to satisfy the FK; it is not the unit
+    under test.
+    """
+    pr = PurchaseRequisition(supplier_id=supplier.id, status=RequisitionStatus.PLACED)
+    db.add(pr)
+    db.flush()
+    for _ in range(n):
+        db.add(RequisitionFeedback(
+            requisition_id=pr.id, product_id=product.id, supplier_id=supplier.id,
+            action=action, proposed_qty=1, final_qty=1 if action != "rejected" else 0,
+            confidence=0.9, auto_placed=(action == "approved"),
+        ))
+    db.flush()
+
+
 def decommission(db: Session, product: Product, n: int, *, days_ago: int = 1) -> None:
     """Stamp `n` DECOMMISSIONED assets for `product` within the period.
 
@@ -169,6 +196,10 @@ GARBAGE_OUT_OF_RANGE = advice(decision="act", confidence=5.0)  # confidence > 1.
 # ---------------------------------------------------------------------------
 
 Category = Literal["correctness", "adversarial"]
+# Which deterministic entry point the scenario drives:
+#   "weekly"      -> purchasing.run_weekly_purchasing (the original 18 scenarios)
+#   "requisition" -> purchasing.run_requisition_cycle (the calibration auto-place path)
+Runner = Literal["weekly", "requisition"]
 
 
 @dataclass(frozen=True)
@@ -184,9 +215,15 @@ class Scenario:
     # call). A callable lets a scenario vary the reply per product_id.
     llm_advice: object
     # Asserts on the deterministic outcome. Receives (run_result, world, db).
-    expect: Callable[..., None]
+    # Ignored when expect_raises is set (the scenario asserts a failure instead).
+    expect: Optional[Callable[..., None]] = None
     # Confirm-path scenarios approve specific suppliers; None => normal live run.
     approve_suppliers: Optional[Callable[[World], set]] = None
+    # The deterministic entry point to drive (default: the original weekly run).
+    runner: Runner = "weekly"
+    # When set, the run is expected to RAISE this exception type (fail-closed
+    # idempotency / empty-PO guards). expect(exc, world, db) then asserts on it.
+    expect_raises: Optional[type] = None
 
 
 # Populated by the scenario modules (Tasks 3 & 4), imported here so the test

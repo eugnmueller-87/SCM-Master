@@ -7,6 +7,8 @@ the dev ``scm.db`` and never interfere with each other.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -57,22 +59,30 @@ def record_agent_eval_result(*, scenario_id: str, category: str,
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """Emit a presentable markdown table when --md-report is set and rows exist."""
+    """Emit a presentable markdown table when --md-report is set and rows exist.
+
+    Always prints to stdout; ALSO appends to $GITHUB_STEP_SUMMARY when that env
+    var is set, so the table renders on the GitHub Actions run summary page (not
+    just the job log). Local runs are unchanged.
+    """
     if not config.getoption("--md-report") or not _AGENT_EVAL_ROWS:
         return
-    tw = terminalreporter
-    tw.write_line("")
-    tw.write_line("## Agent Safety Evaluation — Results")
-    tw.write_line("")
-    tw.write_line("| Scenario | Category | Invariant under test | Result |")
-    tw.write_line("|---|---|---|---|")
+    passed = sum(1 for r in _AGENT_EVAL_ROWS if r["passed"])
+    lines = ["", "## Agent Safety Evaluation — Results", "",
+             "| Scenario | Category | Invariant under test | Result |",
+             "|---|---|---|---|"]
     for r in sorted(_AGENT_EVAL_ROWS, key=lambda x: (x["category"], x["id"])):
         mark = "PASS" if r["passed"] else "FAIL"
-        tw.write_line(f"| {r['id']} | {r['category']} | {r['invariant']} | {mark} |")
-    passed = sum(1 for r in _AGENT_EVAL_ROWS if r["passed"])
-    tw.write_line("")
-    tw.write_line(f"**{passed}/{len(_AGENT_EVAL_ROWS)} scenarios held the line.**")
-    tw.write_line("")
+        lines.append(f"| {r['id']} | {r['category']} | {r['invariant']} | {mark} |")
+    lines += ["", f"**{passed}/{len(_AGENT_EVAL_ROWS)} scenarios held the line.**", ""]
+
+    for line in lines:
+        terminalreporter.write_line(line)
+
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
 
 
 @pytest.fixture
