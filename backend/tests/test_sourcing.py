@@ -109,3 +109,43 @@ def test_spend_empty_when_nothing_received(client):
     summary = client.get(f"{B}/analytics/spend").json()
     assert summary["total_units"] == 0
     assert summary["total_spend"] == "0"
+
+
+def test_spend_year_filter_partitions_by_received_date(client):
+    s = build_scenario(client)  # 5 @ 3200
+    oi, wh = s["order_item_id"], s["warehouse_id"]
+    # receive 2 units in 2025 and 1 unit in 2026
+    client.post(f"{B}/purchase-orders/{s['order_id']}/receipts", json={
+        "location_id": wh, "receipt_date": "2025-03-10",
+        "lines": [{"order_item_id": oi, "quantity": 2}],
+    })
+    client.post(f"{B}/purchase-orders/{s['order_id']}/receipts", json={
+        "location_id": wh, "receipt_date": "2026-04-20",
+        "lines": [{"order_item_id": oi, "quantity": 1}],
+    })
+
+    # all-time: 3 units, full spend
+    allt = client.get(f"{B}/analytics/spend").json()
+    assert allt["total_units"] == 3
+    assert allt["total_spend"] == "9600.00"  # 3 * 3200
+
+    # scoped to 2025
+    y25 = client.get(f"{B}/analytics/spend", params={"year": 2025}).json()
+    assert y25["total_units"] == 2
+    assert y25["total_spend"] == "6400.00"
+
+    # scoped to 2026
+    y26 = client.get(f"{B}/analytics/spend", params={"year": 2026}).json()
+    assert y26["total_units"] == 1
+    assert y26["total_spend"] == "3200.00"
+
+    # a year with no receipts is empty, not an error
+    y24 = client.get(f"{B}/analytics/spend", params={"year": 2024}).json()
+    assert y24["total_units"] == 0
+
+    # the selector source lists exactly the years that have data, newest first
+    assert client.get(f"{B}/analytics/spend/years").json() == [2026, 2025]
+
+    # by-product / by-category respect the filter too
+    prod25 = client.get(f"{B}/analytics/spend/by-product", params={"year": 2025}).json()
+    assert sum(p["units"] for p in prod25) == 2
