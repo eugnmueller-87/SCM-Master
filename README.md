@@ -6,7 +6,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-244_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-273_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Agent safety](https://img.shields.io/badge/agent_safety-29_scenarios-8A2BE2?logo=shieldsdotio&logoColor=white)](backend/tests/agent_eval/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
@@ -70,7 +70,7 @@ the purchase-order line it came from (see [What makes it different](#what-makes-
 | Layer | What it does | Where |
 | --- | --- | --- |
 | **Operational core** | Procurement → receiving → asset lifecycle, with an unbroken provenance link from each serial unit back to its PO line. | [`models/`](backend/app/models/), [`services/`](backend/app/services/) |
-| **Planning** | Inbound pipeline, warehouse capacity + over-capacity diagnosis, usage-based demand forecast backtested against ~18 months of history. | [`services/planning.py`](backend/app/services/planning.py) |
+| **Planning** | Inbound pipeline, warehouse capacity + over-capacity diagnosis, and real inventory science: demand-pattern-routed forecasting (run-rate / TSB, backtest-proven), service-level safety stock, and ABC classification — backtested against ~18 months of history. | [`services/planning.py`](backend/app/services/planning.py), [`forecasting.py`](backend/app/services/forecasting.py) |
 | **Decision layer** | An LLM copilot that proposes buys; a should-cost engine; a TCO/TSCMC rollup. The LLM **advises**; deterministic services **decide**. | [`agent/`](backend/app/agent/), [`services/costing.py`](backend/app/services/costing.py), [`services/tco.py`](backend/app/services/tco.py) |
 | **Trust** | A 29-scenario [agent safety harness](backend/tests/agent_eval/) that proves the gate refuses hostile AI advice; 244 tests; 6-job CI (lint, migrations, Postgres, SAST, CVE audit, agent-safety). | [`tests/`](backend/tests/), [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Delivery** | Two isolated live stacks (forge-locked production + self-seeding demo), each with an executive analytics cockpit. | [docs/DEPLOY.md](docs/DEPLOY.md), [SCM-POWER-BI](https://github.com/eugnmueller-87/SCM-POWER-BI) |
@@ -274,7 +274,7 @@ The API lives under `/api/v1`:
 - **Receiving** — `POST /purchase-orders/{id}/receipts` turns ordered units into assets.
 - **Assets** — `/assets` (filter by status/location), `/assets/{id}/transition`, `/move`, `/events`, `/provenance`.
 - **Sourcing & analytics** — `/products/{id}/sources`, `/analytics/spend[...]`.
-- **Planning** — `/planning/inbound`, `/planning/capacity`, `/planning/forecast`.
+- **Planning** — `/planning/inbound`, `/planning/capacity`, `/planning/forecast` (demand-pattern-routed), `/planning/inventory` (service-level safety stock, reorder point/status, ABC class per SKU).
 - **Integrations** — `POST /integrations/coupa/import` ingests a Coupa PO export (CSV); `dry_run=true` previews, idempotent on `(source_system, external_ref)`. See [`docs/integration-architecture.md`](docs/integration-architecture.md).
 - **Analytics exports (BI)** — `/analytics/exports/forecast-accuracy.csv`, `/demand-history.csv`, `/spend.csv`: flat CSV facts for Power BI/Tableau, including the demand forecast **backtested** against ~18 months of seeded history. See [`docs/powerbi-analytics.md`](docs/powerbi-analytics.md).
 - **Requisitions (auto-buy + approval)** — `POST /requisitions/run` stages Purchase Requests from live demand; ones clearing a **learned** confidence bar auto-convert to a PO, the rest wait as an editable cart (`/requisitions`, `PATCH …/lines/{id}`, `…/approve`, `…/reject`). Outcome-feedback calibration adjusts the bar per product/supplier (`/requisitions/calibration`).
@@ -369,6 +369,20 @@ LLM, where used, only proposes; tested code decides), specced before code in
 - [x] **TSCMC, correctly defined** — the portfolio rollup exposes per-layer subtotals and **two** labelled ratios: `total_cost_pct` (ΣTCO ÷ baseline) and `tscmc_pct` (Σ(TCO − acquisition) ÷ baseline) — the SCOR/APQC Total Supply-Chain Management Cost deliberately **excludes** acquisition.
 - [x] **Deterministic synthetic generator** ([`app/seed_tco.py`](backend/app/seed_tco.py)) — ~400 assets across storage/compute/GPU/switch, internally consistent across every cost layer, seedable + reproducible. Surfaces the headline insight: on GPU nodes, **lifetime OpEx can exceed the purchase price**.
 - [x] **Cockpit pages** — "Should-Cost / Margin Lever" and "TCO" tabs in the [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI), reading the live API.
+
+### Phase 9 — Inventory science: demand-pattern routing + service-level stock ✅ *(done)*
+
+Upgrades the forecast and safety stock from heuristics to defensible inventory
+science — and, in the spirit of the rest of the system, lets the **backtest be
+the arbiter** rather than shipping a fancier method on faith. Lives in
+[`app/services/forecasting.py`](backend/app/services/forecasting.py) (pure,
+unit-tested) and [`planning.py`](backend/app/services/planning.py).
+
+- [x] **Demand-pattern-routed forecasting** — a **Syntetos–Boylan** classifier (ADI / CV²) routes each SKU to the right estimator: the recency-weighted **run-rate** for smooth demand, **TSB** (Teunter–Syntetos–Babai) for intermittent/lumpy. Selectable via `forecast_method` (`run_rate` / `tsb` / `auto`); the EOL fleet-refresh term is preserved and additive.
+- [x] **Proven, not assumed** — the existing walk-forward backtest now scores any method head-to-head on identical data. The honest result: on representative demand (incl. a genuinely lumpy project-batched accelerator), the run-rate **beats** TSB on MAPE + bias on every SKU — so it stays the default. The real finding: *lumpy demand isn't point-forecastable; it's absorbed by safety stock, not forecasts* — which is exactly what the next item does.
+- [x] **Service-level safety stock** — replaces the `burn × lead ÷ 2` heuristic with `z(service_level) × σ(demand over lead time)`, with σ measured on **lead-time buckets** so batch lumpiness is captured (not smoothed away), and **no fabricated lead-time-variability term**. Wired server-side: `inventory_plan` emits `reorder_point` / `reorder_status`, consumed by the UI. Effect: buffer moves **toward** the volatile, long-lead, high-value SKU and **away** from the steady commodity — the inverse of, and correction to, the heuristic.
+- [x] **ABC classification** — Pareto by annualised value → A/B/C, mapped to per-class service levels (A = 0.98 protects the vital few hardest; C = 0.90 runs the trivial many leaner), exposed on the planning output.
+- [x] **Tested as a guarantee** — TSB known-value + the four Syntetos–Boylan quadrants, safety stock rising with service level and with variability (falling to 0 when variability is 0), and ABC on a known Pareto distribution. Plus a **forge-lock regression test** that asserts production refuses a weak/default admin.
 
 ## Live deployment — two isolated stacks
 
