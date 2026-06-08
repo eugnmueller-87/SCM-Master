@@ -46,7 +46,11 @@ const daysUntil = (iso) => iso ? Math.ceil((new Date(iso) - NOW_INV) / 86400000)
 
 function plan(it) {
   const cover = it.daily_burn > 0 ? Math.floor(it.on_hand / it.daily_burn) : 999;
-  const rop = Math.ceil(it.daily_burn * it.lead_time_days + it.safety_stock);
+  // Prefer the SERVER-computed reorder point (service-level safety stock baked in);
+  // fall back to the client calc only if an older backend didn't send it.
+  const rop = (it.reorder_point != null)
+    ? it.reorder_point
+    : Math.ceil(it.daily_burn * it.lead_time_days + it.safety_stock);
   const etaDays = daysUntil(it.next_eta);
   const projected = it.on_hand + it.on_order;          // after the open order lands
   const overByOrder = projected > it.capacity;

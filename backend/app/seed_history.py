@@ -62,6 +62,16 @@ _BASE_MONTHLY = {
 }
 _NOISE = 0.25  # ±25% reproducible noise around the base rate
 
+# LUMPY demand: a high-value accelerator bought in project batches, with genuine
+# zero-demand months between. Keyed by month_index (0 = oldest of the 18 months).
+# This is representative datacenter procurement (project-batched GPUs), NOT tuned
+# to make any forecast method win — its ADI/CV² land where they land, and the
+# backtest reports the head-to-head honestly. SKUs absent from this map use the
+# steady _BASE_MONTHLY path.
+_BATCH_SCHEDULE = {
+    "NVDA-H100": {2: 12, 3: 4, 9: 18, 14: 10, 15: 6},  # 5 active months of 18, rest zero
+}
+
 
 def _noise_factor(product_code: str, month_index: int) -> float:
     """Deterministic noise in [1-_NOISE, 1+_NOISE] from a hash of product+month.
@@ -116,6 +126,10 @@ def seed_history() -> None:
         po_counter = [900]  # history PO numbers start high to avoid demo collisions
 
         def month_demand(product_code: str, month_index: int) -> int:
+            # Batched (lumpy) SKUs: demand only in their scheduled months, else 0.
+            if product_code in _BATCH_SCHEDULE:
+                return _BATCH_SCHEDULE[product_code].get(month_index, 0)
+            # Steady SKUs: base rate ± reproducible noise, floored at 1/month.
             base = _BASE_MONTHLY.get(product_code, 3)
             return max(1, round(base * _noise_factor(product_code, month_index)))
 
@@ -129,6 +143,8 @@ def seed_history() -> None:
                 if src is None:
                     continue
                 qty = month_demand(product.product_code, month_index)
+                if qty <= 0:
+                    continue  # a zero-demand month for a lumpy SKU — deploy nothing
 
                 # One PO per product per month, ordered just before the month,
                 # received early in the month, deployed across the month.

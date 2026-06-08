@@ -72,10 +72,12 @@ def _actual_deploys(db: Session, product_id: str, start: date, end: date) -> int
     return int(n or 0)
 
 
-def backtest(db: Session) -> list[dict]:
+def backtest(db: Session, *, method: Optional[str] = None) -> list[dict]:
     """Walk month-spaced as-of dates across the deployment history, run the
     forecast at each, and compare to actual deployments over the next horizon.
 
+    ``method`` selects the forecast estimator (run_rate / tsb / auto), so the
+    same harness can score competing methods head-to-head on identical data.
     Returns one row per (as_of_date × product) that had a forecast. Empty if
     there isn't enough history (need at least window + horizon of span)."""
     from app.services import planning  # local import avoids any cycle
@@ -88,7 +90,8 @@ def backtest(db: Session) -> list[dict]:
 
     out: list[dict] = []
     for as_of in _as_of_dates(history_start, history_end, horizon):
-        forecast = {f["product_id"]: f for f in planning.demand_forecast(db, today=as_of)}
+        forecast = {f["product_id"]: f
+                    for f in planning.demand_forecast(db, today=as_of, method=method)}
         window_end = as_of + timedelta(days=horizon)
         for pid, f in forecast.items():
             actual = _actual_deploys(db, pid, as_of, window_end)
@@ -104,6 +107,7 @@ def backtest(db: Session) -> list[dict]:
                 "name": f.get("name"),
                 "category": f.get("category"),
                 "usage_rate_per_day": f.get("usage_rate_per_day"),
+                "forecast_method": f.get("forecast_method"),
                 "predicted_demand": round(predicted, 1),
                 "actual_demand": actual,
                 "abs_error": round(abs_error, 1),
@@ -146,14 +150,15 @@ def monthly_demand_history(db: Session) -> list[dict]:
     return sorted(out, key=lambda r: (r["month"], r["product_code"] or ""))
 
 
-def accuracy_summary(db: Session) -> dict:
+def accuracy_summary(db: Session, *, method: Optional[str] = None) -> dict:
     """Headline accuracy across the whole backtest: MAPE and bias.
 
     - ``mape``  : mean APE over rows where actual > 0 (lower = better).
     - ``bias``  : mean signed error (predicted − actual); >0 = over-forecasting.
     - per-product breakdown of the same.
+    ``method`` selects the forecast estimator scored (defaults to the configured one).
     """
-    rows = backtest(db)
+    rows = backtest(db, method=method)
     if not rows:
         return {"rows": 0, "mape": None, "bias": None, "by_product": []}
 

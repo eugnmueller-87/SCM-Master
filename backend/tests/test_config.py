@@ -105,3 +105,102 @@ def test_production_refuses_sqlite(restore_settings):
     )
     with pytest.raises(RuntimeError, match="non-persistent"):
         cfg.announce_startup()
+
+
+# --- forge-lock: production must REFUSE a weak/default admin on bootstrap -----
+#
+# bootstrap_users() runs on every boot. In prod it must never create the demo
+# default admin (admin@example.com / "admin"). This is the invariant that, if it
+# silently regressed, would leave a guessable admin on a real production stack.
+# We exercise the REAL bootstrap_users against an isolated in-memory DB.
+
+@pytest.fixture
+def bootstrap_env(restore_settings, monkeypatch):
+    """Point bootstrap_users' SessionLocal at a throwaway in-memory DB and let a
+    test drive SCM_ENV + ADMIN_PASSWORD, restoring everything afterwards."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import app.core.db as db_mod
+    import app.models  # noqa: F401 — register tables
+    from app.core.db import Base
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    original_session = db_mod.SessionLocal
+    db_mod.SessionLocal = TestSession
+    # Clean slate for the env knobs bootstrap_users reads.
+    for k in ("ADMIN_PASSWORD", "ADMIN_EMAIL", "ADMIN_NAME", "GUEST_ENABLED"):
+        monkeypatch.delenv(k, raising=False)
+    try:
+        yield restore_settings, TestSession
+    finally:
+        db_mod.SessionLocal = original_session
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()
+
+
+def _admin_count(SessionMaker) -> int:
+    from sqlalchemy import func, select
+
+    from app.models.auth import Role, User
+    s = SessionMaker()
+    try:
+        return s.scalar(select(func.count(User.id)).where(User.role == Role.ADMIN)) or 0
+    finally:
+        s.close()
+
+
+def test_bootstrap_refuses_weak_admin_in_production(bootstrap_env, monkeypatch):
+    cfg, SessionMaker = bootstrap_env
+    from app.services.auth import bootstrap_users
+
+    cfg.settings = Settings(scm_env="prod")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin")     # the weak default
+    bootstrap_users()
+    # The whole point: NO admin is provisioned with a guessable password in prod.
+    assert _admin_count(SessionMaker) == 0
+
+
+def test_bootstrap_refuses_unset_admin_password_in_production(bootstrap_env, monkeypatch):
+    cfg, SessionMaker = bootstrap_env
+    from app.services.auth import bootstrap_users
+
+    cfg.settings = Settings(scm_env="prod")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)  # unset -> defaults to "admin"
+    bootstrap_users()
+    assert _admin_count(SessionMaker) == 0
+
+
+def test_bootstrap_provisions_admin_with_strong_password_in_production(bootstrap_env, monkeypatch):
+    cfg, SessionMaker = bootstrap_env
+    from app.services.auth import bootstrap_users
+
+    cfg.settings = Settings(scm_env="prod")
+    monkeypatch.setenv("ADMIN_PASSWORD", "a-strong-deliberate-secret-123")
+    bootstrap_users()
+    # A real password provisions exactly one admin — and NO guest in prod.
+    assert _admin_count(SessionMaker) == 1
+    from sqlalchemy import func, select
+
+    from app.models.auth import Role, User
+    s = SessionMaker()
+    try:
+        guests = s.scalar(select(func.count(User.id)).where(User.role == Role.VIEWER)) or 0
+    finally:
+        s.close()
+    assert guests == 0, "production must never create the demo guest account"
+
+
+def test_bootstrap_creates_demo_admin_when_not_production(bootstrap_env, monkeypatch):
+    cfg, SessionMaker = bootstrap_env
+    from app.services.auth import bootstrap_users
+
+    cfg.settings = Settings(scm_env="demo")
+    monkeypatch.delenv("ADMIN_PASSWORD", raising=False)  # demo default "admin" is fine
+    bootstrap_users()
+    assert _admin_count(SessionMaker) == 1  # demo intentionally has a one-click admin

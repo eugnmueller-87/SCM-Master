@@ -87,6 +87,10 @@ def seed_demo() -> None:
         jbod = product_service.create(db, dict(product_code="SMC-SC847", name="SC847 · 4U JBOD chassis", category="Storage", description="44-bay JBOD"))
         nic = product_service.create(db, dict(product_code="NVDA-CX7", name="ConnectX-7 200G NIC", category="Networking", description="200GbE adapter"))
         psu = product_service.create(db, dict(product_code="PSU-2400T", name="2400W Titanium PSU", category="Power", description="Hot-swap PSU"))
+        # A high-value accelerator bought in PROJECT BATCHES (not steady run-rate):
+        # large orders a few times across the year, zero between. This is genuinely
+        # lumpy demand — the case the intermittent (TSB) forecast exists for.
+        gpu = product_service.create(db, dict(product_code="NVDA-H100", name="H100 80GB SXM accelerator", category="GPU", description="Project-batched datacenter GPU"))
 
         # --- Sourcing contracts (varied lifecycle states + budgets) -------
         def src(product, supplier, manufacturer, price, lead, moq, rank, **kw):
@@ -124,6 +128,9 @@ def seed_demo() -> None:
                      term_start=date(2025, 1, 1), term_end=date(2026, 12, 31), annual_budget="60000.00")
         ps_psu = src(psu, dell, dell, "540.00", 16, 4, 1, contract_status="ACTIVE",
                      term_start=date(2025, 1, 1), term_end=date(2026, 12, 31), annual_budget="50000.00")
+        # accelerator: Arrow distributes NVIDIA; long lead, batch MOQ (project buys)
+        ps_gpu = src(gpu, arrow, None, "31000.00", 45, 8, 1, contract_status="ACTIVE",
+                     term_start=date(2025, 1, 1), term_end=date(2027, 12, 31), annual_budget="900000.00")
 
         # --- Locations (incl. a near-full rack + an over-capacity cage) ---
         wh = location_service.create(db, dict(code="TRANSIT-WH", name="Transit warehouse", location_type=LocationType.WAREHOUSE, capacity=200))
@@ -221,6 +228,11 @@ def seed_demo() -> None:
 
         # --- PO 8: cancelled --------------------------------------------
         make_po(tdsynnex, [(srv, ps_srv_dell, 2)], status=OrderStatus.CANCELLED, ordered_days_ago=15)
+
+        # --- PO 9: a project-batch accelerator buy (in flight) ------------
+        # A large, lumpy GPU order — the kind of demand the intermittent forecast
+        # is for. Shows up as an open inbound batch in the live demo.
+        make_po(arrow, [(gpu, ps_gpu, 16)], status=OrderStatus.PLACED, eta_days=30, ordered_days_ago=10)
 
         # --- Push the staging cage over capacity (cap 6) ------------------
         cage_assets = [a for a in asset_service.list(db, status=AssetStatus.IN_STORAGE, limit=1000)][:7]

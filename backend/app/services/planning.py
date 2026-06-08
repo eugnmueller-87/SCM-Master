@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
+from app.services import forecasting
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
 _ON_HAND = (AssetStatus.RECEIVED, AssetStatus.IN_STORAGE)
@@ -367,7 +368,9 @@ def deployment_forecast(db: Session) -> dict:
 
 # --- Inventory & reorder read model ---------------------------------------
 
-_BURN_WINDOW_DAYS = 90        # trailing window for the daily-burn estimate
+_BURN_WINDOW_DAYS = 90        # trailing window for the daily-burn (rate) estimate
+_VARIABILITY_WINDOW_DAYS = 365  # longer window for demand-variability (σ) — needs
+                                # several lead-times of history to see batch lumpiness
 _DEFAULT_CAPACITY = 100       # per-product capacity proxy (no per-product field in the model)
 
 
@@ -395,19 +398,22 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
     Products with neither stock nor inbound are omitted.
     """
     today = today or date.today()
-    window_start = today - timedelta(days=_BURN_WINDOW_DAYS)
+    burn_start = today - timedelta(days=_BURN_WINDOW_DAYS)
+    var_start = today - timedelta(days=_VARIABILITY_WINDOW_DAYS)
 
     # on-hand counts per product
     on_hand = _on_hand_by_product(db)
 
-    # deployed-in-window counts per product -> daily burn
-    deployed_window: dict[str, int] = {}
-    for pid, n in db.execute(
-        select(Asset.product_id, func.count(Asset.id))
-        .where(Asset.deployed_date.is_not(None), Asset.deployed_date >= window_start)
-        .group_by(Asset.product_id)
+    # Deploy DATES per product over the LONGER variability window. The recent
+    # burn-window slice drives the rate; the full window drives demand-variability
+    # σ — a lumpy SKU (batches + zeros) gets a high σ, a steady one low. Keeping
+    # dates (not counts) lets safety_stock bucket them by lead time.
+    deploy_dates_var: dict[str, list[date]] = {}
+    for pid, dep in db.execute(
+        select(Asset.product_id, Asset.deployed_date)
+        .where(Asset.deployed_date.is_not(None), Asset.deployed_date >= var_start)
     ).all():
-        deployed_window[pid] = int(n)
+        deploy_dates_var.setdefault(pid, []).append(dep)
 
     # open inbound per product: outstanding qty + earliest ETA
     on_order: dict[str, int] = {}
@@ -420,15 +426,56 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
             next_eta[pid] = eta
 
     product_ids = set(on_hand) | set(on_order)
+
+    # First pass: annualised value per product (burn/day × 365 × unit_price) for
+    # ABC classification, so each item's service level reflects its importance.
+    sources = {pid: _preferred_source(db, pid) for pid in product_ids}
+    annual_value: dict[str, float] = {}
+    for pid in product_ids:
+        burn_dates = [d for d in deploy_dates_var.get(pid, []) if d >= burn_start]
+        burn = len(burn_dates) / _BURN_WINDOW_DAYS
+        src = sources[pid]
+        price = float(src.contract_price) if src and src.contract_price is not None else 0.0
+        annual_value[pid] = burn * 365.0 * price
+
+    abc = forecasting.classify_abc(
+        annual_value, a_threshold=settings.abc_a_threshold,
+        b_threshold=settings.abc_b_threshold)
+    abc_sl = {"A": settings.abc_service_level_a, "B": settings.abc_service_level_b,
+              "C": settings.abc_service_level_c}
+
     out: list[dict] = []
     for pid in product_ids:
         product = db.get(Product, pid)
-        src = _preferred_source(db, pid)
+        src = sources[pid]
         oh = on_hand.get(pid, 0)
         oo = on_order.get(pid, 0)
-        burn = round(deployed_window.get(pid, 0) / _BURN_WINDOW_DAYS, 4)
+        all_dates = deploy_dates_var.get(pid, [])
+        burn_dates = [d for d in all_dates if d >= burn_start]
+        burn = round(len(burn_dates) / _BURN_WINDOW_DAYS, 4)
         lead = (src.standard_lead_time_days if src and src.standard_lead_time_days else 0)
-        safety = int(round(burn * lead / 2))
+
+        # ABC class drives the service level: class A (the high-value few) is
+        # protected hardest, class C runs leaner.
+        abc_class = abc.get(pid, "C")
+        service_level = abc_sl[abc_class]
+
+        # Service-level safety stock = z(SL) × σ(demand over lead time), from the
+        # FULL variability window so batch lumpiness is visible (replaces the old
+        # burn×lead/2 heuristic). Lumpy demand → large σ → large buffer; ~constant
+        # demand → ~0.
+        series = forecasting.daily_series(all_dates, today, _VARIABILITY_WINDOW_DAYS)
+        safety = forecasting.safety_stock(series, lead, service_level=service_level)
+
+        # Server-side reorder math (was client-side): reorder point = expected
+        # lead-time demand + safety stock; status from available vs that point.
+        reorder_point = int(math.ceil(burn * lead)) + safety
+        available = oh + oo
+        if available <= reorder_point:
+            status = "reorder" if available <= safety else "low"
+        else:
+            status = "ok"
+
         capacity = max(_DEFAULT_CAPACITY, oh + oo)
         eta = next_eta.get(pid)
         out.append({
@@ -439,6 +486,10 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
             "on_hand": oh,
             "capacity": capacity,
             "safety_stock": safety,
+            "reorder_point": reorder_point,
+            "reorder_status": status,
+            "abc_class": abc_class,
+            "service_level": service_level,
             "daily_burn": burn,
             "lead_time_days": lead,
             "on_order": oo,
@@ -451,28 +502,28 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
 # --- Demand forecast: usage-driven projection -----------------------------
 
 def _weighted_daily_rate(deploy_dates: list[date], today: date) -> float:
-    """Recency-weighted deployments/day over the trailing window.
+    """Recency-weighted deployments/day (delegates to the shared estimator).
 
-    Each in-window deployment contributes an exponentially-decayed weight by its
-    age (half-life = demand_halflife_days), so a recent ramp-up lifts the rate
-    faster than a flat average would. The effective denominator is the
-    decay-weighted length of the window, keeping the result in units/day.
+    Kept as a thin wrapper so existing callers/tests are unaffected; the
+    definition now lives in services.forecasting so the backtest and live
+    forecast share exactly one implementation.
     """
-    window = settings.demand_window_days
-    halflife = max(1, settings.demand_halflife_days)
-    decay = math.log(2) / halflife
-    weighted_events = 0.0
-    for d in deploy_dates:
-        age = (today - d).days
-        if 0 <= age <= window:
-            weighted_events += math.exp(-decay * age)
-    # Effective weighted window length = integral of the decay over [0, window].
-    eff_days = (1 - math.exp(-decay * window)) / decay
-    return weighted_events / eff_days if eff_days > 0 else 0.0
+    return forecasting.weighted_daily_rate(
+        deploy_dates, today,
+        window_days=settings.demand_window_days,
+        halflife_days=settings.demand_halflife_days,
+    )
 
 
-def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
+def demand_forecast(db: Session, *, today: Optional[date] = None,
+                    method: Optional[str] = None) -> list[dict]:
     """Per-product forward demand from real usage + end-of-life replacement.
+
+    ``method`` selects the rate estimator (defaults to ``settings.forecast_method``):
+      "run_rate" (incumbent), "tsb" (intermittent), or "auto" (classify each SKU
+      and route lumpy ones to TSB). The EOL replacement term is method-independent
+      and always added. Each row reports ``forecast_method`` = what actually ran
+      for that SKU (so "auto" shows per-SKU routing).
 
     For each product:
       usage_rate   = recency-weighted deployments/day over the trailing window;
@@ -489,6 +540,7 @@ def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
     today = today or date.today()
     horizon = settings.demand_horizon_days
     life = settings.asset_useful_life_days
+    method = method or settings.forecast_method
 
     # All deployment dates per product (for the rate) and deployed ages (for EOL).
     deployed = db.scalars(
@@ -514,7 +566,12 @@ def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
     for pid in product_ids:
         product = db.get(Product, pid)
         src = _preferred_source(db, pid)
-        rate = _weighted_daily_rate(deploys_by_product.get(pid, []), today)
+        rate, method_used = forecasting.daily_rate(
+            method, deploys_by_product.get(pid, []), today,
+            window_days=settings.demand_window_days,
+            halflife_days=settings.demand_halflife_days,
+            tsb_alpha=settings.forecast_tsb_alpha, tsb_beta=settings.forecast_tsb_beta,
+        )
         projected_usage = rate * horizon
         eol = eol_by_product.get(pid, 0)
         projected_demand = projected_usage + eol
@@ -536,6 +593,7 @@ def demand_forecast(db: Session, *, today: Optional[date] = None) -> list[dict]:
             "name": product.name if product else None,
             "category": product.category if product else None,
             "usage_rate_per_day": round(rate, 3),
+            "forecast_method": method_used,
             "horizon_days": horizon,
             "projected_usage": round(projected_usage, 1),
             "eol_replacement": eol,

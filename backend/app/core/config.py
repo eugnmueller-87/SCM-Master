@@ -65,6 +65,21 @@ class Settings(BaseSettings):
     demand_window_days: int = 90               # trailing usage window for the rate
     demand_halflife_days: int = 30             # recency weighting (smaller = more reactive)
     asset_useful_life_days: int = 1095         # ~3y; deployed beyond this is a refresh candidate
+    # Forecast estimator: "run_rate" (incumbent), "tsb" (intermittent), or "auto"
+    # (classify each SKU and route lumpy ones to TSB). Default stays run_rate
+    # until the backtest proves a method wins — see docs/forecast-backtest.md.
+    forecast_method: str = "run_rate"
+    forecast_tsb_alpha: float = 0.1            # TSB demand-probability smoothing
+    forecast_tsb_beta: float = 0.1             # TSB demand-size smoothing
+    # Service-level safety stock (replaces the burn×lead/2 heuristic).
+    service_level: float = 0.95                # default/fallback cycle service level (z≈1.645)
+    # ABC classification (Pareto by annualised value) → per-class service level:
+    # A items (the vital few by spend) get a higher service level than C items.
+    abc_a_threshold: float = 0.80              # top 80% of cumulative value = class A
+    abc_b_threshold: float = 0.95              # next 15% = B; remainder = C
+    abc_service_level_a: float = 0.98          # protect the high-value few hardest
+    abc_service_level_b: float = 0.95
+    abc_service_level_c: float = 0.90          # let the trivial many run leaner
 
 
 settings = Settings()
