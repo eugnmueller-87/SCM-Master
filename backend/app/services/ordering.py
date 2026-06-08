@@ -53,6 +53,70 @@ def create_package(db: Session, *, code: str, name: str,
     return pkg
 
 
+def stage_manual_order(db: Session, *, lines: Optional[list[dict]] = None,
+                       package_id: Optional[str] = None, packs: int = 1,
+                       actor: Optional[str] = None) -> dict:
+    """Place a MANUAL order — staged as requisition(s) for human approval.
+
+    Input is EITHER explicit ``lines`` ([{product_id, quantity}]) OR a
+    ``package_id`` (expanded ×packs). Each product is sourced to its preferred
+    ProductSupplier, lines are grouped per supplier, the over-order capacity GUARD
+    is enforced on the total (refuses if it can't fit), then one STAGED
+    PurchaseRequisition per supplier is created (reusing the approve→PO path).
+
+    Returns {requisition_ids, total_units, capacity, orphans}. Orphans are
+    products with no contracted source (can't be ordered — surfaced, not staged).
+    """
+    from collections import defaultdict
+
+    from app.services import planning, sourcing
+    from app.services.requisition import requisition_service
+
+    if bool(lines) == bool(package_id):
+        raise ValidationError("Provide exactly one of `lines` or `package_id`.")
+    order_lines = expand_package(db, package_id, packs=packs) if package_id else list(lines)
+    if not order_lines:
+        raise ValidationError("Nothing to order.")
+
+    total_units = sum(int(ln["quantity"]) for ln in order_lines)
+    # GUARD: refuse the whole order if it can't fit the warehouse (fail-closed).
+    planning.assert_order_fits(db, total_units)
+
+    by_supplier: dict[str, list[dict]] = defaultdict(list)
+    orphans: list[dict] = []
+    for ln in order_lines:
+        pid, qty = ln["product_id"], int(ln["quantity"])
+        if qty <= 0:
+            continue
+        ranked = sourcing.suggest_sources(db, pid)
+        if not ranked:
+            orphans.append({"product_id": pid, "quantity": qty})
+            continue
+        src = ranked[0]
+        unit_price = float(src["contract_price"]) if src.get("contract_price") is not None else 0.0
+        by_supplier[src["supplier_id"]].append({
+            "product_id": pid, "product_supplier_id": src["product_supplier_id"],
+            "qty": qty, "unit_price": unit_price, "trigger_type": "manual",
+            "line_confidence": 1.0, "rationale": "Manual order",
+        })
+
+    req_ids: list[str] = []
+    for supplier_id, sup_lines in by_supplier.items():
+        total = sum(ln["qty"] * ln["unit_price"] for ln in sup_lines)
+        pr = requisition_service.stage(
+            db, supplier_id=supplier_id, confidence=1.0, confidence_floor=1.0,
+            tier="propose", rationale=f"Manual order · {len(sup_lines)} line(s) · total={total:.2f}",
+            order_by=None, lines=sup_lines)
+        req_ids.append(pr.id)
+
+    return {
+        "requisition_ids": req_ids,
+        "total_units": total_units,
+        "orphans": orphans,
+        "capacity": planning.capacity_flow(db),
+    }
+
+
 def expand_package(db: Session, package_id: str, *, packs: int = 1) -> list[dict]:
     """Expand a package into order lines: [{product_id, quantity}] × packs.
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.agent import purchasing
@@ -27,7 +28,7 @@ from app.schemas.requisition import (
     RequisitionRead,
     RunCycleInput,
 )
-from app.services import calibration
+from app.services import calibration, ordering
 from app.services.requisition import requisition_service
 
 router = APIRouter(tags=["requisitions"], prefix="/requisitions")
@@ -41,6 +42,39 @@ def run_cycle(payload: RunCycleInput, db: Session = Depends(get_db),
     """Detect demand -> stage PRs -> auto-place those clearing their calibrated bar."""
     return purchasing.run_requisition_cycle(db, period_days=payload.period_days,
                                             actor=user.email)
+
+
+# --- packages + manual order (the buyer-initiated order path) ---------------
+
+class ManualOrderLine(BaseModel):
+    product_id: str
+    quantity: int = Field(gt=0)
+
+
+class ManualOrderInput(BaseModel):
+    """Order EITHER explicit product lines OR a package (expanded ×packs)."""
+    lines: Optional[List[ManualOrderLine]] = None
+    package_id: Optional[str] = None
+    packs: int = Field(1, ge=1)
+
+
+@router.get("/packages")
+def list_packages(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+    """Reusable order bundles (e.g. 'Compute rack') a buyer can order in one click."""
+    return [{"id": p.id, "code": p.code, "name": p.name, "description": p.description,
+             "lines": [{"product_id": ln.product_id, "quantity": ln.quantity} for ln in p.lines]}
+            for p in ordering.list_packages(db)]
+
+
+@router.post("/manual", dependencies=[Depends(_proc)])
+def manual_order(payload: ManualOrderInput, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """Place a manual order (products or a package). Capacity-guarded server-side:
+    an order that can't fit the warehouse is REFUSED (422). Stages a requisition
+    per supplier for approval — never auto-places."""
+    return ordering.stage_manual_order(
+        db, lines=[ln.model_dump() for ln in payload.lines] if payload.lines else None,
+        package_id=payload.package_id, packs=payload.packs, actor=user.email)
 
 
 @router.get("", response_model=List[RequisitionRead])
