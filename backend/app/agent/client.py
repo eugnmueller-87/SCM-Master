@@ -31,7 +31,11 @@ def call_claude(system: str, user: str, *, max_tokens: int = _MAX_TOKENS) -> str
         resp = client.messages.create(
             model=settings.anthropic_model,
             max_tokens=max_tokens,
-            system=system,
+            # Mark the (long, identical-across-calls) system prompt as cacheable, so
+            # Anthropic prompt-caching bills it at a fraction on repeat calls within
+            # the cache window. Behaviour is unchanged — same response, lower cost.
+            system=[{"type": "text", "text": system,
+                     "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user}],
         )
         # Concatenate any text blocks in the response.
