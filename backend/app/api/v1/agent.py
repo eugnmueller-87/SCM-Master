@@ -24,6 +24,23 @@ router = APIRouter(tags=["agent"], prefix="/agent")
 
 _INSIGHT_MIN = 5
 
+# Per-day backstop on the on-demand AI commentary: even though it's click-only,
+# cap the number of LLM calls per UTC day so a stuck client or a curious crowd
+# can't run up the bill. In-process counter — fine for a single-instance demo.
+_COMMENTARY_DAILY_CAP = 50
+_commentary_calls: dict[str, int] = {}
+
+
+def _commentary_allowed() -> bool:
+    from datetime import datetime, timezone
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    n = _commentary_calls.get(day, 0)
+    if n >= _COMMENTARY_DAILY_CAP:
+        return False
+    _commentary_calls.clear()          # only ever keep today's count
+    _commentary_calls[day] = n + 1
+    return True
+
 # Running the purchasing automation is a procurement action, not a read.
 _purchasing_role = require_role(Role.PROCUREMENT)
 
@@ -75,6 +92,40 @@ def sourcing_recommendation(payload: SourcingRequest, db: Session = Depends(get_
 def insights(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     try:
         return copilot.generate_insights(db, min_count=_INSIGHT_MIN)
+    except AgentError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+
+class CommentaryFinding(BaseModel):
+    title: str
+    detail: Optional[str] = None
+    metric: Optional[str] = None
+    severity: Optional[str] = None
+
+
+class CommentaryRequest(BaseModel):
+    findings: List[CommentaryFinding]
+
+
+class CommentaryResponse(BaseModel):
+    commentary: str
+
+
+@router.post("/commentary", response_model=CommentaryResponse)
+def commentary(payload: CommentaryRequest, _user: User = Depends(get_current_user)):
+    """Narrate OVER already-computed deterministic findings (on-demand, click-only).
+
+    The deterministic rules engine computes the facts; this only synthesises a
+    short read over them — the numbers come from the findings, never the model.
+    Rate-limited per day as a cost backstop (429 when exceeded)."""
+    if not payload.findings:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="no findings to narrate")
+    if not _commentary_allowed():
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="Daily AI-commentary limit reached — try again tomorrow.")
+    try:
+        text = copilot.commentary_over_findings([f.model_dump() for f in payload.findings])
+        return CommentaryResponse(commentary=text)
     except AgentError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 

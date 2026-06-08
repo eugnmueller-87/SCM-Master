@@ -63,6 +63,24 @@ def ask(db: Session, question: str, history: Optional[list[dict]] = None) -> str
     return raw.strip()
 
 
+def commentary_over_findings(findings: list[dict]) -> str:
+    """Narrate OVER already-computed deterministic findings (plain text).
+
+    The findings carry the correct numbers; the model only synthesises a short
+    executive read and must not recompute or invent figures. Small structured
+    input -> tiny token cost. Raises AgentError on LLM failure.
+    """
+    user = (
+        "Findings (already computed, numbers are final):\n"
+        + json.dumps(findings, default=str)
+        + "\n\nWrite the 2–4 sentence executive read."
+    )
+    raw = call_claude(prompts.COMMENTARY_SYSTEM, user, max_tokens=400)
+    if raw.startswith("[agent-error]"):
+        raise AgentError(raw)
+    return raw.strip()
+
+
 def reason_demand(db: Session, *, horizon_days: int = 90) -> DemandReasoningResult:
     """AI reasoning ON TOP OF the deterministic demand forecast.
 

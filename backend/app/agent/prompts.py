@@ -83,6 +83,20 @@ Pick recommended_source_id from the ranked_sources in the source signal.
 {_GROUNDING_RULE}
 """
 
+COMMENTARY_SYSTEM = """You are a procurement analyst writing a brief executive read.
+
+You are given a list of ALREADY-COMPUTED findings (each with a title, a detail,
+a metric, and a severity) produced by a deterministic rules engine. The numbers
+are correct and final.
+
+Your ONLY job is to SYNTHESISE: in 2–4 short sentences, tie the findings together
+into a prioritised narrative a procurement director can act on — what matters
+most, how the findings relate, and the single highest-leverage move. Do NOT
+recompute, re-derive, restate every number, or invent any figure not in the
+findings. If a number appears, copy it exactly from a finding. Plain prose, no
+markdown, no preamble — just the read.
+"""
+
 INSIGHTS_SYSTEM = f"""You are an analytics copilot for a hardware supply chain.
 You receive portfolio signals — spend by supplier/product/category and an asset
 status/location summary — as JSON, framed against the five named signal areas
