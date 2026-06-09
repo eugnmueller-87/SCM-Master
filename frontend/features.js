@@ -1,7 +1,7 @@
 "use strict";
 /* ============================================================================
    SCM Master — feature module (loads AFTER app.js; shares its global scope).
-   Adds: the agent drawer (/agent/*), the Contracts lifecycle screen
+   Adds: the Contracts lifecycle screen
    (/product-suppliers), and a Tweaks control panel (host edit-mode protocol).
    Kept separate so app.js stays the core operations surface.
 ============================================================================ */
@@ -312,146 +312,14 @@ function renderContractBrief(r) {
   </div>`;
 }
 
-/* ── Agent drawer ──────────────────────────────────────────────────── */
-const SEVERITY = {
-  info:   { label: "Info",   tone: "info" },
-  watch:  { label: "Watch",  tone: "warning" },
-  action: { label: "Action", tone: "negative" },
-};
-const TIER = {
-  act:      { label: "Auto-execute", tone: "positive" },
-  propose:  { label: "Proposed",     tone: "warning" },
-  escalate: { label: "Escalate",     tone: "negative" },
-};
+/* ── Autonomy label (used by the Tweaks panel) ─────────────────────────
+   The old top-bar "✨ Agent" drawer (weekly purchasing-run preview + insights)
+   was removed — the Requisitions page is the single, working surface for the
+   agent's staged buys. Only the autonomy-label helper remains, since the Tweaks
+   panel still shows the current autonomy setting. */
 const AUTONOMY = { suggest: "Suggest only", low: "Auto-close low-risk", full: "Full autonomy" };
 
-let drawerEl, scrimEl, lastRun = null;
-
-function buildDrawer() {
-  scrimEl = document.createElement("div");
-  scrimEl.className = "scrim";
-  scrimEl.addEventListener("click", closeAgent);
-  drawerEl = document.createElement("div");
-  drawerEl.className = "drawer";
-  document.body.appendChild(scrimEl);
-  document.body.appendChild(drawerEl);
-}
-
-function injectAgentButton() {
-  const right = $(".topbar__right");
-  if (!right) return;
-  const btn = document.createElement("button");
-  btn.className = "agent-btn";
-  btn.innerHTML = `${icon("agent", 15)} Agent`;
-  btn.addEventListener("click", openAgent);
-  right.insertBefore(btn, right.firstChild);
-}
-
 function autonomyLabel() { return AUTONOMY[(readTweaks().autonomy)] || AUTONOMY.low; }
-
-function openAgent() {
-  if (!drawerEl) buildDrawer();
-  drawerEl.innerHTML = `
-    <div class="drawer__head">
-      <div class="drawer__mark">${icon("agent", 16)}</div>
-      <div><div class="drawer__title">Agent</div><div class="drawer__sub">Surfaces what needs you; closes the rest.</div></div>
-      <span class="drawer__autonomy" id="agent-autonomy">${esc(autonomyLabel())}</span>
-      <button class="iconbtn" id="agent-close" style="margin-left:6px">${icon("x", 16)}</button>
-    </div>
-    <div class="drawer__body" id="agent-body">
-      <div class="drawer__section">
-        <div class="drawer__sectionhead">This week · insights</div>
-        <div id="agent-insights"><div class="state"><div class="state__sub">Reading the portfolio…</div></div></div>
-      </div>
-      <div class="drawer__section">
-        <div class="drawer__sectionhead">Weekly purchasing run</div>
-        <div id="agent-run">
-          <p class="insight__finding" style="margin-bottom:12px">Preview the buys the agent would make this period. Nothing is placed until you approve it.</p>
-          <button class="btn btn--ink btn--sm" id="agent-run-btn">${icon("refresh", 13)} Run preview</button>
-        </div>
-      </div>
-    </div>
-    <div class="drawer__foot" id="agent-foot" hidden></div>`;
-  requestAnimationFrame(() => { scrimEl.classList.add("open"); drawerEl.classList.add("open"); });
-  // also reveal synchronously (rAF can be throttled in backgrounded frames)
-  void drawerEl.offsetWidth;
-  scrimEl.classList.add("open"); drawerEl.classList.add("open");
-  $("#agent-close").addEventListener("click", closeAgent);
-  $("#agent-run-btn").addEventListener("click", runPurchasing);
-  loadInsights();
-}
-function closeAgent() { if (drawerEl) { drawerEl.classList.remove("open"); scrimEl.classList.remove("open"); } }
-
-async function loadInsights() {
-  try {
-    const list = await api("/agent/insights");
-    $("#agent-insights").innerHTML = list.map((it) => {
-      const sev = SEVERITY[it.severity] || SEVERITY.info;
-      const t = TONE[sev.tone];
-      return `<div class="insight">
-        <div class="insight__top">${plainPill(sev.label, sev.tone)}<span class="insight__title">${esc(it.title)}</span></div>
-        <div class="insight__finding">${esc(it.finding)}</div>
-        ${(it.evidence || []).length ? `<div class="insight__ev">${it.evidence.map((e) => `<div class="insight__ev-item">${esc(e)}</div>`).join("")}</div>` : ""}
-        <div class="insight__meta">Assumption — ${esc(it.assumption || "—")} · Limit — ${esc(it.limitation || "—")}</div>
-        <div class="conf" style="margin-top:8px"><span class="conf__track"><span class="conf__fill" style="width:${Math.round((it.confidence || 0) * 100)}%"></span></span><span class="conf__n">${Math.round((it.confidence || 0) * 100)}% confidence</span></div>
-      </div>`;
-    }).join("") || `<div class="insight__finding" style="color:var(--ts-ink-faint)">Nothing needs surfacing right now.</div>`;
-  } catch (e) {
-    $("#agent-insights").innerHTML = `<div class="insight__finding" style="color:var(--ts-negative)">${esc(e.message)}</div>`;
-  }
-}
-
-async function runPurchasing() {
-  const host = $("#agent-run");
-  host.innerHTML = `<div class="state"><div class="state__sub">Computing the run…</div></div>`;
-  try {
-    const res = await api("/agent/purchasing-run", { method: "POST", body: { dry_run: true, period_days: 7 } });
-    lastRun = res;
-    renderRun(res);
-  } catch (e) {
-    host.innerHTML = `<div class="insight__finding" style="color:var(--ts-negative)">${esc(e.message)}</div>
-      <button class="btn btn--ink btn--sm" id="agent-run-btn" style="margin-top:10px">${icon("refresh", 13)} Retry</button>`;
-    $("#agent-run-btn").addEventListener("click", runPurchasing);
-  }
-}
-
-function renderRun(res) {
-  const decisions = res.decisions || [];
-  $("#agent-run").innerHTML = decisions.map((d) => {
-    const tier = TIER[d.tier] || TIER.propose;
-    const sup = (ORGS[d.supplier_id] || {}).name || d.supplier_id || "—";
-    const prod = (PRODUCTS[d.product_id] || {}).name || d.product_id;
-    const approvable = d.tier !== "escalate";
-    return `<div class="decision">
-      <div class="decision__top">${plainPill(tier.label, tier.tone)}<span class="decision__name">${esc(prod)}</span><span class="decision__total money">${euro(d.total)}</span></div>
-      <div class="decision__sup" style="margin-bottom:6px">${esc(sup)} · ${d.qty} × ${euro(d.unit_price)}</div>
-      <div class="decision__rat">${esc(d.rationale || "")}</div>
-      <div class="decision__foot">
-        <span class="decision__trigger">${esc((d.trigger || {}).type || "").replace(/_/g, " ")} · ${Math.round((d.confidence || 0) * 100)}%</span>
-        <label class="decision__check">${approvable ? `<input type="checkbox" data-sup="${esc(d.supplier_id)}" ${d.tier === "act" ? "checked" : ""}/> approve` : `<span style="color:var(--ts-ink-faint)">needs sign-off</span>`}</label>
-      </div>
-    </div>`;
-  }).join("") || `<div class="insight__finding" style="color:var(--ts-ink-faint)">No buys justified this period.</div>`;
-  const foot = $("#agent-foot");
-  foot.hidden = false;
-  const s = res.summary || {};
-  foot.innerHTML = `<span class="muted">${s.acted || 0} auto · ${s.proposed || 0} proposed · ${s.escalated || 0} escalated</span>
-    <button class="btn btn--primary btn--sm" id="agent-place" style="margin-left:auto">Place approved</button>`;
-  $("#agent-place").addEventListener("click", placeApproved);
-}
-
-async function placeApproved() {
-  const sups = $$("#agent-run input[type=checkbox]:checked").map((c) => c.dataset.sup);
-  if (!sups.length) { toast("Select at least one supplier to place", "err"); return; }
-  try {
-    const res = await api("/agent/purchasing-run/confirm", { method: "POST", body: { approve_suppliers: sups, period_days: 7 } });
-    const placed = (res.summary || {}).placed ?? sups.length;
-    toast(`Placed ${placed} purchase order${placed === 1 ? "" : "s"}`, "ok");
-    closeAgent();
-    if (typeof primeCounts === "function") primeCounts();
-    if (currentTab === "inbound" || currentTab === "overview") showTab(currentTab);
-  } catch (e) { toast(e.message, "err"); }
-}
 
 /* ── Tweaks panel (host edit-mode protocol) ────────────────────────── */
 const ACCENTS = {
@@ -511,7 +379,6 @@ function closeTweaks() { if (twEl) twEl.classList.remove("open"); }
 
 /* ── wire up at load (before host calls __scmInit) ─────────────────── */
 applyTweaks(readTweaks());
-injectAgentButton();
 window.addEventListener("message", (e) => {
   const ty = e.data && e.data.type;
   if (ty === "__activate_edit_mode") openTweaks();

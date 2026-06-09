@@ -681,16 +681,9 @@ button { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) { .fade-in, .skeleton { animation: none; } }
 
 
-/* ===== Agent button + drawer =============================================== */
-.agent-btn {
-  font-family: var(--ts-font-sans); font-weight: 500; font-size: 13px;
-  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
-  padding: 7px 13px; border-radius: var(--ts-radius-sm);
-  background: var(--ts-ink-night); color: var(--ts-paper); border: 1px solid var(--ts-ink-night);
-  letter-spacing: -0.005em; transition: background var(--ts-dur-fast) var(--ts-ease);
-}
-.agent-btn:hover { background: #000; }
-.agent-btn svg { color: var(--ts-brand-gold); }
+/* ===== Agent drawer ========================================================
+   The top-bar "✨ Agent" button + drawer were removed (the Requisitions page is
+   the single agent surface). Drawer styles below are retained but unused. */
 
 .scrim {
   position: fixed; inset: 0; z-index: 60; background: rgba(22,20,19,0.32);
