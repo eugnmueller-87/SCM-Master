@@ -115,13 +115,31 @@ const plainPill = (label, tone) => {
 const capTone = (u, over) => over ? "var(--ts-negative)" : u >= 0.9 ? "var(--ts-warning)" : u >= 0.7 ? "var(--ts-brand-gold)" : "var(--ts-positive)";
 
 /* ── API layer ─────────────────────────────────────────────────────── */
-async function api(path, { method = "GET", body, form } = {}) {
+async function api(path, { method = "GET", body, form, timeout } = {}) {
   const headers = {};
   if (token) headers.Authorization = `Bearer ${token}`;
   let payload;
   if (form) { payload = new URLSearchParams(form); }
   else if (body) { headers["Content-Type"] = "application/json"; payload = JSON.stringify(body); }
-  const res = await fetch(API + path, { method, headers, body: payload });
+  // Optional timeout so a hung backend (e.g. a slow/stalled LLM call) surfaces
+  // as a clear error instead of spinning forever. Off by default.
+  let signal, timer;
+  if (timeout) {
+    const ctrl = new AbortController();
+    signal = ctrl.signal;
+    timer = setTimeout(() => ctrl.abort(), timeout);
+  }
+  let res;
+  try {
+    res = await fetch(API + path, { method, headers, body: payload, signal });
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new Error(`Timed out after ${Math.round(timeout / 1000)}s — the server took too long to respond.`);
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
   if (res.status === 401) { logout(); throw new Error("Session expired — sign in again"); }
   if (!res.ok) {
     let detail = res.statusText;

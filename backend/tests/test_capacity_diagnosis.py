@@ -123,7 +123,7 @@ def test_order_capped_at_storage_headroom(db_session, monkeypatch):
     from app.agent import copilot, purchasing
     from app.agent.schemas import SourcingRecommendation
 
-    def fake(db, pid, q=None):
+    def fake(db, pid, q=None, *, signals=None):
         return SourcingRecommendation(
             product_id=pid, recommended_source_id="x", recommended_qty=q or 1,
             rationale="m", signals={}, assumptions=[], uncertainties=[],
@@ -153,7 +153,7 @@ def test_weekly_run_also_respects_storage_cap(db_session, monkeypatch):
     from app.agent import copilot, purchasing
     from app.agent.schemas import SourcingRecommendation
 
-    def fake(db, pid, q=None):
+    def fake(db, pid, q=None, *, signals=None):
         return SourcingRecommendation(
             product_id=pid, recommended_source_id="x", recommended_qty=q or 1,
             rationale="m", signals={}, assumptions=[], uncertainties=[],

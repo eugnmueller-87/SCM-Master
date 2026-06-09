@@ -384,7 +384,9 @@ function closeAgent() { if (drawerEl) { drawerEl.classList.remove("open"); scrim
 
 async function loadInsights() {
   try {
-    const list = await api("/agent/insights");
+    // AI insights are an LLM call (can be slow / occasionally 502 on the demo).
+    // Bound it so the panel shows an error+retry instead of spinning forever.
+    const list = await api("/agent/insights", { timeout: 60000 });
     $("#agent-insights").innerHTML = list.map((it) => {
       const sev = SEVERITY[it.severity] || SEVERITY.info;
       const t = TONE[sev.tone];
@@ -397,15 +399,19 @@ async function loadInsights() {
       </div>`;
     }).join("") || `<div class="insight__finding" style="color:var(--ts-ink-faint)">Nothing needs surfacing right now.</div>`;
   } catch (e) {
-    $("#agent-insights").innerHTML = `<div class="insight__finding" style="color:var(--ts-negative)">${esc(e.message)}</div>`;
+    $("#agent-insights").innerHTML = `<div class="insight__finding" style="color:var(--ts-negative)">${esc(e.message)}</div>
+      <button class="btn btn--ink btn--sm" id="agent-insights-btn" style="margin-top:10px">${icon("refresh", 13)} Retry</button>`;
+    const b = $("#agent-insights-btn"); if (b) b.addEventListener("click", loadInsights);
   }
 }
 
 async function runPurchasing() {
   const host = $("#agent-run");
-  host.innerHTML = `<div class="state"><div class="state__sub">Computing the run…</div></div>`;
+  host.innerHTML = `<div class="state"><div class="state__sub">Computing the run… <span class="muted">(the agent reasons over each buy — this can take up to a minute)</span></div></div>`;
   try {
-    const res = await api("/agent/purchasing-run", { method: "POST", body: { dry_run: true, period_days: 7 } });
+    // The run makes one LLM call per justified product, so it's slow; give it a
+    // bounded 90s rather than letting a stalled call spin the panel forever.
+    const res = await api("/agent/purchasing-run", { method: "POST", body: { dry_run: true, period_days: 7 }, timeout: 90000 });
     lastRun = res;
     renderRun(res);
   } catch (e) {
@@ -413,6 +419,17 @@ async function runPurchasing() {
       <button class="btn btn--ink btn--sm" id="agent-run-btn" style="margin-top:10px">${icon("refresh", 13)} Retry</button>`;
     $("#agent-run-btn").addEventListener("click", runPurchasing);
   }
+}
+
+// The backend's `rationale` packs machine evidence ahead of the human text:
+//   "[trigger] {evidence dict} | net_need=N | bundle_tier=X | <readable rationale>"
+// The audit log keeps the full string; the UI shows only the readable part —
+// everything after the last "bundle_tier=…|" segment. Falls back to the raw
+// string if the prefix isn't present (older/other shapes).
+function cleanRationale(s) {
+  if (!s) return "";
+  const m = String(s).match(/bundle_tier=[^|]*\|\s*([\s\S]+)$/);
+  return (m ? m[1] : s).trim();
 }
 
 function renderRun(res) {
@@ -425,7 +442,7 @@ function renderRun(res) {
     return `<div class="decision">
       <div class="decision__top">${plainPill(tier.label, tier.tone)}<span class="decision__name">${esc(prod)}</span><span class="decision__total money">${euro(d.total)}</span></div>
       <div class="decision__sup" style="margin-bottom:6px">${esc(sup)} · ${d.qty} × ${euro(d.unit_price)}</div>
-      <div class="decision__rat">${esc(d.rationale || "")}</div>
+      <div class="decision__rat">${esc(cleanRationale(d.rationale))}</div>
       <div class="decision__foot">
         <span class="decision__trigger">${esc((d.trigger || {}).type || "").replace(/_/g, " ")} · ${Math.round((d.confidence || 0) * 100)}%</span>
         <label class="decision__check">${approvable ? `<input type="checkbox" data-sup="${esc(d.supplier_id)}" ${d.tier === "act" ? "checked" : ""}/> approve` : `<span style="color:var(--ts-ink-faint)">needs sign-off</span>`}</label>

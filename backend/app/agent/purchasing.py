@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
@@ -365,6 +366,7 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
 
     bundles: dict[str, list[dict]] = defaultdict(list)
     orphans: list[dict] = []
+    pending: list[dict] = []   # lines awaiting their (concurrent) LLM verdict
     for pid, info in net_needs.items():
         ranked = sourcing.suggest_sources(db, pid)
         if not ranked:
@@ -406,9 +408,38 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
             "product_id": pid, "product_supplier_id": src["product_supplier_id"],
             "qty": qty, "unit_price": unit_price, "line_total": qty * unit_price,
             "trigger": info, "storage_capped": storage_capped,
+            "supplier_id": src["supplier_id"],
+            "_pid": pid, "_qty": qty,
+            # Signals gathered now, on this (main) thread — DB-bound and
+            # session-safe. The LLM call that consumes them is fired concurrently
+            # below (network-bound, no DB), turning N serial round-trips into one
+            # parallel batch.
+            "_signals": copilot.gather_sourcing_signals(db, pid, qty),
         }
+        pending.append(line)
+
+    _attach_recommendations(db, pending)
+    for line in pending:
+        bundles[line.pop("supplier_id")].append(line)
+
+    return bundles, orphans
+
+
+def _attach_recommendations(db: Session, lines: list[dict]) -> None:
+    """Fire the per-line sourcing LLM calls concurrently and attach the verdicts.
+
+    Goes through the public ``copilot.recommend_sourcing`` (the mockable seam),
+    passing pre-gathered ``signals`` so the worker thread does NO database access
+    — only the network call runs in the pool. A per-line failure degrades that
+    line to escalate; it never fails the run.
+    """
+    if not lines:
+        return
+
+    def _judge(line: dict) -> None:
         try:
-            rec = copilot.recommend_sourcing(db, pid, qty)
+            rec = copilot.recommend_sourcing(
+                db, line["_pid"], line["_qty"], signals=line["_signals"])
             line["confidence"] = rec.confidence
             line["agent_decision"] = rec.decision
             line["agent_rationale"] = rec.rationale
@@ -416,9 +447,14 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
             line["confidence"] = 0.0
             line["agent_decision"] = "escalate"
             line["agent_rationale"] = f"copilot unavailable: {exc}"
-        bundles[src["supplier_id"]].append(line)
+        finally:
+            for k in ("_signals", "_pid", "_qty"):
+                line.pop(k, None)
 
-    return bundles, orphans
+    # Cap concurrency so we don't hammer the API; small fleets just run in one wave.
+    workers = min(len(lines), 8)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(_judge, lines))
 
 
 def _tier_bundle(lines: list[dict], bundle_total: float) -> tuple[float, str]:
