@@ -908,6 +908,7 @@ def demand_forecast(db: Session, *, today: Optional[date] = None,
             window_days=settings.demand_window_days,
             halflife_days=settings.demand_halflife_days,
             tsb_alpha=settings.forecast_tsb_alpha, tsb_beta=settings.forecast_tsb_beta,
+            engine=settings.forecast_engine, sf_model=settings.forecast_sf_model,
         )
         projected_usage = rate * horizon
         eol = eol_by_product.get(pid, 0)

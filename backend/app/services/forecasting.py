@@ -161,7 +161,9 @@ VALID_METHODS = ("run_rate", "tsb", "auto")
 
 def daily_rate(method: str, deploy_dates: list[date], today: date, *,
                window_days: int, halflife_days: int,
-               tsb_alpha: float = 0.1, tsb_beta: float = 0.1) -> tuple[float, str]:
+               tsb_alpha: float = 0.1, tsb_beta: float = 0.1,
+               engine: str = "builtin", sf_model: str = "croston_sba"
+               ) -> tuple[float, str]:
     """Return (rate_per_day, method_used) for a SKU under the chosen method.
 
     method:
@@ -169,6 +171,14 @@ def daily_rate(method: str, deploy_dates: list[date], today: date, *,
       "tsb"      -> TSB over the daily series;
       "auto"     -> classify the series, then route (intermittent -> tsb,
                     otherwise run_rate). method_used reflects what actually ran.
+
+    engine selects the ESTIMATOR for the intermittent (tsb) route only:
+      "builtin"       -> our pure-Python tsb_daily_rate (default);
+      "statsforecast" -> Nixtla CrostonSBA/TSB via forecasting_sf (better on the
+                         lumpy tail at scale; CPU-only, no tokens). Smooth/erratic
+                         SKUs use run_rate regardless of engine. method_used carries
+                         the real engine (e.g. "sf_croston_sba") so backtest/accuracy
+                         tags stay honest.
     """
     if method == "run_rate":
         return weighted_daily_rate(deploy_dates, today, window_days=window_days,
@@ -182,6 +192,12 @@ def daily_rate(method: str, deploy_dates: list[date], today: date, *,
         raise ValueError(f"unknown forecast method {method!r}; expected one of {VALID_METHODS}")
 
     if chosen == "tsb":
+        if engine == "statsforecast":
+            # Isolated import: only reached when the engine is explicitly selected,
+            # so a missing/broken install can't affect the builtin path.
+            from app.services import forecasting_sf
+            return forecasting_sf.sf_daily_rate(
+                series, model=sf_model, tsb_alpha=tsb_alpha, tsb_beta=tsb_beta)
         return tsb_daily_rate(series, alpha=tsb_alpha, beta=tsb_beta), "tsb"
     return weighted_daily_rate(deploy_dates, today, window_days=window_days,
                                halflife_days=halflife_days), "run_rate"

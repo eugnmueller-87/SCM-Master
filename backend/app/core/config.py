@@ -71,6 +71,16 @@ class Settings(BaseSettings):
     forecast_method: str = "run_rate"
     forecast_tsb_alpha: float = 0.1            # TSB demand-probability smoothing
     forecast_tsb_beta: float = 0.1             # TSB demand-size smoothing
+    # Estimator ENGINE for intermittent/lumpy SKUs (those the route sends to TSB):
+    #   "builtin"       -> our pure-Python tsb_daily_rate (fast, zero deps, default);
+    #   "statsforecast" -> Nixtla CrostonSBA via app/services/forecasting_sf.py
+    #                      (~24% lower error on the lumpy tail at scale + conformal
+    #                      prediction intervals; CPU-only, ZERO LLM tokens).
+    # Smooth/erratic SKUs use run_rate regardless. statsforecast is inert unless
+    # selected here. Evidence + rationale: docs/forecast-engine-decision.md.
+    forecast_engine: str = "builtin"
+    # statsforecast model key for the intermittent route (see forecasting_sf.SF_MODELS).
+    forecast_sf_model: str = "croston_sba"
     # Service-level safety stock (replaces the burn×lead/2 heuristic).
     service_level: float = 0.95                # default/fallback cycle service level (z≈1.645)
     # ABC classification (Pareto by annualised value) → per-class service level:
