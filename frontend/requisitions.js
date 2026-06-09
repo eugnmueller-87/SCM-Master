@@ -86,10 +86,10 @@ RENDER.requisitions = async function () {
 function reqLineFlags(l) {
   const r = l.rationale || "";
   let out = "";
-  const resid = r.match(/residual: \+(\d+) beyond (\d+) already staged/);
+  const resid = r.match(/residual: \+(\d+) beyond (\d+) already committed/);
   if (resid) {
-    out += `<div class="req-flag req-flag--residual" title="Net of what's already staged — not a duplicate">`
-      + `RESIDUAL +${resid[1]} · ${resid[2]} already staged</div>`;
+    out += `<div class="req-flag req-flag--residual" title="Net of what's already on order or staged — the remainder, not a duplicate">`
+      + `RESIDUAL +${resid[1]} · ${resid[2]} already on order/staged</div>`;
   }
   if (/capped to fit warehouse storage/.test(r)) {
     out += `<div class="req-flag req-flag--capped" title="The full need exceeds warehouse headroom — only what fits was staged">`

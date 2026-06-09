@@ -346,11 +346,14 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
             "trigger_type": line["trigger"]["type"],
             "line_confidence": line["confidence"],
             "rationale": (line.get("agent_rationale") or "")
-            # A follow-on proposal beyond what's already staged is a RESIDUAL, not a
-            # duplicate — say so, with the committed split, so the UI/audit shows the
-            # netting math. Storage-capped means the need exceeds warehouse headroom.
-            + (f" [residual: +{line['qty']} beyond {line['staged_committed']} already staged]"
-               if line.get("staged_committed") else "")
+            # A follow-on proposal beyond what's ALREADY COMMITTED is a RESIDUAL, not
+            # a duplicate — say so with the committed split so the UI/audit shows the
+            # netting math. "Committed" = on_order (approved/placed POs) + open STAGED
+            # PRs: this is why an item re-appears AFTER you approve part of it (the
+            # approved qty moved into on_order, the unmet remainder is the residual).
+            # Storage-capped means the full need exceeds warehouse headroom.
+            + (f" [residual: +{line['qty']} beyond {line['already_committed']} already committed (on order / staged)]"
+               if line.get("already_committed") else "")
             + (" [capped to fit warehouse storage]" if line.get("storage_capped") else ""),
         } for line in lines]
 
