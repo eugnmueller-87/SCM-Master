@@ -146,3 +146,28 @@ def sf_rate_with_interval(series: list[int], *, model: str = "croston_sba",
     lo_v = max(0.0, float(lo.iloc[0])) if lo is not None else None
     hi_v = max(0.0, float(hi.iloc[0])) if hi is not None else None
     return rate, lo_v, hi_v, f"sf_{model}"
+
+
+def sf_safety_stock(series: list[int], lead_time_days: int, *,
+                    service_level: float, model: str = "croston_sba") -> Optional[int]:
+    """Probabilistic safety stock from the conformal prediction interval, or None.
+
+    The buffer is the UPPER-TAIL demand over the lead time that the point forecast
+    does not cover: ``(hi_rate - point_rate) * lead_time``, where ``hi_rate`` is the
+    conformal upper bound at ``service_level``. This is a distribution-free buffer —
+    the right shape for intermittent demand, where a Gaussian DLT-σ buffer
+    mis-states the spiky upper tail. Returns None (caller falls back to DLT-σ) when:
+      - there is no lead time or the series is too short for conformal windows, or
+      - the interval collapses (hi <= point), i.e. no upper-tail risk to buffer.
+
+    ``service_level`` maps to the conformal coverage level (e.g. 0.95 -> 95).
+    """
+    if lead_time_days <= 0:
+        return None
+    import math as _math
+
+    level = int(round(max(0.5, min(0.99, service_level)) * 100))
+    rate, _lo, hi, _used = sf_rate_with_interval(series, model=model, level=level)
+    if hi is None or hi <= rate:
+        return None
+    return max(0, _math.ceil((hi - rate) * lead_time_days))

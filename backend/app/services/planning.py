@@ -588,6 +588,19 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
         series = forecasting.daily_series(all_dates, today, _VARIABILITY_WINDOW_DAYS)
         safety = forecasting.safety_stock(series, lead, service_level=service_level)
 
+        # PROBABILISTIC safety stock (statsforecast engine, intermittent SKUs only):
+        # add the conformal upper-tail buffer the Gaussian DLT-σ understates on spiky
+        # demand. Take the MAX so it never under-buffers vs. the incumbent. Isolated
+        # import; only runs when the engine is selected AND the SKU is intermittent.
+        if (settings.forecast_engine == "statsforecast"
+                and forecasting.classify_demand(series).recommended == "tsb"):
+            from app.services import forecasting_sf
+            sf_safety = forecasting_sf.sf_safety_stock(
+                series, lead, service_level=service_level,
+                model=settings.forecast_sf_model)
+            if sf_safety is not None:
+                safety = max(safety, sf_safety)
+
         # Server-side reorder math (was client-side): reorder point = expected
         # lead-time demand + safety stock; status from available vs that point.
         reorder_point = int(math.ceil(burn * lead)) + safety

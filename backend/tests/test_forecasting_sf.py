@@ -76,3 +76,14 @@ def test_smooth_route_ignores_engine():
         "run_rate", deploys, today, window_days=90, halflife_days=30,
         engine="statsforecast")
     assert used == "run_rate"
+
+
+def test_sf_safety_stock_nonneg_or_none():
+    # Intermittent series + a lead time -> a probabilistic buffer (>=0) or None
+    # (interval collapsed / series too short). Never negative.
+    s = forecasting_sf.sf_safety_stock(INTERMITTENT, 14, service_level=0.95)
+    assert s is None or s >= 0
+
+
+def test_sf_safety_stock_none_without_lead_time():
+    assert forecasting_sf.sf_safety_stock(INTERMITTENT, 0, service_level=0.95) is None
