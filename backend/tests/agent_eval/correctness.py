@@ -7,7 +7,7 @@ approved (active) source, and honours the confidence floor + spend cap.
 Settings the assertions key off (app/core/config.py):
   act_confidence_floor      = 0.8       # below -> never 'act'
   auto_place_spend_cap      = 25_000    # 'act' requires total <= this
-  escalate_spend_threshold  = 50_000    # at/above -> 'escalate'
+  escalate_spend_threshold  = 150_000   # at/above -> 'escalate'
 """
 from __future__ import annotations
 

@@ -7,6 +7,7 @@ Read-only and available to any authenticated user. Error mapping:
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -19,6 +20,8 @@ from app.agent.copilot import AgentError
 from app.agent.schemas import AgentInsight, PurchasingRunResult, SourcingRecommendation
 from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role, User
+from app.models.decision import DecisionLog
+from app.services.exceptions import NotFoundError
 
 router = APIRouter(tags=["agent"], prefix="/agent")
 
@@ -141,20 +144,118 @@ def ask(payload: AskRequest, db: Session = Depends(get_db),
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
 
 
+def _log_decisions(db: Session, result: PurchasingRunResult, actor: Optional[str]) -> None:
+    """Persist each decision to the append-only DecisionLog — BEST EFFORT.
+
+    A logging failure must never fail the run, so every write happens inside a
+    SAVEPOINT (begin_nested) and the whole block is guarded: if it raises, we
+    roll back only the log writes and swallow the error, leaving any placed POs
+    and the run result untouched. Insert-only — rows are never updated.
+    """
+    try:
+        for d in result.decisions:
+            try:
+                with db.begin_nested():
+                    db.add(DecisionLog(
+                        run_at=result.run_at.isoformat(),
+                        dry_run=result.dry_run,
+                        product_id=d.product_id,
+                        supplier_id=d.supplier_id,
+                        qty=d.qty,
+                        unit_price=d.unit_price,
+                        total=d.total,
+                        trigger_type=getattr(d.trigger, "type", None),
+                        evidence=getattr(d.trigger, "evidence", None),
+                        tier=d.tier,
+                        confidence=d.confidence,
+                        rationale=d.rationale,
+                        placed_po_id=d.placed_po_id,
+                        actor=actor,
+                    ))
+            except Exception:  # noqa: BLE001 — best-effort per-row; skip the bad one
+                continue
+    except Exception:  # noqa: BLE001 — logging must never break the run
+        pass
+
+
 @router.post("/purchasing-run", response_model=PurchasingRunResult,
              dependencies=[Depends(_purchasing_role)])
-def purchasing_run(payload: PurchasingRunRequest, db: Session = Depends(get_db)):
+def purchasing_run(payload: PurchasingRunRequest, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
     """Run the weekly purchasing automation. dry_run=True (default) places nothing."""
-    return purchasing.run_weekly_purchasing(
+    result = purchasing.run_weekly_purchasing(
         db, dry_run=payload.dry_run, period_days=payload.period_days)
+    _log_decisions(db, result, actor=user.email)   # best-effort audit write
+    return result
 
 
 @router.post("/purchasing-run/confirm", response_model=PurchasingRunResult,
              dependencies=[Depends(_purchasing_role)])
-def purchasing_run_confirm(payload: PurchasingConfirmRequest, db: Session = Depends(get_db)):
+def purchasing_run_confirm(payload: PurchasingConfirmRequest, db: Session = Depends(get_db),
+                           user: User = Depends(get_current_user)):
     """Approve->place: recompute the run and place POs only for approved suppliers
     whose recomputed bundle is placeable (act/propose). Escalate bundles are never
     placed here. Returns the recomputed run with placed_po_id set on confirmed ones."""
-    return purchasing.run_weekly_purchasing(
+    result = purchasing.run_weekly_purchasing(
         db, period_days=payload.period_days,
         approve_suppliers=set(payload.approve_suppliers))
+    _log_decisions(db, result, actor=user.email)   # best-effort audit write
+    return result
+
+
+# --- decision audit trail (read-only over the append-only DecisionLog) --------
+
+class DecisionLogOut(BaseModel):
+    id: str
+    run_at: str
+    dry_run: bool
+    product_id: str
+    supplier_id: Optional[str] = None
+    qty: int
+    unit_price: Optional[float] = None
+    total: float
+    trigger_type: Optional[str] = None
+    evidence: Optional[dict] = None
+    tier: str
+    confidence: Optional[float] = None
+    rationale: Optional[str] = None
+    placed_po_id: Optional[str] = None
+    actor: Optional[str] = None
+    date_created: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/decisions", response_model=List[DecisionLogOut],
+            dependencies=[Depends(_purchasing_role)])
+def list_decisions(db: Session = Depends(get_db),
+                   tier: Optional[str] = None,
+                   product_id: Optional[str] = None,
+                   supplier_id: Optional[str] = None,
+                   run_at: Optional[str] = None,
+                   placed_only: bool = False,
+                   limit: int = 200):
+    """The persistent decision audit trail, newest first. All filters optional."""
+    q = db.query(DecisionLog)
+    if tier:
+        q = q.filter(DecisionLog.tier == tier)
+    if product_id:
+        q = q.filter(DecisionLog.product_id == product_id)
+    if supplier_id:
+        q = q.filter(DecisionLog.supplier_id == supplier_id)
+    if run_at:
+        q = q.filter(DecisionLog.run_at == run_at)
+    if placed_only:
+        q = q.filter(DecisionLog.placed_po_id.isnot(None))
+    q = q.order_by(DecisionLog.date_created.desc()).limit(max(1, min(limit, 1000)))
+    return list(q)
+
+
+@router.get("/decisions/{decision_id}", response_model=DecisionLogOut,
+            dependencies=[Depends(_purchasing_role)])
+def get_decision(decision_id: str, db: Session = Depends(get_db)):
+    """One decision by id (drill into its inputs; placed_po_id joins provenance)."""
+    row = db.get(DecisionLog, decision_id)
+    if row is None:
+        raise NotFoundError(f"Decision {decision_id!r} not found")
+    return row
