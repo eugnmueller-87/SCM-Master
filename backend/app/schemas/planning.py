@@ -208,6 +208,10 @@ class InventoryPositionRow(BaseModel):
     unit_price: Optional[float] = None
     committed_value: float     # on_order × landed unit
     proposing_value: float     # proposing × unit price
+    daily_burn: float = 0.0
+    cover_days: Optional[int] = None       # how long on_hand lasts
+    lands_in_days: Optional[int] = None    # how long the inbound takes to land
+    at_risk: bool = False                  # runs dry before inbound (recovery predicate)
     po_lines: list[PositionPoLine] = []   # drill-down: the POs behind on_order
 
 

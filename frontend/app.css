@@ -970,6 +970,12 @@ button { font-family: inherit; }
 .ipos-pill--defer { background: #fdede0; color: #b45309; }
 .ipos-prop { color: #15803d; font-weight: 700; }
 .ipos-defer { color: #b45309; font-weight: 700; }
+.ipos-risk { color: #b91c1c; font-weight: 700; }
+.ipos-row--risk { background: #fef5f5; }
+.ipos-row--risk:hover { background: #fdeaea; }
+.ipos-cov-cell { font-size: 12.5px; color: var(--ts-ink-soft); white-space: nowrap; }
+.ipos-cov-vs { color: var(--ts-ink-mute); font-size: 11px; }
+.ipos-flag-risk { color: #b91c1c; font-weight: 700; font-size: 11px; }
 .ipos-cap { display: flex; flex-direction: column; gap: 4px; min-width: 92px; }
 .ipos-cap__txt { font-size: 11px; color: var(--ts-ink-mute); }
 .ipos-cap__bar { height: 5px; border-radius: 3px; background: var(--ts-line); overflow: hidden; }

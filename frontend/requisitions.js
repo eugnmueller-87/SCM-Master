@@ -90,52 +90,61 @@ RENDER.requisitions = async function () {
    (capacity-blocked), which is what makes the residual loop self-explanatory.
    Row click expands the on_hand/on_order breakdown + the PO numbers. */
 function positionPanel(rows) {
-  const active = (rows || []).filter((r) => r.net_requirement > 0 || r.on_order > 0 || r.proposing > 0 || r.deferred > 0);
+  const active = (rows || []).filter((r) => r.net_requirement > 0 || r.on_order > 0 || r.staged_planned > 0 || r.deferred > 0 || r.at_risk);
   if (!active.length) {
     return `<div class="panel ipos" style="padding:20px;color:var(--ts-ink-mute)">Inventory position: every product is covered — nothing missing, nothing deferred.</div>`;
   }
   const t = active.reduce((a, r) => ({
-    missing: a.missing + r.net_requirement, proposing: a.proposing + r.proposing,
-    propValue: a.propValue + (r.proposing_value || 0), deferred: a.deferred + r.deferred,
-    committed: a.committed + (r.committed_value || 0),
-  }), { missing: 0, proposing: 0, propValue: 0, deferred: 0, committed: 0 });
+    missing: a.missing + r.net_requirement, staged: a.staged + r.staged_planned,
+    deferred: a.deferred + r.deferred, committed: a.committed + (r.committed_value || 0),
+    atrisk: a.atrisk + (r.at_risk ? 1 : 0),
+  }), { missing: 0, staged: 0, deferred: 0, committed: 0, atrisk: 0 });
 
   const strip = `<div class="ipos-strip">
     <div class="ipos-kpi"><div class="ipos-kpi__lbl">Still missing</div><div class="ipos-kpi__val">${t.missing}<span class="ipos-kpi__u"> units</span></div></div>
-    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Agent proposing</div><div class="ipos-kpi__val ipos-prop">${t.proposing}<span class="ipos-kpi__u"> units · ${eur0(t.propValue)}</span></div></div>
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Staged now</div><div class="ipos-kpi__val ipos-prop">${t.staged}<span class="ipos-kpi__u"> units queued</span></div></div>
     <div class="ipos-kpi"><div class="ipos-kpi__lbl">Capacity-deferred</div><div class="ipos-kpi__val ${t.deferred ? "ipos-defer" : ""}">${t.deferred}<span class="ipos-kpi__u"> blocked</span></div></div>
-    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Committed · open POs</div><div class="ipos-kpi__val">${eur0(t.committed)}</div></div>
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">At risk · runs dry first</div><div class="ipos-kpi__val ${t.atrisk ? "ipos-risk" : ""}">${t.atrisk}<span class="ipos-kpi__u"> SKUs</span></div></div>
   </div>`;
+
+  const cov = (r) => {
+    if (r.cover_days == null) return "—";
+    const c = r.cover_days >= 365 ? "365+" : r.cover_days;
+    const risk = r.at_risk ? ` <span class="ipos-flag-risk" title="Runs dry before the inbound order lands">⚠ dry first</span>` : "";
+    return `${c}d${r.lands_in_days != null ? ` <span class="ipos-cov-vs">vs ${r.lands_in_days}d to land</span>` : ""}${risk}`;
+  };
 
   const body = active.map((r) => {
     const capPct = (r.position + r.capacity_avail) > 0 ? Math.min(100, Math.round(r.position / (r.position + r.capacity_avail) * 100)) : 0;
-    const propCell = r.proposing ? `<span class="ipos-pill ipos-pill--prop">${r.proposing}</span>` : (r.net_requirement ? "—" : "—");
+    const stagedCell = r.staged_planned ? `<span class="ipos-pill ipos-pill--prop">${r.staged_planned}</span>` : "—";
     const deferCell = r.deferred ? `<span class="ipos-pill ipos-pill--defer">${r.deferred}</span>` : "—";
-    return `<tr class="ipos-row" data-ipid="${esc(r.product_id)}">
+    return `<tr class="ipos-row${r.at_risk ? " ipos-row--risk" : ""}" data-ipid="${esc(r.product_id)}">
         <td><div class="ipos-name">${esc(r.name || r.product_id)}</div><div class="ipos-cat">${esc(r.category || "")}</div></td>
         <td class="num">${r.gross_demand}</td>
         <td class="num">${r.position}</td>
         <td class="num">${r.net_requirement || "—"}</td>
-        <td class="num">${propCell}</td>
+        <td class="num">${stagedCell}</td>
         <td class="num">${deferCell}</td>
+        <td class="ipos-cov-cell">${cov(r)}</td>
         <td><div class="ipos-cap"><span class="ipos-cap__txt">${r.position} / ${r.position + r.capacity_avail}</span>
           <span class="ipos-cap__bar"><span style="width:${capPct}%;background:${r.deferred ? "var(--ts-warning)" : "var(--ts-positive)"}"></span></span></div></td>
         <td class="num">${eur0(r.committed_value)}</td>
       </tr>
-      <tr class="ipos-drill" data-drill="${esc(r.product_id)}" hidden><td colspan="8"></td></tr>`;
+      <tr class="ipos-drill" data-drill="${esc(r.product_id)}" hidden><td colspan="9"></td></tr>`;
   }).join("");
 
   return `<div class="panel ipos">
     <table class="ipos-tbl">
       <thead><tr><th>Item</th><th class="num">Need</th><th class="num">Position</th><th class="num">Missing</th>
-        <th class="num">Proposing</th><th class="num">Deferred</th><th>Capacity</th><th class="num">Committed €</th></tr></thead>
+        <th class="num">Staged now</th><th class="num">Deferred</th><th>Cover vs lead</th><th>Capacity</th><th class="num">Committed €</th></tr></thead>
       <tbody>${body}</tbody>
       <tfoot><tr>
         <td>Total</td><td class="num">${active.reduce((s, r) => s + r.gross_demand, 0)}</td>
         <td class="num">${active.reduce((s, r) => s + r.position, 0)}</td>
         <td class="num">${t.missing}</td>
-        <td class="num ipos-prop">${t.proposing}</td>
+        <td class="num ipos-prop">${t.staged}</td>
         <td class="num ${t.deferred ? "ipos-defer" : ""}">${t.deferred || "—"}</td>
+        <td class="ipos-cap__txt">${t.atrisk} at risk</td>
         <td class="ipos-cap__txt">${active.filter((r) => r.deferred).length} at cap</td>
         <td class="num">${eur0(t.committed)}</td>
       </tr></tfoot>

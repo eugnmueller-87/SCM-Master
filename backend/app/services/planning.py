@@ -682,6 +682,12 @@ class PositionRow:
     unit_price: Optional[float]
     committed_value: float   # on_order * landed unit cost
     proposing_value: float   # proposing * unit price
+    # Coverage (read from the SAME recovery object the recommendation uses — one
+    # shared at-risk predicate, not a parallel one):
+    daily_burn: float        # units/day consumption
+    cover_days: Optional[int]    # how long current on_hand lasts (dry-out)
+    lands_in_days: Optional[int] # how long the inbound replenishment takes to land
+    at_risk: bool            # recovery.at_risk: runs dry before inbound lands
 
 
 def _staged_planned_by_product(db: Session) -> dict[str, int]:
@@ -774,6 +780,17 @@ def inventory_position(db: Session, *, period_days: int = 7,
         net_req = max(0, gross - position - safety)
         staged_planned = int(staged.get(pid, 0))
         new_proposal = max(0, net_req - staged_planned)
+        # Coverage from the recovery object already computed by inventory_plan —
+        # the SAME at-risk predicate (cover_days < eta_days) the recommendation
+        # uses, never a parallel one. cover_days = on_hand / daily_burn.
+        burn = float(iv.get("daily_burn", 0) or 0)
+        rec = iv.get("recovery") or {}
+        today_d = today
+        cover_days = int(on_hand / burn) if burn > 0 else None
+        lands_in = None
+        ld = rec.get("inbound_land_date")
+        if ld:
+            lands_in = (ld - today_d).days if hasattr(ld, "year") else None
         prelim.append({
             "pid": pid, "name": iv.get("name") or fc.get("name"),
             "category": iv.get("category") or fc.get("category"),
@@ -781,6 +798,8 @@ def inventory_position(db: Session, *, period_days: int = 7,
             "position": position, "safety": safety, "net_req": net_req,
             "staged_planned": staged_planned, "new_proposal": new_proposal,
             "unit_price": iv.get("unit_price"),
+            "daily_burn": burn, "cover_days": cover_days,
+            "lands_in": lands_in, "at_risk": bool(rec.get("at_risk")),
         })
 
     # Greedy capacity drawdown, highest net_requirement first (then name) — the
@@ -808,6 +827,8 @@ def inventory_position(db: Session, *, period_days: int = 7,
             unit_price=up,
             committed_value=round((up or 0) * adder * r["on_order"], 2),
             proposing_value=round((up or 0) * proposing, 2),
+            daily_burn=r["daily_burn"], cover_days=r["cover_days"],
+            lands_in_days=r["lands_in"], at_risk=r["at_risk"],
         ))
     return sorted(rows, key=lambda r: (r.name or ""))
 
