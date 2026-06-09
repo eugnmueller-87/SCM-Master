@@ -129,3 +129,34 @@ def test_staged_helper_counts_only_staged_included(client, db_session, monkeypat
     requisition_service.reject(db_session, pr.id, actor="buyer@example.com")
     db_session.commit()
     assert purchasing._staged_by_product(db_session).get(pid, 0) == 0
+
+
+def test_never_stacks_two_prs_for_same_supplier_product(client, db_session, monkeypatch):
+    """One open PR per (supplier, product): re-running never stacks a second PR for
+    a product that already has an open STAGED PR — even when a residual remains."""
+    from collections import Counter
+    _mock_copilot(monkeypatch)
+    _scenario(client, db_session)
+    purchasing.run_requisition_cycle(db_session, period_days=7)
+    for _ in range(4):
+        purchasing.run_requisition_cycle(db_session, period_days=7)
+
+    pairs = Counter()
+    for pr in db_session.scalars(
+        select(PurchaseRequisition).where(PurchaseRequisition.status == RequisitionStatus.STAGED)
+    ).all():
+        for ln in pr.lines:
+            pairs[(pr.supplier_id, ln.product_id)] += 1
+    dupes = {k: n for k, n in pairs.items() if n > 1}
+    assert not dupes, f"a supplier+product was staged more than once: {dupes}"
+
+
+def test_seed_path_stages_without_llm(client, db_session, monkeypatch):
+    """use_llm=False stages deterministically — no recommend_sourcing call (fast
+    boot, zero token cost). If it ever calls the LLM, this fails."""
+    def boom(*a, **k):
+        raise AssertionError("recommend_sourcing must NOT be called when use_llm=False")
+    monkeypatch.setattr(copilot, "recommend_sourcing", boom)
+    _scenario(client, db_session)
+    res = purchasing.run_requisition_cycle(db_session, period_days=7, use_llm=False)
+    assert res["staged"] >= 1   # it still staged, just deterministically

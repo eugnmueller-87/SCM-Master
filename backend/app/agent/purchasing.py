@@ -181,6 +181,21 @@ def _staged_by_product(db: Session) -> dict[str, int]:
     return dict(out)
 
 
+def _open_staged_pairs(db: Session) -> set[tuple[str, str]]:
+    """(supplier_id, product_id) pairs that already have an OPEN STAGED PR line.
+
+    Used to guarantee one open PR per supplier+product — the run never stacks a
+    second PR for something already awaiting approval.
+    """
+    rows = db.execute(
+        select(PurchaseRequisition.supplier_id, RequisitionLine.product_id)
+        .join(RequisitionLine, RequisitionLine.requisition_id == PurchaseRequisition.id)
+        .where(PurchaseRequisition.status == RequisitionStatus.STAGED,
+               RequisitionLine.included.is_(True))
+    ).all()
+    return {(sid, pid) for sid, pid in rows}
+
+
 def _detect_triggers(db: Session, period_days: int) -> dict[str, dict]:
     """Merge the trigger sources; first (highest-priority) to claim a product wins.
 
@@ -353,7 +368,7 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
 
 
 def run_requisition_cycle(db: Session, *, period_days: int = 7,
-                          actor: Optional[str] = None) -> dict:
+                          actor: Optional[str] = None, use_llm: bool = True) -> dict:
     """Stage Purchase Requisitions from detected demand, auto-placing the ones
     that clear their *calibrated* confidence bar.
 
@@ -372,7 +387,7 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
     from app.services import calibration as _calib
     from app.services.requisition import requisition_service as _req
 
-    bundles, orphans = _compute_bundles(db, period_days)
+    bundles, orphans = _compute_bundles(db, period_days, use_llm=use_llm)
 
     staged_ids: list[str] = []
     auto_ids: list[str] = []
@@ -381,7 +396,17 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
     # supplier and there is none. They are returned as escalations for the UI to
     # flag "needs a new supplier", never auto-placed.
 
+    # One open PR per (supplier, product): if a STAGED PR already holds this
+    # supplier+product, DON'T stack a second one. The existing PR is human-owned
+    # (may be edited/approved); the still-unmet remainder stays visible in the
+    # position panel ("Missing") rather than spawning duplicate POs to the same
+    # supplier a run apart. This is the convergence guarantee at the PR level.
+    already = _open_staged_pairs(db)
+
     for supplier_id, lines in bundles.items():
+        lines = [ln for ln in lines if (supplier_id, ln["product_id"]) not in already]
+        if not lines:
+            continue
         bundle_total = sum(line["line_total"] for line in lines)
         bundle_confidence, tier = _tier_bundle(lines, bundle_total)
 
@@ -434,7 +459,8 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
     }
 
 
-def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict]], list[dict]]:
+def _compute_bundles(db: Session, period_days: int,
+                     *, use_llm: bool = True) -> tuple[dict[str, list[dict]], list[dict]]:
     """Detect needs, net inbound, source, MOQ-round, and judge each line.
 
     Returns (bundles_by_supplier, orphan_bundles). Each bundle line carries qty,
@@ -511,15 +537,26 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
             "staged_committed": info.get("staged_committed", 0),
             "already_committed": info.get("already_committed", 0),
         }
-        try:
-            rec = copilot.recommend_sourcing(db, pid, qty)
-            line["confidence"] = rec.confidence
-            line["agent_decision"] = rec.decision
-            line["agent_rationale"] = rec.rationale
-        except copilot.AgentError as exc:
-            line["confidence"] = 0.0
-            line["agent_decision"] = "escalate"
-            line["agent_rationale"] = f"copilot unavailable: {exc}"
+        if use_llm:
+            try:
+                rec = copilot.recommend_sourcing(db, pid, qty)
+                line["confidence"] = rec.confidence
+                line["agent_decision"] = rec.decision
+                line["agent_rationale"] = rec.rationale
+            except copilot.AgentError as exc:
+                line["confidence"] = 0.0
+                line["agent_decision"] = "escalate"
+                line["agent_rationale"] = f"copilot unavailable: {exc}"
+        else:
+            # Deterministic path (seed-on-boot, and any caller that must not incur
+            # a per-line LLM call): no recommend_sourcing. Confidence/decision come
+            # from the deterministic tier the gate already computes downstream; the
+            # rationale states the trigger. Keeps boot fast and token-cost zero.
+            line["confidence"] = settings.act_confidence_floor
+            line["agent_decision"] = "recommend"
+            line["agent_rationale"] = (
+                f"{info['type'].replace('_', ' ').title()} — deterministic stage "
+                f"(qty {qty} from the inventory-position model).")
         bundles[src["supplier_id"]].append(line)
 
     return bundles, orphans

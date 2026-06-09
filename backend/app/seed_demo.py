@@ -299,7 +299,9 @@ def seed_demo() -> None:
         # and the netting fix means a later re-run won't duplicate it.
         try:
             from app.agent import purchasing
-            res = purchasing.run_requisition_cycle(db, period_days=7, actor="seed")
+            # use_llm=False: stage deterministically, no per-line LLM call — keeps
+            # boot fast and incurs zero token cost on every redeploy.
+            res = purchasing.run_requisition_cycle(db, period_days=7, actor="seed", use_llm=False)
             db.commit()   # the staging path only flushes — commit so PRs survive close()
             print(f"  requisitions  : staged {res['staged']} "
                   f"(auto-placed {res['auto_placed']}) from seeded demand")
