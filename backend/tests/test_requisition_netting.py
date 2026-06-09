@@ -39,14 +39,19 @@ def _mock_copilot(monkeypatch, *, decision="recommend", confidence=0.5):
 
 
 def _scenario(client, db_session):
-    """A lifecycle-replacement shortfall that stages but stays below the bar."""
+    """A lifecycle-replacement shortfall that stages but stays below the bar.
+
+    The source is left WITHOUT a lead time on purpose: an incomplete contract
+    yields a deterministic confidence below the auto-place bar, so the buy stays
+    STAGED — the precondition for exercising re-run netting against open PRs.
+    """
     smci = client.post(f"{B}/organizations", json={
         "code": "SMCI", "name": "Supermicro", "is_supplier": True}).json()
     srv = client.post(f"{B}/products", json={
         "product_code": "SC847", "name": "SC847 · 4U JBOD chassis", "category": "Storage"}).json()
     client.post(f"{B}/product-suppliers", json={
         "product_id": srv["id"], "supplier_id": smci["id"],
-        "standard_lead_time_days": 25, "min_order_quantity": 1,
+        "standard_lead_time_days": None, "min_order_quantity": 1,
         "contract_price": "3180.00", "preference_rank": 1})
     when = date.today() - timedelta(days=1)
     for i in range(3):

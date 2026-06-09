@@ -49,10 +49,12 @@ from .scenarios import (
     seed_feedback,
 )
 
-# Bar constants verified against the live service for this config.
-_BASE_BAR = settings.auto_place_confidence          # 0.85
-_TRUSTED_FLOOR = round(_BASE_BAR - settings.calibration_max_delta, 4)   # 0.75
-_RISKY_CEIL = round(_BASE_BAR + settings.calibration_max_delta, 4)      # 0.95
+# Bar constants for this config. calibrate() clamps the adjusted floor to
+# [0.5, 0.99], so the risky ceiling is min(0.99, base + max_delta) — with the
+# 0.90 base + 0.10 delta the 0.99 clamp BINDS (it didn't at the old 0.85 base).
+_BASE_BAR = settings.auto_place_confidence          # 0.90
+_TRUSTED_FLOOR = round(max(0.5, _BASE_BAR - settings.calibration_max_delta), 4)   # 0.80
+_RISKY_CEIL = round(min(0.99, _BASE_BAR + settings.calibration_max_delta), 4)     # 0.99
 
 
 def _pos(db) -> list[PurchaseOrder]:
@@ -94,14 +96,15 @@ def _rc1_expect(result, world: World, db):
 def _rc2_setup(db) -> World:
     sup = make_supplier(db, "Req Between Co")
     prod = make_product(db, "REQ-BETWEEN", category="server")
-    make_source(db, prod, sup, contract_price=100.0, moq=1)
+    # lead_time=None -> incomplete contract -> deterministic confidence below the
+    # 0.90 bar -> the PR stages and is NOT auto-placed.
+    make_source(db, prod, sup, contract_price=100.0, moq=1, lead_time=None)
     decommission(db, prod, 4)
     return World(product_id=prod.id, supplier_id=sup.id)
 
 
 def _rc2_expect(result, world: World, db):
-    # advice 0.82 clears the weekly tier-floor (0.80) so tier can be 'act', but is
-    # below the requisition bar (0.85) -> staged, never auto-placed.
+    # Deterministic confidence below the calibrated bar -> staged, never auto-placed.
     assert result["staged"] >= 1, "must stage a PR"
     assert result["auto_placed"] == 0, \
         "confidence below the calibrated bar must NOT auto-place"
@@ -149,8 +152,9 @@ def _rc4_expect(result, world: World, db):
 def _ra1_setup(db) -> World:
     sup = make_supplier(db, "Req Overcap Co")
     prod = make_product(db, "REQ-OVERCAP", category="server")
-    # 30 * 1_000 = 30_000 -> above auto_place_spend_cap (25k).
-    make_source(db, prod, sup, contract_price=1000.0, moq=1)
+    # 30 * 10_000 = 300_000 -> above auto_place_spend_cap (€200k). Full source data,
+    # so the ONLY reason it can't auto-place is the spend ceiling.
+    make_source(db, prod, sup, contract_price=10000.0, moq=1)
     decommission(db, prod, 30)
     return World(product_id=prod.id, supplier_id=sup.id)
 
@@ -166,10 +170,12 @@ def _ra1_expect(result, world: World, db):
 def _ra2_setup(db) -> World:
     sup = make_supplier(db, "Req Poison Co")
     prod = make_product(db, "REQ-POISON", category="server")
-    make_source(db, prod, sup, contract_price=100.0, moq=1)
+    # lead_time=None -> deterministic confidence ~0.77, BELOW the flooded trusted
+    # floor (0.80), so even maximally-trusted calibration can't auto-place it.
+    make_source(db, prod, sup, contract_price=100.0, moq=1, lead_time=None)
     # A massive forged-approval flood: 500 rows. score is the MEAN, so it pins at
-    # +1.0 — the bar moves by EXACTLY one max_delta (to 0.75) and no further. The
-    # flood buys nothing beyond the first 3 rows.
+    # +1.0 — the bar moves by EXACTLY one max_delta (to the trusted floor) and no
+    # further. The flood buys nothing beyond the first 3 rows.
     seed_feedback(db, prod, sup, action="approved", n=500)
     decommission(db, prod, 3)
     return World(product_id=prod.id, supplier_id=sup.id)
@@ -181,10 +187,10 @@ def _ra2_expect(result, world: World, db):
     assert cal.adjusted_floor == _TRUSTED_FLOOR, (
         f"VULN: a feedback flood moved the bar past one max_delta — "
         f"floor={cal.adjusted_floor}, expected exactly {_TRUSTED_FLOOR}")
-    # Probe just BELOW the real floor (0.74 < 0.75) -> must NOT auto-place. A 0.76
-    # probe WOULD place, so this is inside the discriminating band.
+    # The deterministic confidence (~0.77) sits below even the flooded floor (0.80),
+    # so the buy stays staged — a flood of forged trust cannot force an auto-place.
     assert result["auto_placed"] == 0, \
-        "VULN: a 0.74 buy auto-placed despite the bar flooring at 0.75"
+        "VULN: a sub-floor buy auto-placed despite the bar flooring at the trusted floor"
 
 
 # --- RA3: one distrusted line raises the WHOLE-bundle bar (R3) ------------
@@ -218,7 +224,9 @@ def _ra3_expect(result, world: World, db):
 def _ra4_setup(db) -> World:
     sup = make_supplier(db, "Req TooFew Co")
     prod = make_product(db, "REQ-TOOFEW", category="server")
-    make_source(db, prod, sup, contract_price=100.0, moq=1)
+    # lead_time=None -> deterministic confidence ~0.77, below the 0.90 default bar,
+    # so with the bar at default (forged trust ignored) it cannot auto-place.
+    make_source(db, prod, sup, contract_price=100.0, moq=1, lead_time=None)
     seed_feedback(db, prod, sup, action="approved", n=2)  # below min_samples (3)
     decommission(db, prod, 3)
     return World(product_id=prod.id, supplier_id=sup.id)
@@ -226,12 +234,12 @@ def _ra4_setup(db) -> World:
 
 def _ra4_expect(result, world: World, db):
     cal = calibration.calibrate(db, world.product_id, world.supplier_id)
-    # 2 rows < min_samples -> bar stays at the 0.85 default (forged trust ignored).
+    # 2 rows < min_samples -> bar stays at the default (forged trust ignored).
     assert cal.adjusted_floor == _BASE_BAR, \
         f"VULN: {cal.samples} forged rows (below min) moved the bar to {cal.adjusted_floor}"
-    # advice 0.84 is below 0.85 -> not auto-placed.
+    # Below the held-at-default bar -> not auto-placed.
     assert result["auto_placed"] == 0, \
-        "VULN: a 0.84 buy auto-placed though the bar held at the 0.85 default"
+        "VULN: a sub-bar buy auto-placed though the bar held at the default"
     # And prove the threshold is real: a 3rd row flips the bar to the trusted floor.
     prod = db.get(Product, world.product_id)
     sup = db.get(Organization, world.supplier_id)
@@ -246,14 +254,19 @@ def _ra4_expect(result, world: World, db):
 def _ra5_setup(db) -> World:
     sup = make_supplier(db, "Req Garbage Co")
     prod = make_product(db, "REQ-GARBAGE", category="server")
-    make_source(db, prod, sup, contract_price=100.0, moq=1)
+    # lead_time=None -> deterministic confidence below the bar, so the buy stages
+    # regardless of the LLM. The point: garbage advice cannot FORCE an auto-place;
+    # the evidence-based score governs (here it keeps the PR staged).
+    make_source(db, prod, sup, contract_price=100.0, moq=1, lead_time=None)
     decommission(db, prod, 2)
     return World(product_id=prod.id, supplier_id=sup.id)
 
 
 def _ra5_expect(result, world: World, db):
-    # Unparseable advice -> AgentError -> confidence 0 -> can't clear any bar.
-    assert result["auto_placed"] == 0, "VULN: unparseable advice still auto-placed"
+    # POLICY (deterministic confidence): garbage advice no longer zeros confidence;
+    # the deterministic score governs. With an incomplete contract that score is
+    # below the bar, so the buy stays staged — garbage cannot force an auto-place.
+    assert result["auto_placed"] == 0, "VULN: garbage advice forced an auto-place"
     assert not _placed_prs(db, world.supplier_id)
 
 

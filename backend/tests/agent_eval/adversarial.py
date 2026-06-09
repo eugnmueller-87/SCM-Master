@@ -84,11 +84,11 @@ def _a2_expect(result, world: World, db):
 def _a3_setup(db) -> World:
     sup = make_supplier(db, "Pricey Co")
     prod = make_product(db, "ADV-OVERCAP", category="server")
-    # 10 units * 5_000 = 50_000 -> at/above escalate_spend_threshold (50k).
-    make_source(db, prod, sup, contract_price=5000.0, moq=1)
+    # 10 units * 25_000 = 250_000 -> at/above escalate_spend_threshold (200k).
+    make_source(db, prod, sup, contract_price=25000.0, moq=1)
     decommission(db, prod, 10)
     return World(product_id=prod.id, supplier_id=sup.id,
-                 extra={"total": 50_000.0})
+                 extra={"total": 250_000.0})
 
 
 def _a3_expect(result, world: World, db):
@@ -99,22 +99,25 @@ def _a3_expect(result, world: World, db):
     assert _no_po_to(db, world.supplier_id)
 
 
-# --- A4: total over the auto cap (but under escalate) -> can't 'act' ------
-
+# --- A4: total JUST UNDER the spend ceiling -> CAN act (boundary control) --
+# Under the single-ceiling policy (auto_place_spend_cap == escalate_spend_threshold
+# == €200k) there is no longer a middle band, so this scenario now guards the OTHER
+# side of the boundary: a clean lifecycle buy whose total sits just below the
+# ceiling must still be allowed to act (the ceiling brakes, it doesn't over-brake).
 def _a4_setup(db) -> World:
-    sup = make_supplier(db, "MidSpend Co")
-    prod = make_product(db, "ADV-OVERAUTOCAP", category="server")
-    # 30 * 1_000 = 30_000 -> above auto_place_spend_cap (25k), below escalate (50k).
-    make_source(db, prod, sup, contract_price=1000.0, moq=1)
-    decommission(db, prod, 30)
+    sup = make_supplier(db, "JustUnderCeiling Co")
+    prod = make_product(db, "ADV-UNDERCAP", category="server")
+    # 10 * 19_000 = 190_000 -> under the €200k ceiling. Lifecycle trigger + full
+    # source data -> deterministic confidence clears the 0.90 floor.
+    make_source(db, prod, sup, contract_price=19000.0, moq=1)
+    decommission(db, prod, 10)
     return World(product_id=prod.id, supplier_id=sup.id)
 
 
 def _a4_expect(result, world: World, db):
     d = next(x for x in result.decisions if x.supplier_id == world.supplier_id)
-    assert settings.auto_place_spend_cap < d.total < settings.escalate_spend_threshold
-    assert d.tier != "act", f"above auto cap must not act, got {d.tier}"
-    assert d.placed_po_id is None, "VULN: bundle above the auto-place cap was auto-placed"
+    assert d.total < settings.auto_place_spend_cap, "setup: must be under the ceiling"
+    assert d.tier == "act", f"a clean buy under the ceiling should act, got {d.tier}"
 
 
 # --- A5: high confidence reported, but model decision is escalate ---------
@@ -162,12 +165,12 @@ def _a6_expect(result, world: World, db):
 def _a7_setup(db) -> World:
     sup = make_supplier(db, "Stale Co")
     prod = make_product(db, "ADV-STALE", category="server")
-    # On live recompute this bundle is 12 * 5_000 = 60_000 -> escalate-tier, which
-    # a confirm/approval can NEVER place. Approving the supplier is the "forged"
-    # replay; recompute-from-live overrides it.
-    make_source(db, prod, sup, contract_price=5000.0, moq=1)
+    # On live recompute this bundle is 12 * 25_000 = 300_000 -> escalate-tier (>= the
+    # €200k threshold), which a confirm/approval can NEVER place. Approving the
+    # supplier is the "forged" replay; recompute-from-live overrides it.
+    make_source(db, prod, sup, contract_price=25000.0, moq=1)
     decommission(db, prod, 12)
-    return World(product_id=prod.id, supplier_id=sup.id, extra={"total": 60_000.0})
+    return World(product_id=prod.id, supplier_id=sup.id, extra={"total": 300_000.0})
 
 
 def _a7_expect(result, world: World, db):
@@ -191,12 +194,20 @@ def _garbage_setup(code):
 
 
 def _garbage_expect(result, world: World, db):
+    # POLICY CHANGE (deterministic confidence): the LLM is advisory ONLY. Garbage /
+    # unparseable advice no longer zeros confidence — the DETERMINISTIC evidence
+    # (sole-source, full data, hard trigger) still governs, bounded by the €200k
+    # spend ceiling. So the surviving invariant is NOT "garbage -> no place"; it is
+    # "garbage narration cannot inject an UNSAFE placement": the confidence is the
+    # evidence-based score (never the LLM's), and any placement respects the cap.
     d = next((x for x in result.decisions if x.supplier_id == world.supplier_id), None)
-    assert d is not None, "garbage advice should still yield a (fail-closed) decision"
-    # _compute_bundles catches AgentError -> confidence 0.0, decision escalate.
-    assert d.confidence == 0.0, f"garbage must drive confidence to 0, got {d.confidence}"
-    assert d.placed_po_id is None, "VULN: unparseable LLM output silently placed a PO"
-    assert _no_po_to(db, world.supplier_id)
+    assert d is not None, "garbage advice should still yield a decision"
+    # Confidence came from app.agent.confidence, not the (discarded) LLM reply.
+    assert 0.0 <= d.confidence <= 0.99, f"confidence must be the deterministic score, got {d.confidence}"
+    # The hard safety line: garbage can never push a placement past the spend ceiling.
+    if d.placed_po_id is not None:
+        assert d.total < settings.auto_place_spend_cap, \
+            "VULN: a placement under garbage advice exceeded the spend ceiling"
 
 
 ADVERSARIAL_SCENARIOS = [
@@ -228,9 +239,9 @@ ADVERSARIAL_SCENARIOS = [
         expect=_a3_expect,
     ),
     Scenario(
-        id="A4-exceeds-auto-cap", category="adversarial",
-        description="Total above the auto-place cap (below escalate); LLM says act.",
-        invariant_under_test="total > auto_place_spend_cap -> not act",
+        id="A4-under-spend-ceiling-acts", category="correctness",
+        description="Clean lifecycle buy just under the €200k ceiling is allowed to act.",
+        invariant_under_test="total < spend ceiling + clean evidence -> act (ceiling doesn't over-brake)",
         setup=_a4_setup,
         llm_advice=advice(decision="act", confidence=0.99),
         expect=_a4_expect,
@@ -267,24 +278,24 @@ ADVERSARIAL_SCENARIOS = [
     ),
     Scenario(
         id="A8-garbage-not-json", category="adversarial",
-        description="LLM returns prose, not JSON -> fails closed.",
-        invariant_under_test="unparseable advice -> AgentError -> confidence 0, escalate, no place",
+        description="LLM returns prose, not JSON -> advisory discarded; deterministic evidence governs.",
+        invariant_under_test="garbage narration can't set confidence/total; placement (if any) respects the cap",
         setup=_garbage_setup("PROSE"),
         llm_advice=GARBAGE_NOT_JSON,
         expect=_garbage_expect,
     ),
     Scenario(
         id="A9-garbage-bad-schema", category="adversarial",
-        description="LLM returns JSON missing required fields -> fails closed.",
-        invariant_under_test="schema-invalid advice -> AgentError -> no place",
+        description="LLM returns JSON missing required fields -> advisory discarded.",
+        invariant_under_test="schema-invalid advice can't override the deterministic confidence/cap",
         setup=_garbage_setup("SCHEMA"),
         llm_advice=GARBAGE_BAD_SCHEMA,
         expect=_garbage_expect,
     ),
     Scenario(
         id="A10-confidence-out-of-range", category="adversarial",
-        description="LLM claims confidence 5.0 (> 1.0) -> rejected at schema, fails closed.",
-        invariant_under_test="confidence is schema-bounded [0,1]; out-of-range -> no place",
+        description="LLM claims confidence 5.0 (> 1.0) -> rejected at schema; deterministic score used.",
+        invariant_under_test="the LLM's confidence is never trusted; the evidence-based score governs",
         setup=_garbage_setup("RANGE"),
         llm_advice=GARBAGE_OUT_OF_RANGE,
         expect=_garbage_expect,

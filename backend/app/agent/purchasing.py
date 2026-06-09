@@ -26,7 +26,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent import copilot
+from app.agent import confidence, copilot
 from app.agent.schemas import (
     DemandTrigger,
     PurchasingDecision,
@@ -433,7 +433,11 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
             # Storage-capped means the full need exceeds warehouse headroom.
             + (f" [residual: +{line['qty']} beyond {line['already_committed']} already committed (on order / staged)]"
                if line.get("already_committed") else "")
-            + (" [capped to fit warehouse storage]" if line.get("storage_capped") else ""),
+            + (" [capped to fit warehouse storage]" if line.get("storage_capped") else "")
+            # The deterministic confidence AUDIT: the factor-by-factor trail behind
+            # the score, so a reviewer can see WHY this line scored what it did (the
+            # whole point of the deterministic gate — every number is explainable).
+            + _confidence_audit_suffix(line.get("confidence_breakdown")),
         } for line in lines]
 
         pr = _req.stage(
@@ -537,29 +541,82 @@ def _compute_bundles(db: Session, period_days: int,
             "staged_committed": info.get("staged_committed", 0),
             "already_committed": info.get("already_committed", 0),
         }
+
+        # Confidence is DETERMINISTIC: computed from the evidence in hand, with a
+        # factor-by-factor audit trail, on BOTH paths. This is what the auto-place
+        # gate measures against the calibrated bar — never an LLM self-assessment.
+        # (active_source_count counts ALL active contracted sources, so a sole
+        # source is scored as the no-fallback risk it is.)
+        cscore = confidence.score_line(
+            trigger_type=info["type"],
+            active_source_count=len(ranked),
+            chosen_lead_time_days=src.get("standard_lead_time_days"),
+            chosen_unit_price=unit_price,
+            net_requirement=int(info.get("net_requirement", info["net_need"])),
+            already_committed=int(info.get("already_committed", 0)),
+            storage_capped=storage_capped,
+        )
+        line["confidence"] = cscore.score
+        line["confidence_breakdown"] = cscore.as_dict()   # persisted for audit
+
         if use_llm:
+            # The LLM may still narrate and offer an ADVISORY decision/rationale,
+            # but it does NOT set confidence (recorded only, for comparison). The
+            # deterministic score above gates; the model adds qualitative colour.
             try:
                 rec = copilot.recommend_sourcing(db, pid, qty)
-                line["confidence"] = rec.confidence
                 line["agent_decision"] = rec.decision
                 line["agent_rationale"] = rec.rationale
+                line["llm_confidence_advisory"] = rec.confidence
             except copilot.AgentError as exc:
-                line["confidence"] = 0.0
-                line["agent_decision"] = "escalate"
-                line["agent_rationale"] = f"copilot unavailable: {exc}"
+                # LLM unavailable: fall back to the deterministic decision (below),
+                # do NOT zero the (grounded) confidence — the evidence still stands.
+                line["agent_decision"] = _decision_from_confidence(cscore.score)
+                line["agent_rationale"] = (
+                    f"{info['type'].replace('_', ' ').title()} — {cscore.as_dict()['headline']} "
+                    f"(copilot narration unavailable: {exc}).")
         else:
             # Deterministic path (seed-on-boot, and any caller that must not incur
-            # a per-line LLM call): no recommend_sourcing. Confidence/decision come
-            # from the deterministic tier the gate already computes downstream; the
-            # rationale states the trigger. Keeps boot fast and token-cost zero.
-            line["confidence"] = settings.act_confidence_floor
-            line["agent_decision"] = "recommend"
+            # a per-line LLM call): no recommend_sourcing. The decision follows the
+            # deterministic confidence; the rationale states the trigger + the
+            # confidence headline. Keeps boot fast and token-cost zero.
+            line["agent_decision"] = _decision_from_confidence(cscore.score)
             line["agent_rationale"] = (
-                f"{info['type'].replace('_', ' ').title()} — deterministic stage "
-                f"(qty {qty} from the inventory-position model).")
+                f"{info['type'].replace('_', ' ').title()} — qty {qty} from the "
+                f"inventory-position model. {cscore.as_dict()['headline']}")
         bundles[src["supplier_id"]].append(line)
 
     return bundles, orphans
+
+
+def _confidence_audit_suffix(breakdown: Optional[dict]) -> str:
+    """Render the deterministic confidence factor-trail as an auditable suffix.
+
+    Lists only the factors that MOVED the score (multiplier != 1.0) so the
+    rationale stays readable, e.g. " [confidence 0.84: sole source x0.96, capped
+    x0.90]". Empty string when there's no breakdown (e.g. orphan lines)."""
+    if not breakdown:
+        return ""
+    movers = [f for f in breakdown.get("factors", []) if round(f.get("multiplier", 1.0), 3) != 1.0]
+    if not movers:
+        return f" [confidence {breakdown.get('score', 0):.2f}: clean — no risk factors]"
+    parts = ", ".join(f"{f['name']} x{f['multiplier']}" for f in movers)
+    return f" [confidence {breakdown.get('score', 0):.2f}: {parts}]"
+
+
+def _decision_from_confidence(score: float) -> str:
+    """Map a deterministic confidence to an act/recommend/escalate decision.
+
+    Used wherever the LLM does not (or cannot) supply an advisory decision, so the
+    decision is grounded in the same evidence-based score the gate measures —
+    never a flat constant. The thresholds mirror the tier gates' intent: clearly
+    confident -> act, plausible -> recommend, weak -> escalate.
+    """
+    if score >= settings.act_confidence_floor:
+        return "act"
+    if score >= 0.5:
+        return "recommend"
+    return "escalate"
 
 
 def _tier_bundle(lines: list[dict], bundle_total: float) -> tuple[float, str]:

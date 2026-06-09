@@ -169,8 +169,9 @@ def test_over_cap_bundle_escalates(client, db_session, monkeypatch):
     _mock_copilot(monkeypatch, decision="act", confidence=0.99)
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
-    # huge unit price so the bundle clears the escalate threshold (default 50k)
-    _source(client, srv["id"], smci["id"], price="60000.00")
+    # huge unit price so the bundle clears the escalate threshold (default €200k):
+    # 2 * 120_000 = 240_000.
+    _source(client, srv["id"], smci["id"], price="120000.00")
     _decommission_assets(db_session, srv["id"], 2)
     res = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
     dec = next(d for d in res.decisions if d.product_id == srv["id"])

@@ -49,14 +49,19 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-sonnet-4-6"
 
     # Weekly purchasing automation — gates and defaults (all env-overridable).
-    auto_place_spend_cap: float = 25000.0      # ACT bundles above this can't auto-place
-    act_confidence_floor: float = 0.8          # min copilot confidence to auto-place
-    escalate_spend_threshold: float = 50000.0  # bundle total at/above this -> escalate
+    # POLICY (2026-06-09, pending management sign-off on the €200k figure): trust
+    # the DETERMINISTIC evidence and auto-place when confidence ≥ 0.90 AND the
+    # order total < €200k; otherwise escalate to a human. The €200k spend ceiling
+    # is the real brake (the LLM is advisory only). See the auto-place-threshold
+    # policy note / docs/forecast-engine-decision.md sibling docs.
+    auto_place_spend_cap: float = 200000.0     # ACT bundles at/above this can't auto-place
+    act_confidence_floor: float = 0.90         # min deterministic confidence to auto-place
+    escalate_spend_threshold: float = 200000.0 # bundle total at/above this -> escalate
     replace_ratio: float = 1.0                 # replacements per decommissioned unit
     default_reorder_floor: int = 0             # per-product floor when none is set
 
     # Requisition auto-place gate + outcome-feedback calibration.
-    auto_place_confidence: float = 0.85        # calibrated confidence at/above which a PR auto-converts to a PO
+    auto_place_confidence: float = 0.90        # calibrated confidence at/above which a PR auto-converts to a PO
     calibration_min_samples: int = 3           # min feedback rows before trust adjusts the bar
     calibration_max_delta: float = 0.10        # most the bar can move down (trusted) or up (risky)
 

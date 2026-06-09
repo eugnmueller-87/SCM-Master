@@ -73,7 +73,9 @@ def _c2_expect(result, world: World, db):
 def _c3_setup(db) -> World:
     sup = make_supplier(db, "Unsure Inc")
     prod = make_product(db, "SRV-LOWCONF", category="server")
-    ps = make_source(db, prod, sup, contract_price=100.0, moq=1)
+    # lead_time=None -> an incomplete contract -> the deterministic confidence lands
+    # below the 0.90 auto-place floor, so the buy stages (propose) rather than acts.
+    ps = make_source(db, prod, sup, contract_price=100.0, moq=1, lead_time=None)
     decommission(db, prod, 3)
     return World(product_id=prod.id, supplier_id=sup.id, product_supplier_id=ps.id)
 

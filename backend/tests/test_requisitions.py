@@ -53,6 +53,15 @@ def _source(client, product_id, supplier_id, *, price, moq=1, rank=1, lead=21):
 
 
 def _mock_copilot(monkeypatch, *, decision="act", confidence=0.9):
+    """Mock the copilot's ADVISORY narration only.
+
+    NOTE: confidence is now computed DETERMINISTICALLY by app.agent.confidence from
+    the buy's evidence — the mocked ``confidence`` here is recorded as the LLM's
+    advisory value but does NOT gate auto-placement. To drive a low deterministic
+    score (so a PR stays STAGED), tests build a genuinely less-certain SCENARIO —
+    e.g. a source missing its lead time — via ``lead=None`` on ``_source``. The
+    ``decision`` still feeds the advisory tier.
+    """
     def fake(db, product_id, desired_qty=None):
         return SourcingRecommendation(
             product_id=product_id, recommended_source_id="x",
@@ -67,6 +76,16 @@ def _decommission(db, product_id, n, *, days_ago=1):
         db.add(Asset(serial_number=f"SN-{product_id[:6]}-{i}-{days_ago}",
                      product_id=product_id, status=AssetStatus.DECOMMISSIONED,
                      decommissioned_date=when))
+    db.commit()
+
+
+def _deploy(db, product_id, n, *, spread_days=5):
+    """n DEPLOYED assets with recent deployment dates -> a usage rate (forecast trigger)."""
+    today = date.today()
+    for i in range(n):
+        db.add(Asset(serial_number=f"DEP-{product_id[:6]}-{i}",
+                     product_id=product_id, status=AssetStatus.DEPLOYED,
+                     deployed_date=today - timedelta(days=i * spread_days)))
     db.commit()
 
 
@@ -92,10 +111,12 @@ def test_high_confidence_auto_places(client, db_session, monkeypatch):
 
 
 def test_low_confidence_stages_for_approval(client, db_session, monkeypatch):
-    _mock_copilot(monkeypatch, decision="recommend", confidence=0.5)  # below the bar
+    # A source MISSING its lead time is an incomplete contract -> deterministic
+    # confidence lands below the auto-place bar -> the PR stays STAGED for a human.
+    _mock_copilot(monkeypatch, decision="recommend", confidence=0.5)
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
-    _source(client, srv["id"], smci["id"], price="100.00")
+    _source(client, srv["id"], smci["id"], price="100.00", lead=None)
     _decommission(db_session, srv["id"], 5)
 
     res = purchasing.run_requisition_cycle(db_session, period_days=7)
@@ -108,11 +129,15 @@ def test_low_confidence_stages_for_approval(client, db_session, monkeypatch):
 
 # --- editing + approve/reject ---------------------------------------------
 
-def _stage_one(client, db_session, monkeypatch, *, confidence=0.5, qty_decom=5, price="100.00"):
+def _stage_one(client, db_session, monkeypatch, *, confidence=0.5, qty_decom=5,
+               price="100.00", lead=None):
+    # lead=None (incomplete contract) keeps the deterministic confidence below the
+    # auto-place bar, so the PR stays STAGED — the precondition for the edit /
+    # drop / reject / approve lifecycle these tests exercise.
     _mock_copilot(monkeypatch, decision="recommend", confidence=confidence)
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
-    _source(client, srv["id"], smci["id"], price=price)
+    _source(client, srv["id"], smci["id"], price=price, lead=lead)
     _decommission(db_session, srv["id"], qty_decom)
     purchasing.run_requisition_cycle(db_session, period_days=7)
     return db_session.scalars(select(PurchaseRequisition)).one()
@@ -143,8 +168,9 @@ def test_drop_line_excludes_it_from_po(client, db_session, monkeypatch):
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
     ssd = _product(client, "SSD", "NVMe", category="storage")
-    _source(client, srv["id"], smci["id"], price="100.00")
-    _source(client, ssd["id"], smci["id"], price="50.00")
+    # lead=None on both -> incomplete contracts -> below the bar -> stays STAGED.
+    _source(client, srv["id"], smci["id"], price="100.00", lead=None)
+    _source(client, ssd["id"], smci["id"], price="50.00", lead=None)
     _decommission(db_session, srv["id"], 3)
     _decommission(db_session, ssd["id"], 4)
     purchasing.run_requisition_cycle(db_session, period_days=7)
@@ -235,26 +261,34 @@ def test_below_min_samples_uses_default_bar(client, db_session, monkeypatch):
 
 
 def test_learning_promotes_to_auto_place(client, db_session, monkeypatch):
-    """A borderline-confidence source that humans keep approving should flip from
-    'staged' to 'auto-placed' once trust lowers the bar beneath its confidence."""
+    """A borderline-confidence buy that humans keep approving should flip from
+    'staged' to 'auto-placed' once trust lowers the bar beneath its confidence.
+
+    The borderline case under the deterministic model: a FORECAST-driven (not yet
+    observed) buy from a SOLE source with full contract data scores ~0.875 — below
+    the 0.90 default bar (so it stages), but above the trusted floor (0.80), so
+    repeated clean approvals lower the bar beneath it and promote it to auto-place.
+    """
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
     _source(client, srv["id"], smci["id"], price="100.00")
-    # Confidence 0.80: below the 0.85 default, so it would normally stage.
-    _mock_copilot(monkeypatch, decision="act", confidence=0.80)
+    _mock_copilot(monkeypatch, decision="act", confidence=0.80)  # advisory only now
 
-    # Seed trust so the bar drops below 0.80.
+    # Seed trust so the calibrated bar drops to the trusted floor (0.80), beneath
+    # the buy's deterministic ~0.875.
     for _ in range(5):
         calibration.record_line_feedback(
             db_session, requisition_id="r", product_id=srv["id"],
             supplier_id=smci["id"], action="approved", proposed_qty=5,
             final_qty=5, confidence=0.8, auto_placed=False)
     db_session.commit()
-    assert calibration.calibrate(db_session, srv["id"], smci["id"]).adjusted_floor < 0.80
+    assert calibration.calibrate(db_session, srv["id"], smci["id"]).adjusted_floor < 0.875
 
-    _decommission(db_session, srv["id"], 5)
+    # Forecast-driven demand (deployments create a usage rate; nothing on hand) ->
+    # the ~0.875 borderline buy.
+    _deploy(db_session, srv["id"], 12)
     res = purchasing.run_requisition_cycle(db_session, period_days=7)
-    assert res["auto_placed"] == 1, "learned trust should auto-place a 0.80 buy"
+    assert res["auto_placed"] == 1, "learned trust should auto-place the ~0.875 borderline buy"
 
 
 # --- API surface ----------------------------------------------------------
@@ -263,7 +297,7 @@ def test_api_run_list_edit_approve(client, db_session, monkeypatch):
     _mock_copilot(monkeypatch, decision="recommend", confidence=0.5)
     smci = _org(client, "SMCI", "Supermicro")
     srv = _product(client, "SRV-1U", "1U Server")
-    _source(client, srv["id"], smci["id"], price="100.00")
+    _source(client, srv["id"], smci["id"], price="100.00", lead=None)  # incomplete -> stays STAGED
     _decommission(db_session, srv["id"], 5)
 
     run = client.post(f"{B}/requisitions/run", json={"period_days": 7})
