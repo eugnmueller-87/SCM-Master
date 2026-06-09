@@ -34,6 +34,11 @@ from app.agent.schemas import (
 )
 from app.core.config import settings
 from app.models.flow import Asset, AssetStatus
+from app.models.requisition import (
+    PurchaseRequisition,
+    RequisitionLine,
+    RequisitionStatus,
+)
 from app.services import planning, sourcing
 from app.services.procurement import purchase_order_service
 
@@ -147,6 +152,32 @@ def _inbound_by_product(db: Session) -> dict[str, int]:
     out: dict[str, int] = defaultdict(int)
     for row in planning.inbound_pipeline(db):
         out[row["product_id"]] += int(row.get("outstanding", 0))
+    return dict(out)
+
+
+def _staged_by_product(db: Session) -> dict[str, int]:
+    """Units already committed in OPEN, awaiting-approval requisitions.
+
+    Status set (auditable): ONLY ``RequisitionStatus.STAGED`` counts as staged
+    pipeline. A PLACED requisition is already a PO -> counted by
+    ``_inbound_by_product`` via on_order, so counting it here too would
+    double-net. REJECTED (and any other status) never counts. Uses the CURRENT
+    human-editable line qty (``RequisitionLine.qty``) on included lines — not
+    ``proposed_qty`` — so a planner's edit is respected, and dropped lines
+    (``included=False``) contribute nothing.
+
+    This is what makes a re-run idempotent against demand already staged: a need
+    already covered by an open PR is netted out and not proposed again.
+    """
+    out: dict[str, int] = defaultdict(int)
+    rows = db.execute(
+        select(RequisitionLine.product_id, RequisitionLine.qty)
+        .join(PurchaseRequisition, RequisitionLine.requisition_id == PurchaseRequisition.id)
+        .where(PurchaseRequisition.status == RequisitionStatus.STAGED,
+               RequisitionLine.included.is_(True))
+    ).all()
+    for product_id, qty in rows:
+        out[product_id] += int(qty or 0)
     return dict(out)
 
 
@@ -350,13 +381,24 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
     escalate PRs. Shared by the requisition cycle; mirrors the run's Steps 1-4.
     """
     needs = _detect_needs(db, period_days)
-    inbound = _inbound_by_product(db)
+    inbound = _inbound_by_product(db)         # placed/in-transit POs (on_order)
+    staged = _staged_by_product(db)           # open STAGED requisitions (awaiting approval)
 
     net_needs: dict[str, dict] = {}
     for pid, info in needs.items():
-        net = info["gross_need"] - inbound.get(pid, 0)
+        # Effective pipeline = on_order + open staged requisition qty. Each unit is
+        # counted once: a PR that became PLACED is on_order (inbound), never both —
+        # so re-running before approving does NOT re-propose what's already staged.
+        committed = inbound.get(pid, 0) + staged.get(pid, 0)
+        net = info["gross_need"] - committed
         if net > 0:
-            net_needs[pid] = {**info, "net_need": net}
+            # A true residual BEYOND what's already committed. The committed split
+            # is carried so the UI can show "+N beyond the staged PR" rather than a
+            # blind duplicate, and so the later staleness pass (separate change) has
+            # a clean seam to read from.
+            net_needs[pid] = {**info, "net_need": net,
+                              "already_committed": committed,
+                              "staged_committed": staged.get(pid, 0)}
 
     # Storage cap: never order more than the warehouse can land. We draw down a
     # shared headroom budget as lines are built, so the whole run's buys fit.
