@@ -51,7 +51,13 @@ class Settings(BaseSettings):
     # Weekly purchasing automation — gates and defaults (all env-overridable).
     auto_place_spend_cap: float = 25000.0      # ACT bundles above this can't auto-place
     act_confidence_floor: float = 0.8          # min copilot confidence to auto-place
-    escalate_spend_threshold: float = 50000.0  # bundle total at/above this -> escalate
+    # Calibrated for datacenter hardware: a single server/GPU line routinely runs
+    # €30k–€110k, so a €50k escalate floor sent every normal buy to sign-off with
+    # no human-approvable path. €150k lets routine buys land in `propose` (a human
+    # can approve+place them in the cockpit) while still escalating genuinely
+    # exceptional spend. The auto-place cap stays €25k, so large buys still never
+    # AUTO-place — they require an explicit human approval, just not full escalation.
+    escalate_spend_threshold: float = 150000.0  # bundle total at/above this -> escalate
     replace_ratio: float = 1.0                 # replacements per decommissioned unit
     default_reorder_floor: int = 0             # per-product floor when none is set
 

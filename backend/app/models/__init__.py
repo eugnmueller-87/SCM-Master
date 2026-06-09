@@ -21,6 +21,9 @@ from app.models.costing import (  # noqa: F401
     CostParams,
     ShouldCostRun,
 )
+from app.models.decision import (  # noqa: F401
+    DecisionLog,
+)
 from app.models.flow import (  # noqa: F401
     Asset,
     AssetEvent,
@@ -92,6 +95,7 @@ __all__ = [
     "AssetStatus",
     "AssetEvent",
     "AssetEventType",
+    "DecisionLog",
     "TrkSupplier",
     "TrkPurchaseOrder",
     "Shipment",

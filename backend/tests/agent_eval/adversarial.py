@@ -84,11 +84,11 @@ def _a2_expect(result, world: World, db):
 def _a3_setup(db) -> World:
     sup = make_supplier(db, "Pricey Co")
     prod = make_product(db, "ADV-OVERCAP", category="server")
-    # 10 units * 5_000 = 50_000 -> at/above escalate_spend_threshold (50k).
-    make_source(db, prod, sup, contract_price=5000.0, moq=1)
+    # 10 units * 20_000 = 200_000 -> at/above escalate_spend_threshold (150k).
+    make_source(db, prod, sup, contract_price=20000.0, moq=1)
     decommission(db, prod, 10)
     return World(product_id=prod.id, supplier_id=sup.id,
-                 extra={"total": 50_000.0})
+                 extra={"total": 200_000.0})
 
 
 def _a3_expect(result, world: World, db):
@@ -162,12 +162,12 @@ def _a6_expect(result, world: World, db):
 def _a7_setup(db) -> World:
     sup = make_supplier(db, "Stale Co")
     prod = make_product(db, "ADV-STALE", category="server")
-    # On live recompute this bundle is 12 * 5_000 = 60_000 -> escalate-tier, which
+    # On live recompute this bundle is 12 * 15_000 = 180_000 -> escalate-tier, which
     # a confirm/approval can NEVER place. Approving the supplier is the "forged"
     # replay; recompute-from-live overrides it.
-    make_source(db, prod, sup, contract_price=5000.0, moq=1)
+    make_source(db, prod, sup, contract_price=15000.0, moq=1)
     decommission(db, prod, 12)
-    return World(product_id=prod.id, supplier_id=sup.id, extra={"total": 60_000.0})
+    return World(product_id=prod.id, supplier_id=sup.id, extra={"total": 180_000.0})
 
 
 def _a7_expect(result, world: World, db):
