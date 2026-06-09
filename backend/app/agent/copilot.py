@@ -140,11 +140,14 @@ def _raw_is_error(raw: str) -> bool:
     return raw.startswith("[agent-error]")
 
 
-def recommend_sourcing(db: Session, product_id: str,
-                       desired_qty: Optional[int] = None) -> SourcingRecommendation:
-    sig = gather_sourcing_signals(db, product_id, desired_qty)
-    user = json.dumps({"signals": sig}, default=str)
+def _recommend_sourcing_from_signals(sig: dict) -> SourcingRecommendation:
+    """The LLM half of recommend_sourcing — pure network, NO database access.
 
+    Split out so a batch run can gather every product's signals on the main
+    thread (DB-bound, sequential, session-safe) and then fire these LLM calls
+    concurrently (network-bound). Takes pre-gathered signals; touches no Session.
+    """
+    user = json.dumps({"signals": sig}, default=str)
     for attempt in range(2):
         system = prompts.SOURCING_SYSTEM + (_RETRY_NUDGE if attempt else "")
         raw = call_claude(system, user)
@@ -160,6 +163,17 @@ def recommend_sourcing(db: Session, product_id: str,
                 continue
             raise AgentError(f"could not parse sourcing recommendation: {exc}") from exc
     raise AgentError("sourcing recommendation failed")  # unreachable
+
+
+def recommend_sourcing(db: Session, product_id: str,
+                       desired_qty: Optional[int] = None,
+                       *, signals: Optional[dict] = None) -> SourcingRecommendation:
+    """Sourcing verdict for a product. Pass pre-gathered ``signals`` to skip the
+    DB read (used by the concurrent batch path, which gathers signals on the main
+    thread). This stays the single mockable seam — tests patch THIS function, so
+    the batch path goes through it too."""
+    sig = signals if signals is not None else gather_sourcing_signals(db, product_id, desired_qty)
+    return _recommend_sourcing_from_signals(sig)
 
 
 def generate_insights(db: Session, min_count: int = 5) -> list[AgentInsight]:

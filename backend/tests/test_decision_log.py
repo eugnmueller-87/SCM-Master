@@ -20,7 +20,7 @@ B = "/api/v1"
 
 
 def _mock_copilot(monkeypatch, *, decision="act", confidence=0.95):
-    def fake(db, product_id, desired_qty=None):
+    def fake(db, product_id, desired_qty=None, *, signals=None):
         return SourcingRecommendation(
             product_id=product_id, recommended_source_id="x",
             recommended_qty=desired_qty or 1, rationale="mock",

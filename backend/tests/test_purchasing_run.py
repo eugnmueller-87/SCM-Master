@@ -41,7 +41,9 @@ def _source(client, product_id, supplier_id, *, price, moq=1, rank=1, lead=21):
 
 
 def _mock_copilot(monkeypatch, *, decision="act", confidence=0.9):
-    def fake(db, product_id, desired_qty=None):
+    # signals=... is accepted because the concurrent batch path passes pre-gathered
+    # signals through the same recommend_sourcing seam.
+    def fake(db, product_id, desired_qty=None, *, signals=None):
         return SourcingRecommendation(
             product_id=product_id, recommended_source_id="x",
             recommended_qty=desired_qty or 1,
@@ -246,7 +248,7 @@ def test_bundle_escalates_if_any_line_escalates(client, db_session, monkeypatch)
     _decommission_assets(db_session, ssd["id"], 4)
 
     # one line low-confidence -> bundle confidence is the weakest link
-    def fake(db, product_id, desired_qty=None):
+    def fake(db, product_id, desired_qty=None, *, signals=None):
         conf = 0.95 if product_id == srv["id"] else 0.3
         dec = "act" if product_id == srv["id"] else "escalate"
         return SourcingRecommendation(
