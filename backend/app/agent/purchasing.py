@@ -346,6 +346,11 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
             "trigger_type": line["trigger"]["type"],
             "line_confidence": line["confidence"],
             "rationale": (line.get("agent_rationale") or "")
+            # A follow-on proposal beyond what's already staged is a RESIDUAL, not a
+            # duplicate — say so, with the committed split, so the UI/audit shows the
+            # netting math. Storage-capped means the need exceeds warehouse headroom.
+            + (f" [residual: +{line['qty']} beyond {line['staged_committed']} already staged]"
+               if line.get("staged_committed") else "")
             + (" [capped to fit warehouse storage]" if line.get("storage_capped") else ""),
         } for line in lines]
 
@@ -448,6 +453,12 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
             "product_id": pid, "product_supplier_id": src["product_supplier_id"],
             "qty": qty, "unit_price": unit_price, "line_total": qty * unit_price,
             "trigger": info, "storage_capped": storage_capped,
+            # Residual context (from the netting step): how much of this product's
+            # need is already committed in open STAGED PRs, so the UI can label a
+            # follow-on proposal as a residual ("+N beyond the staged PR") rather
+            # than a duplicate. 0 on a first proposal.
+            "staged_committed": info.get("staged_committed", 0),
+            "already_committed": info.get("already_committed", 0),
         }
         try:
             rec = copilot.recommend_sourcing(db, pid, qty)

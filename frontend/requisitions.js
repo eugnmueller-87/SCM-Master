@@ -78,6 +78,26 @@ RENDER.requisitions = async function () {
 };
 
 /* ── one staged PR = one editable cart card ────────────────────────── */
+/* Distinct flags on a requisition line: a RESIDUAL (the rest of a need already
+   partly staged — net of the open PR, not a duplicate) and CAPACITY-CAPPED (the
+   need exceeds warehouse headroom, so only what fits was staged). The backend
+   threads these into the line rationale; we surface them so a follow-on proposal
+   never reads as "ordering the same thing again". */
+function reqLineFlags(l) {
+  const r = l.rationale || "";
+  let out = "";
+  const resid = r.match(/residual: \+(\d+) beyond (\d+) already staged/);
+  if (resid) {
+    out += `<div class="req-flag req-flag--residual" title="Net of what's already staged — not a duplicate">`
+      + `RESIDUAL +${resid[1]} · ${resid[2]} already staged</div>`;
+  }
+  if (/capped to fit warehouse storage/.test(r)) {
+    out += `<div class="req-flag req-flag--capped" title="The full need exceeds warehouse headroom — only what fits was staged">`
+      + `CAPACITY-CAPPED</div>`;
+  }
+  return out;
+}
+
 function reqCard(pr) {
   const tone = TIER_TONE[pr.tier] || "info";
   const total = pr.lines.filter((l) => l.included).reduce((s, l) => s + (l.qty * (Number(l.unit_price) || 0)), 0);
@@ -90,7 +110,7 @@ function reqCard(pr) {
     return `<tr data-line="${l.id}" data-unit="${Number(l.unit_price) || 0}" class="${l.included ? "" : "req-line--dropped"}">
       <td><label class="req-incl"><input type="checkbox" class="req-incl-cb" ${l.included ? "checked" : ""}/> </label></td>
       <td>${productCell(l.product_id)}</td>
-      <td class="muted" style="font-size:12px">${esc(l.trigger_type || "")}</td>
+      <td class="muted" style="font-size:12px">${esc(l.trigger_type || "")}${reqLineFlags(l)}</td>
       <td class="num"><input class="req-qty" type="number" min="1" value="${l.qty}" ${l.included ? "" : "disabled"} style="width:74px"/>
         ${edited ? `<div style="font-size:11px;color:var(--ts-warning)">was ${l.proposed_qty}</div>` : ""}</td>
       <td class="num muted">${l.unit_price != null ? "€" + Number(l.unit_price).toLocaleString() : "—"}</td>

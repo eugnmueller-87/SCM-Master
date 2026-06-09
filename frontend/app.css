@@ -947,6 +947,13 @@ button { font-family: inherit; }
 .req-qty { padding: 4px 6px; border: 1px solid var(--ts-line); border-radius: 6px; font: inherit; text-align: right; }
 .req-incl { display: inline-flex; align-items: center; cursor: pointer; }
 
+/* Line flags: a residual (net of already-staged) vs capacity-capped. Distinct
+   so a follow-on proposal never reads as a duplicate of an existing PR. */
+.req-flag { display: inline-block; margin-top: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: .04em; padding: 2px 7px; border-radius: 999px; }
+.req-flag--residual { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
+.req-flag--capped { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; margin-left: 4px; }
+
 /* ============================================================================
    Inventory · Control Tower — action-queue KPIs + Next-order hero column.
    Ported from a standalone mockup onto the app's design tokens (so it matches
