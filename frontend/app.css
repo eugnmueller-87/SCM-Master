@@ -882,6 +882,11 @@ button { font-family: inherit; }
 .tlpanel__promise { font-size: 12.5px; color: var(--ts-ink-mute); }
 .tlpanel__promise b { color: var(--ts-ink); font-weight: 500; }
 .tlpanel__escalate { margin-top: 6px; }
+.po-contents-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ts-ink-mute); font-weight: 600; margin: 4px 0 8px; }
+.po-contents { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-bottom: 18px; }
+.po-contents th { text-align: left; color: var(--ts-ink-mute); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--ts-line); }
+.po-contents td { padding: 5px 8px; border-bottom: 1px solid var(--ts-line-soft); color: var(--ts-ink); }
+.po-contents td.num, .po-contents th.num { text-align: right; }
 
 
 /* ===== Inventory / reorder planning ======================================== */

@@ -106,7 +106,19 @@ let trackSel = "PO-10288";
 
 /* ── live data: /v_order_tracking + /shipment_events (sample fallback) ─ */
 let TRK_LOADED = false;
+let PO_ITEMS = {};   // order_number -> [line items], PROD_NAME -> product_id -> name
+let PROD_NAME = {};
 async function loadTracking() {
+  // PO line-item contents + product names, so the timeline can show WHAT is in
+  // each order (the backend already serves these; we just join by order_number).
+  try {
+    const [pos, prods] = await Promise.all([
+      api("/purchase-orders?limit=500").catch(() => []),
+      api("/products?limit=500").catch(() => []),
+    ]);
+    PROD_NAME = {}; (prods || []).forEach((p) => { PROD_NAME[p.id] = p.name || p.product_code; });
+    PO_ITEMS = {}; (pos || []).forEach((o) => { PO_ITEMS[o.order_number] = o.items || []; });
+  } catch (e) { /* contents degrade to unavailable */ }
   try {
     const rows = await api("/v_order_tracking");
     if (Array.isArray(rows) && rows.length) {
@@ -311,11 +323,24 @@ function renderTimeline() {
         <div class="log__time">${shortDate(e.ts)} · ${esc(e.loc)}</div>
       </div></div>`;
   }).join("");
+  // Order contents — the actual PO line items (what's in this order).
+  const lines = PO_ITEMS[o.po] || [];
+  const contents = lines.length
+    ? `<table class="po-contents"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead><tbody>${
+        lines.map((l) => `<tr><td>${esc(PROD_NAME[l.product_id] || l.product_id)}</td>`
+          + `<td class="num">${l.quantity}</td>`
+          + `<td class="num">${l.unit_price != null ? euro(l.unit_price) : "—"}</td>`
+          + `<td class="num">${l.unit_price != null ? euro(l.quantity * Number(l.unit_price)) : "—"}</td></tr>`).join("")
+      }</tbody></table>`
+    : `<div class="muted" style="font-size:12px;padding:4px 0">Line items unavailable for this order.</div>`;
+
   $("#track-timeline").innerHTML = `<div class="tlpanel">
     <div class="tlpanel__head">
       <div class="tlpanel__title">${o.po} — event timeline</div>
       <div class="tlpanel__promise">Promised <b>${shortDate(o.eta_original)}</b> → now <b>${shortDate(o.eta_current)}</b></div>
     </div>
+    <div class="po-contents-h">Order contents</div>
+    ${contents}
     <div class="log">${items}</div>
     <div class="tlpanel__escalate"><button class="btn btn--secondary btn--sm" id="track-escalate">Escalate this order ${icon("arrow", 13)}</button></div>
   </div>`;
