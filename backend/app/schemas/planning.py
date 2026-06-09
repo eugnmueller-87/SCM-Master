@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
@@ -146,6 +146,38 @@ class RebalanceResult(BaseModel):
     message: str
 
 
+class RecoveryOption(BaseModel):
+    """One enumerated recovery lever for a line that will stock out before inbound."""
+    lever: Literal["expedite", "bridge_buy"]
+    source: Optional[str] = None              # supplier name
+    qty: int
+    unit_cost: Optional[float] = None
+    landed_cost: Optional[float] = None       # qty×unit + adder; None when unpriced
+    land_date: Optional[date] = None          # when this option's units would arrive
+    feasible: bool                            # lands on/before the dry-out date?
+    unpriced: bool = False                    # cost inputs missing → surfaced, not dropped
+
+
+class RecoveryRecommendation(BaseModel):
+    """Deterministic recovery policy for a line at stock-out risk before inbound.
+
+    Survival and buffer-rebuild are DISTINCT components on purpose — the planner
+    must see "survive: X / rebuild buffer: Y", not a merged number. Every figure
+    here is code-computed; an LLM may narrate over this object but emit no number
+    that isn't in it (see app.agent.grounding).
+    """
+    at_risk: bool
+    dry_out_date: Optional[date] = None       # when on-hand hits 0 at current burn
+    inbound_land_date: Optional[date] = None  # when the open PO arrives
+    gap_days: int = 0                         # dry-out → inbound window to bridge
+    survival_qty: int = 0                     # ceil(burn × gap_days) — the don't-hit-zero floor
+    buffer_rebuild_qty: int = 0               # service-level safety over the bridge window (distinct)
+    recommended: Optional[RecoveryOption] = None   # cheapest feasible lever
+    options: list[RecoveryOption] = []        # all levers, incl. unpriced / infeasible
+    assumptions: list[str] = []               # which inputs were defaulted/assumed
+    summary: str = ""                         # deterministic, decision-complete one-liner
+
+
 class InventoryItem(BaseModel):
     product_id: str
     product_code: Optional[str]
@@ -159,3 +191,5 @@ class InventoryItem(BaseModel):
     on_order: int            # real (open inbound)
     next_eta: Optional[date]
     unit_price: Optional[float]
+    # Populated only for lines that will stock out before their inbound lands.
+    recovery: Optional[RecoveryRecommendation] = None

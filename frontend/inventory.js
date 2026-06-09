@@ -97,6 +97,7 @@ async function loadInventory() {
         on_hand: r.on_hand, capacity: r.capacity, safety_stock: r.safety_stock,
         daily_burn: r.daily_burn, lead_time_days: r.lead_time_days,
         on_order: r.on_order, next_eta: r.next_eta, unit_price: r.unit_price,
+        recovery: r.recovery || null,   // deterministic bridge/expedite recommendation (at-risk lines)
       }));
     }
   } catch (e) { /* keep embedded sample on any error */ }
@@ -124,9 +125,10 @@ RENDER.inventory = async function () {
   const kpis = `<div class="ictw-kpis">
     ${ictwKpi("crit", "Act today", act, act ? `${plans.filter((x)=>x.p.status==="Expedite").length} expedite · ${plans.filter((x)=>x.p.status==="Stock-out risk").length} stock-out` : "nothing urgent")}
     ${ictwKpi("warn", "Reorder soon", reorder, "below reorder point")}
-    ${ictwKpi("ok", "Inbound", inbound, "shipments in transit")}
+    ${ictwKpi("ok", "Inbound", inbound, "shipments in transit", inbound ? "inv-kpi-inbound" : null)}
     ${ictwKpi("idle", "Overstock risk", over, over ? "trim the next PO" : "none over capacity")}
-  </div>`;
+  </div>
+  <div id="inv-inbound-drill"></div>`;
 
   const legend = `<div class="ictw-legend">
     <div class="ictw-li"><span class="ictw-sw-fill"></span>On hand</div>
@@ -159,11 +161,60 @@ RENDER.inventory = async function () {
   </div>`;
   const rb = $("#inv-reason");
   if (rb) rb.addEventListener("click", () => reasonDemand(rb));
+  // Inbound KPI -> click to drill into which items are in transit.
+  _inboundOpen = false;   // the host was just rebuilt — start collapsed
+  const ib = $("#inv-kpi-inbound");
+  if (ib) ib.addEventListener("click", () => toggleInboundDrill(plans));
 };
 
-function ictwKpi(kind, label, num, meta) {
-  return `<div class="ictw-kpi ictw-kpi--${kind}">
-    <div class="ictw-kpi__lbl"><span class="ictw-dot"></span>${esc(label)}</div>
+// Inline drill-down: the items with open inbound orders (units + ETA + days out),
+// soonest first. All data is already on each item (on_order / next_eta) — no fetch.
+let _inboundOpen = false;
+function toggleInboundDrill(plans) {
+  const host = $("#inv-inbound-drill");
+  const card = $("#inv-kpi-inbound");
+  if (!host) return;
+  _inboundOpen = !_inboundOpen;
+  if (card) card.classList.toggle("ictw-kpi--open", _inboundOpen);
+  if (!_inboundOpen) { host.innerHTML = ""; return; }
+
+  const items = plans
+    .filter((x) => x.it.on_order > 0)
+    .sort((a, b) => (a.p.etaDays ?? 1e9) - (b.p.etaDays ?? 1e9));
+  const rows = items.map(({ it, p }) => {
+    const eta = it.next_eta ? fmtDate(it.next_eta) : "—";
+    const when = p.etaDays != null
+      ? (p.etaDays <= 0 ? `<span class="ind-late">overdue</span>` : `lands in ${p.etaDays}d`)
+      : "no ETA";
+    // Flag the ones racing a stock-out (run dry before this lands).
+    const risk = (it.daily_burn > 0 && p.cover < (p.etaDays ?? 0))
+      ? `<span class="ind-risk">runs dry in ${p.cover}d</span>` : "";
+    return `<div class="ind-row">
+      <span class="ind-name">${esc(it.name)}<span class="ind-cat">${esc(it.category || "")}</span></span>
+      <span class="ind-qty">+${it.on_order}</span>
+      <span class="ind-eta">${esc(eta)} · ${when}</span>
+      <span class="ind-flag">${risk}</span>
+    </div>`;
+  }).join("");
+
+  host.innerHTML = `<div class="panel ind-panel fade-in">
+    <div class="ind-head">Inbound — ${items.length} shipment${items.length === 1 ? "" : "s"} in transit
+      <span class="ind-sub">units on order · expected arrival · soonest first</span></div>
+    <div class="ind-list">${rows}</div>
+  </div>`;
+}
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
+  catch (e) { return iso; }
+}
+
+function ictwKpi(kind, label, num, meta, id) {
+  // When `id` is set the card is clickable (drills down). Reuses the same look,
+  // just adds a hover affordance + a small "view" cue.
+  const clk = id ? ` ictw-kpi--clickable" id="${id}` : "";
+  const cue = id ? `<span class="ictw-kpi__cue">view ▾</span>` : "";
+  return `<div class="ictw-kpi ictw-kpi--${kind}${clk}">
+    <div class="ictw-kpi__lbl"><span class="ictw-dot"></span>${esc(label)}${cue}</div>
     <div class="ictw-kpi__num">${num}</div>
     <div class="ictw-kpi__meta">${esc(meta)}</div>
   </div>`;
@@ -223,7 +274,33 @@ function ictwRow(it, p, i) {
       <div class="o-qty">${esc(orderQty)}</div>
       <div class="o-when ${whenCls}">${esc(orderWhen)}</div>
     </div>
+    ${recoveryLine(it)}
     <div class="ictw-reason">${esc(p.rec)}${demandRec(it)}</div>
+  </div>`;
+}
+
+/* Deterministic recovery recommendation — shown ALWAYS (AI off) on at-risk lines.
+   Every number here is code-computed by the backend recovery policy; the optional
+   AI narration only renders qualitative color over this same object. */
+function recoveryLine(it) {
+  const r = it.recovery;
+  if (!r || !r.at_risk) return "";
+  const rec = r.recommended;
+  const lever = rec ? (rec.lever === "expedite" ? "Expedite" : "Bridge-buy") : null;
+  const cost = rec && rec.landed_cost != null ? ` · landed ≈ ${euro(rec.landed_cost)}` : (rec && rec.unpriced ? " · unpriced" : "");
+  const land = rec && rec.land_date ? `, lands ${shortDate(rec.land_date)}` : "";
+  const action = rec
+    ? `<b>${lever} ${rec.qty}</b>${rec.source ? " via " + esc(rec.source) : ""}${land}${cost}`
+    : `<b>No recovery source on file</b> — add one to act`;
+  const feasNote = rec && rec.feasible === false ? ` <span class="rec-warn">(closes the gap, can't fully beat dry-out)</span>` : "";
+  // survive / rebuild shown as DISTINCT components, per the policy.
+  const sizing = `survive ${r.survival_qty}${r.buffer_rebuild_qty ? ` · +${r.buffer_rebuild_qty} buffer` : ""}`;
+  const why = (r.assumptions && r.assumptions.length)
+    ? `<div class="rec-why">${r.assumptions.map((a) => esc(a)).join(" · ")}</div>` : "";
+  return `<div class="rec-line">
+    <span class="rec-tag">RECOVERY</span>
+    <span class="rec-body">Runs dry ${shortDate(r.dry_out_date)} · ${r.gap_days}d before inbound — ${sizing}. → ${action}${feasNote}</span>
+    ${why}
   </div>`;
 }
 

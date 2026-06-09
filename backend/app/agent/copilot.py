@@ -17,7 +17,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.agent import prompts
+from app.agent import grounding, prompts
 from app.agent.client import call_claude
 from app.agent.context import build_context, demand_signals
 from app.agent.schemas import (
@@ -91,6 +91,15 @@ def reason_demand(db: Session, *, horizon_days: int = 90) -> DemandReasoningResu
     Returns a validated structured result; retries once, then raises AgentError.
     """
     signals = demand_signals(db)
+    # Deterministic ground truth per product, to force the model's decision-critical
+    # numbers onto code-computed values (the model may only narrate, not re-derive).
+    truth = {
+        p["product_id"]: {
+            "computed_shortfall": float((p.get("forecast") or {}).get("projected_shortfall") or 0),
+            "recommended_qty": int((p.get("forecast") or {}).get("recommended_order_qty") or 0),
+        }
+        for p in signals.get("products", [])
+    }
     user = (
         "Deterministic demand forecast + planning signals (live):\n"
         + json.dumps(signals, default=str)
@@ -112,7 +121,19 @@ def reason_demand(db: Session, *, horizon_days: int = 90) -> DemandReasoningResu
             raise AgentError(raw)
         try:
             data = json.loads(_strip_fences(raw))
-            items = [DemandReasoning.model_validate(i) for i in data.get("items", [])]
+            # Ground each item's decision-critical numbers (recommended_qty,
+            # computed_shortfall) onto the deterministic forecast before validating —
+            # the computed value wins on any divergence, mismatches are logged. The
+            # model keeps only its qualitative fields (rationale, risks, urgency).
+            grounded = []
+            for i in data.get("items", []):
+                t = truth.get(i.get("product_id"))
+                if t:
+                    i, _ = grounding.ground(
+                        "demand_reason", i.get("product_id", "?"), i, t,
+                        critical={"recommended_qty": 0, "computed_shortfall": 0.5})
+                grounded.append(i)
+            items = [DemandReasoning.model_validate(x) for x in grounded]
             return DemandReasoningResult(
                 horizon_days=int(data.get("horizon_days", horizon_days)),
                 items=items, summary=str(data.get("summary", "")),

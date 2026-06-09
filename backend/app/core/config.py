@@ -81,6 +81,15 @@ class Settings(BaseSettings):
     abc_service_level_b: float = 0.95
     abc_service_level_c: float = 0.90          # let the trivial many run leaner
 
+    # Demand-recovery policy — sizing a bridge buy / scoring recovery levers when a
+    # line will stock out BEFORE its inbound lands. Synthetic defaults for the demo;
+    # real per-source values (expedite SLAs, alternate prices) flow in later via the
+    # ProductSupplier rows + env, and the policy degrades gracefully when missing.
+    recovery_service_level: float = 0.90       # service level for the buffer-rebuild component
+    expedite_lead_compression: float = 0.5     # expedite cuts a source's lead time to this ×
+    expedite_premium_pct: float = 0.25         # +25% unit cost to expedite the existing PO
+    landed_cost_adder_pct: float = 0.12        # duties/freight/insurance on a bridge/alt buy
+
 
 settings = Settings()
 

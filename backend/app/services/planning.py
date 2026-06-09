@@ -22,7 +22,7 @@ from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
-from app.services import forecasting
+from app.services import forecasting, recovery
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
 _ON_HAND = (AssetStatus.RECEIVED, AssetStatus.IN_STORAGE)
@@ -486,6 +486,19 @@ def _preferred_source(db: Session, product_id: str) -> Optional[ProductSupplier]
     ).first()
 
 
+def _active_sources(db: Session, product_id: str) -> list[ProductSupplier]:
+    """All active sources for a product, preferred first. [0]=primary, [1:]=alternates.
+
+    The recovery policy needs the alternate (next-ranked) source to size a
+    bridge-buy; the primary is still the preferred one for everything else.
+    """
+    return list(db.scalars(
+        select(ProductSupplier)
+        .where(ProductSupplier.product_id == product_id, ProductSupplier.active.is_(True))
+        .order_by(ProductSupplier.preference_rank)
+    ).all())
+
+
 def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
     """Per-product stock + reorder INPUTS for the Inventory screen.
 
@@ -533,7 +546,8 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
 
     # First pass: annualised value per product (burn/day × 365 × unit_price) for
     # ABC classification, so each item's service level reflects its importance.
-    sources = {pid: _preferred_source(db, pid) for pid in product_ids}
+    source_lists = {pid: _active_sources(db, pid) for pid in product_ids}
+    sources = {pid: (lst[0] if lst else None) for pid, lst in source_lists.items()}
     annual_value: dict[str, float] = {}
     for pid in product_ids:
         burn_dates = [d for d in deploy_dates_var.get(pid, []) if d >= burn_start]
@@ -582,6 +596,36 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
 
         capacity = max(_DEFAULT_CAPACITY, oh + oo)
         eta = next_eta.get(pid)
+
+        # Demand-recovery policy: for a line that will stock out BEFORE its inbound
+        # lands, size a survival bridge + buffer rebuild and score recovery levers
+        # by landed cost. Returns None (omitted) for lines that aren't at risk.
+        src_list = source_lists.get(pid, [])
+        primary_s = src_list[0] if src_list else None
+        alt_s = src_list[1] if len(src_list) > 1 else None
+        rec = recovery.recover_line(
+            on_hand=oh, daily_burn=burn, next_eta=eta, on_order=oo, today=today,
+            primary=recovery.Source(
+                supplier_name=(primary_s.supplier.name if primary_s and primary_s.supplier else None),
+                lead_time_days=(primary_s.standard_lead_time_days if primary_s else None),
+                unit_price=(float(primary_s.contract_price) if primary_s and primary_s.contract_price is not None else None),
+                moq=(primary_s.min_order_quantity or 1) if primary_s else 1,
+            ) if primary_s else None,
+            alternate=recovery.Source(
+                supplier_name=(alt_s.supplier.name if alt_s and alt_s.supplier else None),
+                lead_time_days=(alt_s.standard_lead_time_days if alt_s else None),
+                unit_price=(float(alt_s.contract_price) if alt_s and alt_s.contract_price is not None else None),
+                moq=(alt_s.min_order_quantity or 1) if alt_s else 1,
+            ) if alt_s else None,
+            variability_series=series,
+            cfg=recovery.RecoveryConfig(
+                service_level=settings.recovery_service_level,
+                expedite_lead_compression=settings.expedite_lead_compression,
+                expedite_premium_pct=settings.expedite_premium_pct,
+                landed_cost_adder_pct=settings.landed_cost_adder_pct,
+            ),
+        )
+
         out.append({
             "product_id": pid,
             "product_code": product.product_code if product else None,
@@ -599,6 +643,7 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
             "on_order": oo,
             "next_eta": eta,
             "unit_price": (float(src.contract_price) if src and src.contract_price is not None else None),
+            "recovery": rec,
         })
     return sorted(out, key=lambda r: (r["name"] or ""))
 
