@@ -285,6 +285,27 @@ def seed_demo() -> None:
         print("  locations    : 5 (warehouse, staging cage [over-cap], DC, 2 racks)")
         print("  purchase orders: 8 across PENDING/APPROVED/PLACED/PARTIALLY_RECEIVED/RECEIVED/CANCELLED")
         print(f"  assets by status: {counts}")
+
+        # --- Stage the demo requisition queue (fresh-seed only) -----------
+        # The demo DB is ephemeral: a redeploy resets it, and seed_demo
+        # repopulates the catalog/assets — but the agent's STAGED requisitions
+        # are runtime data that would otherwise be lost, leaving the
+        # Requisitions page empty until someone manually clicks "Run agent".
+        # We reach here ONLY on a fresh seed (the catalog guard above returns
+        # early on an already-populated DB), so this stages the demo queue
+        # exactly once per reset — never on an ordinary boot of a populated DB.
+        # It calls the SAME run_requisition_cycle the agent uses, so the seeded
+        # queue is identical to what a real run produces (no fixture to drift),
+        # and the netting fix means a later re-run won't duplicate it.
+        try:
+            from app.agent import purchasing
+            res = purchasing.run_requisition_cycle(db, period_days=7, actor="seed")
+            db.commit()   # the staging path only flushes — commit so PRs survive close()
+            print(f"  requisitions  : staged {res['staged']} "
+                  f"(auto-placed {res['auto_placed']}) from seeded demand")
+        except Exception as exc:  # noqa: BLE001 — seeding the queue is best-effort
+            db.rollback()
+            print(f"  requisitions  : skipped ({exc})")
     except Exception:
         db.rollback()
         raise
