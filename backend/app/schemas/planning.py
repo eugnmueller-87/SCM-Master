@@ -178,6 +178,39 @@ class RecoveryRecommendation(BaseModel):
     summary: str = ""                         # deterministic, decision-complete one-liner
 
 
+class PositionPoLine(BaseModel):
+    """One open PO line behind a product's on_order (the drill-down / audit trail)."""
+    order_number: str
+    ordered: int
+    received: int
+    outstanding: int
+    unit_price: Optional[float] = None
+    eta: Optional[date] = None
+
+
+class InventoryPositionRow(BaseModel):
+    """One product's MRP position. Mirrors planning.PositionRow — the SINGLE source
+    the agent's netting and this overview both read, so they cannot disagree."""
+    product_id: str
+    name: Optional[str] = None
+    category: Optional[str] = None
+    gross_demand: int          # projected demand over the horizon (Need)
+    on_hand: int
+    on_order: int
+    position: int              # on_hand + on_order
+    safety_stock: int
+    net_requirement: int       # Missing = max(0, gross - position - safety)
+    staged_planned: int        # open STAGED requisition qty (planned)
+    capacity_avail: int
+    new_proposal: int
+    proposing: int             # orderable now (has capacity)
+    deferred: int              # capacity-blocked
+    unit_price: Optional[float] = None
+    committed_value: float     # on_order × landed unit
+    proposing_value: float     # proposing × unit price
+    po_lines: list[PositionPoLine] = []   # drill-down: the POs behind on_order
+
+
 class InventoryItem(BaseModel):
     product_id: str
     product_code: Optional[str]

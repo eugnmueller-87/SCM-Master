@@ -954,6 +954,47 @@ button { font-family: inherit; }
 .req-flag--residual { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
 .req-flag--capped { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; margin-left: 4px; }
 
+/* ── Inventory-position panel (the MRP instrument) ─────────────────── */
+.ipos { padding: 0; margin-bottom: 12px; overflow: hidden; }
+.ipos-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ipos-tbl th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ts-ink-mute); font-weight: 600; padding: 11px 14px; border-bottom: 1px solid var(--ts-line); background: var(--ts-paper-deep); }
+.ipos-tbl td { padding: 11px 14px; border-bottom: 1px solid var(--ts-line-soft); }
+.ipos-tbl td.num, .ipos-tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ipos-row { cursor: pointer; transition: background .12s; }
+.ipos-row:hover { background: var(--ts-paper-deep); }
+.ipos-row--open { background: var(--ts-paper-deep); }
+.ipos-name { font-weight: 600; color: var(--ts-ink); }
+.ipos-cat { font-size: 11px; color: var(--ts-ink-mute); }
+.ipos-pill { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.ipos-pill--prop { background: #e7f4ec; color: #15803d; }
+.ipos-pill--defer { background: #fdede0; color: #b45309; }
+.ipos-prop { color: #15803d; font-weight: 700; }
+.ipos-defer { color: #b45309; font-weight: 700; }
+.ipos-cap { display: flex; flex-direction: column; gap: 4px; min-width: 92px; }
+.ipos-cap__txt { font-size: 11px; color: var(--ts-ink-mute); }
+.ipos-cap__bar { height: 5px; border-radius: 3px; background: var(--ts-line); overflow: hidden; }
+.ipos-cap__bar span { display: block; height: 100%; }
+.ipos-tbl tfoot td { font-weight: 700; border-top: 2px solid var(--ts-line); border-bottom: none; background: var(--ts-paper-deep); }
+
+.ipos-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+.ipos-kpi { background: var(--ts-surface); border: 1px solid var(--ts-line); border-radius: 12px; padding: 13px 16px; }
+.ipos-kpi__lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ts-ink-mute); font-weight: 600; }
+.ipos-kpi__val { font-family: var(--ts-font-display); font-size: 26px; font-weight: 500; margin-top: 4px; }
+.ipos-kpi__u { font-family: var(--ts-font-sans); font-size: 12px; font-weight: 500; color: var(--ts-ink-mute); }
+
+.ipos-drill td { background: var(--ts-paper); padding: 0 14px 14px; }
+.ipos-drill__wrap { padding: 12px 14px; background: var(--ts-paper-deep); border-radius: 10px; }
+.ipos-dl-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
+.ipos-dl { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--ts-ink-mute); }
+.ipos-dl b { font-size: 16px; color: var(--ts-ink); font-weight: 700; }
+.ipos-eq { font-size: 12.5px; color: var(--ts-ink-soft); padding: 8px 0; border-top: 1px solid var(--ts-line); }
+.ipos-eq b { color: var(--ts-ink); }
+.ipos-po-h { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ts-ink-mute); font-weight: 600; margin: 8px 0 6px; }
+.ipos-po { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ipos-po th { text-align: left; color: var(--ts-ink-mute); font-weight: 600; padding: 5px 8px; border-bottom: 1px solid var(--ts-line); }
+.ipos-po td { padding: 5px 8px; border-bottom: 1px solid var(--ts-line-soft); }
+.ipos-po td.num, .ipos-po th.num { text-align: right; }
+
 /* ============================================================================
    Inventory · Control Tower — action-queue KPIs + Next-order hero column.
    Ported from a standalone mockup onto the app's design tokens (so it matches

@@ -18,6 +18,7 @@ from app.schemas.planning import (
     DeploymentForecast,
     InboundLine,
     InventoryItem,
+    InventoryPositionRow,
     LocationCapacity,
     RebalanceResult,
     StorageHeadroom,
@@ -76,6 +77,25 @@ def deployment_forecast(db: Session = Depends(get_db)):
 def inventory(db: Session = Depends(get_db)):
     """Per-product stock + reorder inputs (reorder math is client-side)."""
     return planning.inventory_plan(db)
+
+
+@router.get("/inventory-position", response_model=List[InventoryPositionRow])
+def inventory_position(db: Session = Depends(get_db), period_days: int = 7):
+    """The canonical MRP position per product — the SAME model the agent nets
+    against (planning.inventory_position with the agent's trigger demand folded
+    in), so the Overview panel and the agent's proposals can't disagree. Includes
+    the open-PO drill-down behind each product's on_order.
+    """
+    from app.agent.purchasing import trigger_extra_demand
+    extra = trigger_extra_demand(db, period_days=period_days)
+    rows = planning.inventory_position(db, period_days=period_days, extra_demand=extra)
+    po_by_product = planning.open_po_lines_by_product(db)
+    out = []
+    for r in rows:
+        d = r.__dict__.copy()
+        d["po_lines"] = po_by_product.get(r.product_id, [])
+        out.append(d)
+    return out
 
 
 @router.get("/demand", response_model=List[DemandForecastItem])

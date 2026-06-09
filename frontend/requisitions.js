@@ -27,17 +27,20 @@ const supName = (id) => (ORGS[id] ? ORGS[id].name : (id || "—").slice(0, 8));
 
 /* ── data ──────────────────────────────────────────────────────────── */
 async function loadReqs() {
-  const [staged, placed, calib] = await Promise.all([
+  const [staged, placed, calib, position] = await Promise.all([
     api("/requisitions?status=STAGED").catch(() => []),
     api("/requisitions?status=PLACED&limit=20").catch(() => []),
     api("/requisitions/calibration").catch(() => []),
+    api("/planning/inventory-position").catch(() => []),
   ]);
-  return { staged: staged || [], placed: placed || [], calib: calib || [] };
+  return { staged: staged || [], placed: placed || [], calib: calib || [], position: position || [] };
 }
 
 /* ── render ────────────────────────────────────────────────────────── */
+let _POSROWS = [];   // inventory-position rows, for the panel drill-down
 RENDER.requisitions = async function () {
-  const { staged, placed, calib } = await loadReqs();
+  const { staged, placed, calib, position } = await loadReqs();
+  _POSROWS = position;   // for the position-panel drill-down
   if (typeof COUNTS === "object") { COUNTS.staged = staged.length; renderNav(); }
 
   const autoPlaced = placed.filter((p) => p.auto_placed);
@@ -67,15 +70,112 @@ RENDER.requisitions = async function () {
          No requisitions awaiting approval. Click <strong>Run agent</strong> to detect demand and stage proposals.</div>`;
 
   $("#screen").innerHTML = `<div class="fade-in">
-    ${head}${kpis}${autoStrip}
+    ${head}${kpis}
+    ${positionPanel(position)}
+    ${autoStrip}
     <div id="req-cards">${cards}</div>
     ${calibPanel(calib)}
   </div>`;
 
   const runBtn = $("#req-run");
   if (runBtn) runBtn.addEventListener("click", () => runAgent(runBtn));
+  wirePositionDrill();
   wireCards();
 };
+
+/* ── Inventory-position panel — THE instrument ─────────────────────────
+   One row per product, every column from /planning/inventory-position (the
+   same canonical model the agent nets against — they cannot disagree). The
+   Missing column splits visibly into Proposing (orderable now) vs Deferred
+   (capacity-blocked), which is what makes the residual loop self-explanatory.
+   Row click expands the on_hand/on_order breakdown + the PO numbers. */
+function positionPanel(rows) {
+  const active = (rows || []).filter((r) => r.net_requirement > 0 || r.on_order > 0 || r.proposing > 0 || r.deferred > 0);
+  if (!active.length) {
+    return `<div class="panel ipos" style="padding:20px;color:var(--ts-ink-mute)">Inventory position: every product is covered — nothing missing, nothing deferred.</div>`;
+  }
+  const t = active.reduce((a, r) => ({
+    missing: a.missing + r.net_requirement, proposing: a.proposing + r.proposing,
+    propValue: a.propValue + (r.proposing_value || 0), deferred: a.deferred + r.deferred,
+    committed: a.committed + (r.committed_value || 0),
+  }), { missing: 0, proposing: 0, propValue: 0, deferred: 0, committed: 0 });
+
+  const strip = `<div class="ipos-strip">
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Still missing</div><div class="ipos-kpi__val">${t.missing}<span class="ipos-kpi__u"> units</span></div></div>
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Agent proposing</div><div class="ipos-kpi__val ipos-prop">${t.proposing}<span class="ipos-kpi__u"> units · ${eur0(t.propValue)}</span></div></div>
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Capacity-deferred</div><div class="ipos-kpi__val ${t.deferred ? "ipos-defer" : ""}">${t.deferred}<span class="ipos-kpi__u"> blocked</span></div></div>
+    <div class="ipos-kpi"><div class="ipos-kpi__lbl">Committed · open POs</div><div class="ipos-kpi__val">${eur0(t.committed)}</div></div>
+  </div>`;
+
+  const body = active.map((r) => {
+    const capPct = (r.position + r.capacity_avail) > 0 ? Math.min(100, Math.round(r.position / (r.position + r.capacity_avail) * 100)) : 0;
+    const propCell = r.proposing ? `<span class="ipos-pill ipos-pill--prop">${r.proposing}</span>` : (r.net_requirement ? "—" : "—");
+    const deferCell = r.deferred ? `<span class="ipos-pill ipos-pill--defer">${r.deferred}</span>` : "—";
+    return `<tr class="ipos-row" data-ipid="${esc(r.product_id)}">
+        <td><div class="ipos-name">${esc(r.name || r.product_id)}</div><div class="ipos-cat">${esc(r.category || "")}</div></td>
+        <td class="num">${r.gross_demand}</td>
+        <td class="num">${r.position}</td>
+        <td class="num">${r.net_requirement || "—"}</td>
+        <td class="num">${propCell}</td>
+        <td class="num">${deferCell}</td>
+        <td><div class="ipos-cap"><span class="ipos-cap__txt">${r.position} / ${r.position + r.capacity_avail}</span>
+          <span class="ipos-cap__bar"><span style="width:${capPct}%;background:${r.deferred ? "var(--ts-warning)" : "var(--ts-positive)"}"></span></span></div></td>
+        <td class="num">${eur0(r.committed_value)}</td>
+      </tr>
+      <tr class="ipos-drill" data-drill="${esc(r.product_id)}" hidden><td colspan="8"></td></tr>`;
+  }).join("");
+
+  return `<div class="panel ipos">
+    <table class="ipos-tbl">
+      <thead><tr><th>Item</th><th class="num">Need</th><th class="num">Position</th><th class="num">Missing</th>
+        <th class="num">Proposing</th><th class="num">Deferred</th><th>Capacity</th><th class="num">Committed €</th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr>
+        <td>Total</td><td class="num">${active.reduce((s, r) => s + r.gross_demand, 0)}</td>
+        <td class="num">${active.reduce((s, r) => s + r.position, 0)}</td>
+        <td class="num">${t.missing}</td>
+        <td class="num ipos-prop">${t.proposing}</td>
+        <td class="num ${t.deferred ? "ipos-defer" : ""}">${t.deferred || "—"}</td>
+        <td class="ipos-cap__txt">${active.filter((r) => r.deferred).length} at cap</td>
+        <td class="num">${eur0(t.committed)}</td>
+      </tr></tfoot>
+    </table>
+  </div>${strip}`;
+}
+
+// Store rows for drill-down lookup without re-fetching (declared near render).
+function wirePositionDrill() {
+  $$(".ipos-row").forEach((tr) => tr.addEventListener("click", () => {
+    const pid = tr.dataset.ipid;
+    const drill = $(`.ipos-drill[data-drill="${pid}"]`);
+    if (!drill) return;
+    const open = !drill.hasAttribute("hidden");
+    $$(".ipos-drill").forEach((d) => d.setAttribute("hidden", ""));
+    $$(".ipos-row").forEach((r) => r.classList.remove("ipos-row--open"));
+    if (open) return;
+    drill.removeAttribute("hidden");
+    tr.classList.add("ipos-row--open");
+    const r = _POSROWS.find((x) => x.product_id === pid);
+    drill.querySelector("td").innerHTML = posDrill(r);
+  }));
+}
+function posDrill(r) {
+  if (!r) return "";
+  const pos = `<div class="ipos-dl"><span>On hand</span><b>${r.on_hand}</b></div>
+    <div class="ipos-dl"><span>On order (committed POs)</span><b>${r.on_order}</b></div>
+    <div class="ipos-dl"><span>Staged (planned)</span><b>${r.staged_planned}</b></div>
+    <div class="ipos-dl"><span>Safety stock</span><b>${r.safety_stock}</b></div>`;
+  const pos2 = `<div class="ipos-eq">Need ${r.gross_demand} − Position ${r.position} − Safety ${r.safety_stock} = <b>Missing ${r.net_requirement}</b>` +
+    (r.staged_planned ? ` · less ${r.staged_planned} staged → propose ${r.new_proposal}` : "") +
+    (r.deferred ? ` · ${r.proposing} fit / ${r.deferred} deferred (capacity)` : "") + `</div>`;
+  const pos3 = (r.po_lines && r.po_lines.length)
+    ? `<table class="ipos-po"><thead><tr><th>PO</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Outstanding</th><th class="num">Unit</th><th>ETA</th></tr></thead><tbody>${
+        r.po_lines.map((l) => `<tr><td>${esc(l.order_number || "—")}</td><td class="num">${l.ordered}</td><td class="num">${l.received}</td><td class="num">${l.outstanding}</td><td class="num">${l.unit_price != null ? eur0(l.unit_price) : "—"}</td><td>${l.eta ? shortDate(l.eta) : "—"}</td></tr>`).join("")
+      }</tbody></table>`
+    : `<div class="ipos-dl" style="color:var(--ts-ink-mute)">No open POs behind on_order.</div>`;
+  return `<div class="ipos-drill__wrap"><div class="ipos-dl-grid">${pos}</div>${pos2}<div class="ipos-po-h">Open purchase orders behind on_order</div>${pos3}</div>`;
+}
+function eur0(n) { return "€" + Math.round(Number(n) || 0).toLocaleString("en-US"); }
 
 /* ── one staged PR = one editable cart card ────────────────────────── */
 /* Distinct flags on a requisition line: a RESIDUAL (the rest of a need already

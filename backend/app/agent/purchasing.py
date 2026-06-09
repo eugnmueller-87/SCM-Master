@@ -181,18 +181,72 @@ def _staged_by_product(db: Session) -> dict[str, int]:
     return dict(out)
 
 
-def _detect_needs(db: Session, period_days: int) -> dict[str, dict]:
-    """Merge all triggers; first trigger to claim a product wins its justification.
+def _detect_triggers(db: Session, period_days: int) -> dict[str, dict]:
+    """Merge the trigger sources; first (highest-priority) to claim a product wins.
 
-    Priority: lifecycle replacement > reorder floor > forecast shortfall.
+    Priority: lifecycle replacement > reorder floor > forecast shortfall. Returns
+    the justification (type + evidence + the trigger's gross qty) per product.
     """
     since = date.today() - timedelta(days=period_days)
-    needs: dict[str, dict] = {}
+    triggers: dict[str, dict] = {}
     for source in (_lifecycle_replacements(db, since),
                    _reorder_floor_needs(db),
                    _forecast_shortfall(db)):
         for pid, info in source.items():
-            needs.setdefault(pid, info)  # don't overwrite a higher-priority trigger
+            triggers.setdefault(pid, info)
+    return triggers
+
+
+def trigger_extra_demand(db: Session, *, period_days: int = 7) -> dict[str, int]:
+    """The trigger gross quantities, as extra_demand for planning.inventory_position.
+
+    Shared by the agent's netting AND the /planning/inventory-position endpoint so
+    the Overview shows exactly the demand the agent nets against — one source.
+    """
+    return {pid: info.get("gross_need", 0)
+            for pid, info in _detect_triggers(db, period_days).items()}
+
+
+def _detect_needs(db: Session, period_days: int) -> dict[str, dict]:
+    """Merge all triggers; first trigger to claim a product wins its justification.
+
+    Priority: lifecycle replacement > reorder floor > forecast shortfall.
+
+    SINGLE SOURCE OF TRUTH: the trigger sources supply only the *justification*
+    (type + evidence + priority). The QUANTITY to act on comes from the canonical
+    planning.inventory_position model — its ``new_proposal`` already nets demand
+    against position (on_hand + on_order), safety stock, AND open staged PRs. So
+    the agent and the Overview panel both read the same decomposition and cannot
+    disagree. Capacity capping happens later in _compute_bundles.
+    """
+    triggers = _detect_triggers(db, period_days)
+
+    # Fold the trigger quantities into the canonical model as extra_demand, so
+    # lifecycle/reorder needs on products the usage-forecast can't see still net
+    # through inventory_position (and converge) instead of re-staging every run.
+    extra = {pid: info.get("gross_need", 0) for pid, info in triggers.items()}
+    position = {r.product_id: r
+                for r in planning.inventory_position(db, period_days=period_days, extra_demand=extra)}
+
+    needs: dict[str, dict] = {}
+    for pid, info in triggers.items():
+        row = position.get(pid)
+        # The canonical model decides how much is genuinely needed beyond what's
+        # already committed/planned. No new_proposal -> nothing to do (a trigger
+        # fired but position + staged already cover it). This is what makes a
+        # re-run with nothing new stage NOTHING.
+        new_proposal = row.new_proposal if row else info.get("gross_need", 0)
+        if new_proposal <= 0:
+            continue
+        needs[pid] = {
+            "type": info["type"],
+            "net_need": new_proposal,                       # qty to stage (pre-capacity)
+            "net_requirement": row.net_requirement if row else new_proposal,
+            "on_hand": row.on_hand if row else info.get("evidence", {}).get("on_hand", 0),
+            "on_order": row.on_order if row else 0,
+            "staged_planned": row.staged_planned if row else 0,
+            "evidence": info.get("evidence", {}),
+        }
     return needs
 
 
@@ -388,25 +442,19 @@ def _compute_bundles(db: Session, period_days: int) -> tuple[dict[str, list[dict
     grouped under a synthetic key per product (no real supplier) for staging as
     escalate PRs. Shared by the requisition cycle; mirrors the run's Steps 1-4.
     """
+    # _detect_needs now returns canonical, ALREADY-NETTED quantities from
+    # planning.inventory_position (net of position + safety + staged). No second
+    # netting here — that was the old parallel path that could drift from the
+    # Overview. We only attach the committed split for the residual label, then
+    # apply the capacity cap below.
     needs = _detect_needs(db, period_days)
-    inbound = _inbound_by_product(db)         # placed/in-transit POs (on_order)
-    staged = _staged_by_product(db)           # open STAGED requisitions (awaiting approval)
-
     net_needs: dict[str, dict] = {}
     for pid, info in needs.items():
-        # Effective pipeline = on_order + open staged requisition qty. Each unit is
-        # counted once: a PR that became PLACED is on_order (inbound), never both —
-        # so re-running before approving does NOT re-propose what's already staged.
-        committed = inbound.get(pid, 0) + staged.get(pid, 0)
-        net = info["gross_need"] - committed
-        if net > 0:
-            # A true residual BEYOND what's already committed. The committed split
-            # is carried so the UI can show "+N beyond the staged PR" rather than a
-            # blind duplicate, and so the later staleness pass (separate change) has
-            # a clean seam to read from.
-            net_needs[pid] = {**info, "net_need": net,
-                              "already_committed": committed,
-                              "staged_committed": staged.get(pid, 0)}
+        already_committed = info.get("on_order", 0) + info.get("staged_planned", 0)
+        net_needs[pid] = {**info,
+                          "net_need": info["net_need"],
+                          "already_committed": already_committed,
+                          "staged_committed": info.get("staged_planned", 0)}
 
     # Storage cap: never order more than the warehouse can land. We draw down a
     # shared headroom budget as lines are built, so the whole run's buys fit.

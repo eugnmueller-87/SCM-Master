@@ -12,6 +12,7 @@ Everything here is computed from existing data — no new tables.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
@@ -22,6 +23,7 @@ from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType, ReceiptItem
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
+from app.models.requisition import PurchaseRequisition, RequisitionLine, RequisitionStatus
 from app.services import forecasting, recovery
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
@@ -98,6 +100,7 @@ def inbound_pipeline(db: Session, *, as_of: Optional[date] = None) -> list[dict]
             "ordered": oi.quantity,
             "received": received,
             "outstanding": outstanding,
+            "unit_price": (float(oi.unit_price) if oi.unit_price is not None else None),
             "estimated_delivery_date": eta,
             "overdue": bool(eta and eta < as_of),
         })
@@ -646,6 +649,167 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
             "recovery": rec,
         })
     return sorted(out, key=lambda r: (r["name"] or ""))
+
+
+# --- Canonical inventory-position model (THE single source of truth) ------
+# Both the agent's netting (purchasing._detect_needs) and the Overview panel
+# derive from inventory_position(), so the proposals the agent makes and the
+# numbers the planner sees are structurally incapable of disagreeing. The MRP
+# decomposition is explicit (no pre-subtracting on_hand anywhere):
+#   position        = on_hand + on_order            (committed supply)
+#   net_requirement = max(0, gross_demand - position - safety_stock)   "Missing"
+#   staged_planned  = open STAGED requisition qty   (planned, not committed)
+#   new_proposal    = max(0, net_requirement - staged_planned)         (not yet queued)
+#   proposing       = min(new_proposal, capacity_avail)                (orderable now)
+#   deferred        = new_proposal - proposing                         (capacity-blocked)
+
+@dataclass(frozen=True)
+class PositionRow:
+    product_id: str
+    name: Optional[str]
+    category: Optional[str]
+    gross_demand: int        # projected demand over the horizon (NOT net of on_hand)
+    on_hand: int
+    on_order: int
+    position: int            # on_hand + on_order
+    safety_stock: int
+    net_requirement: int     # max(0, gross_demand - position - safety_stock) -> "Missing"
+    staged_planned: int      # open STAGED requisition qty (planned orders)
+    capacity_avail: int      # storable headroom available to this line
+    new_proposal: int        # max(0, net_requirement - staged_planned)
+    proposing: int           # min(new_proposal, capacity_avail) -> orderable now
+    deferred: int            # new_proposal - proposing -> capacity-blocked
+    unit_price: Optional[float]
+    committed_value: float   # on_order * landed unit cost
+    proposing_value: float   # proposing * unit price
+
+
+def _staged_planned_by_product(db: Session) -> dict[str, int]:
+    """Open STAGED requisition qty per product (current, included lines only).
+
+    The single definition of "planned orders". Mirrors
+    purchasing._staged_by_product — kept here so inventory_position has no
+    dependency on the agent module (avoids a planning<->purchasing import cycle);
+    both read STAGED + included at the current human-editable qty.
+    """
+    out: dict[str, int] = {}
+    rows = db.execute(
+        select(RequisitionLine.product_id, RequisitionLine.qty)
+        .join(PurchaseRequisition, RequisitionLine.requisition_id == PurchaseRequisition.id)
+        .where(PurchaseRequisition.status == RequisitionStatus.STAGED,
+               RequisitionLine.included.is_(True))
+    ).all()
+    for pid, qty in rows:
+        out[pid] = out.get(pid, 0) + int(qty or 0)
+    return out
+
+
+def open_po_lines_by_product(db: Session) -> dict[str, list[dict]]:
+    """Open PO lines grouped by product — the drill-down behind on_order.
+
+    Reuses inbound_pipeline (the same source on_order is counted from), so the
+    audit trail (PO number, ordered/received/outstanding, price, ETA) can never
+    disagree with the on_order figure it explains.
+    """
+    out: dict[str, list[dict]] = {}
+    for row in inbound_pipeline(db):
+        out.setdefault(row["product_id"], []).append({
+            "order_number": row.get("order_number"),
+            "ordered": row.get("ordered", 0),
+            "received": row.get("received", 0),
+            "outstanding": row.get("outstanding", 0),
+            "unit_price": row.get("unit_price"),
+            "eta": row.get("estimated_delivery_date"),
+        })
+    return out
+
+
+def inventory_position(db: Session, *, period_days: int = 7,
+                       today: Optional[date] = None,
+                       extra_demand: Optional[dict[str, int]] = None) -> list[PositionRow]:
+    """THE canonical per-product position model. Single source for the agent's
+    netting AND the Overview panel — if they ever disagree, it's one function
+    contradicting itself (an obvious bug), which is the point.
+
+    ``extra_demand`` (product_id -> gross units) lets a caller fold in demand the
+    usage forecast can't see — chiefly LIFECYCLE replacements and REORDER-floor
+    needs, which fire on products that may have no forecast history and no stock.
+    For such a product, gross_demand = max(forecast, on_hand + extra) so the
+    replacement need survives the position netting (otherwise it would be dropped
+    and re-staged forever). The agent passes its detected trigger quantities here,
+    so every trigger type nets through the same model.
+
+    Capacity is a shared budget: like the agent's run, we draw down storable
+    headroom greedily in the SAME priority order (highest net_requirement first,
+    then name) so each row's proposing/deferred split matches what the agent
+    would actually stage this run.
+    """
+    today = today or date.today()
+    extra_demand = extra_demand or {}
+    inv = {r["product_id"]: r for r in inventory_plan(db, today=today)}
+    forecast = {r["product_id"]: r for r in demand_forecast(db)}
+    staged = _staged_planned_by_product(db)
+    headroom = storage_headroom(db).get("storable_max")     # None -> no cap
+    adder = 1.0 + settings.landed_cost_adder_pct
+
+    pids = set(inv) | set(forecast) | set(extra_demand)
+    prelim: list[dict] = []
+    for pid in pids:
+        iv = inv.get(pid, {})
+        fc = forecast.get(pid, {})
+        on_hand = int(iv.get("on_hand", fc.get("on_hand", 0)) or 0)
+        on_order = int(iv.get("on_order", fc.get("on_order", 0)) or 0)
+        position = on_hand + on_order
+        forecast_gross = int(math.ceil(fc.get("projected_demand", 0) or 0))
+        # A lifecycle/reorder trigger expresses a one-time net need (e.g. replace 3
+        # decommissioned). Put it on the demand scale as on_hand + extra — NOT
+        # position + extra — so that once the replacement is ON ORDER the need is
+        # satisfied (net_req = gross - position - safety -> 0) and it converges.
+        # Using position here would re-grow the need as orders land and never
+        # converge. Take the larger of the two demand views so neither a forecast
+        # spike nor a replacement need is lost.
+        trigger_gross = on_hand + int(extra_demand.get(pid, 0))
+        gross = max(forecast_gross, trigger_gross)
+        safety = int(iv.get("safety_stock", 0) or 0)
+        net_req = max(0, gross - position - safety)
+        staged_planned = int(staged.get(pid, 0))
+        new_proposal = max(0, net_req - staged_planned)
+        prelim.append({
+            "pid": pid, "name": iv.get("name") or fc.get("name"),
+            "category": iv.get("category") or fc.get("category"),
+            "gross": gross, "on_hand": on_hand, "on_order": on_order,
+            "position": position, "safety": safety, "net_req": net_req,
+            "staged_planned": staged_planned, "new_proposal": new_proposal,
+            "unit_price": iv.get("unit_price"),
+        })
+
+    # Greedy capacity drawdown, highest net_requirement first (then name) — the
+    # same priority the agent's run consumes shared headroom by.
+    prelim.sort(key=lambda r: (-r["net_req"], r["name"] or ""))
+    remaining = headroom
+    rows: list[PositionRow] = []
+    for r in prelim:
+        if remaining is None:                       # no warehouse cap defined
+            cap_avail = r["new_proposal"]
+        else:
+            cap_avail = max(0, remaining)
+        proposing = min(r["new_proposal"], cap_avail)
+        deferred = r["new_proposal"] - proposing
+        if remaining is not None:
+            remaining -= proposing
+        up = r["unit_price"]
+        rows.append(PositionRow(
+            product_id=r["pid"], name=r["name"], category=r["category"],
+            gross_demand=r["gross"], on_hand=r["on_hand"], on_order=r["on_order"],
+            position=r["position"], safety_stock=r["safety"],
+            net_requirement=r["net_req"], staged_planned=r["staged_planned"],
+            capacity_avail=(r["new_proposal"] if remaining is None else cap_avail),
+            new_proposal=r["new_proposal"], proposing=proposing, deferred=deferred,
+            unit_price=up,
+            committed_value=round((up or 0) * adder * r["on_order"], 2),
+            proposing_value=round((up or 0) * proposing, 2),
+        ))
+    return sorted(rows, key=lambda r: (r.name or ""))
 
 
 # --- Demand forecast: usage-driven projection -----------------------------
