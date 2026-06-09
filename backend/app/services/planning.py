@@ -675,7 +675,8 @@ class PositionRow:
     safety_stock: int
     net_requirement: int     # max(0, gross_demand - position - safety_stock) -> "Missing"
     staged_planned: int      # open STAGED requisition qty (planned orders)
-    capacity_avail: int      # storable headroom available to this line
+    capacity_avail: int      # GLOBAL storable headroom available to this line (shared)
+    product_capacity: int    # this product's OWN capacity proxy (per-product cap)
     new_proposal: int        # max(0, net_requirement - staged_planned)
     proposing: int           # min(new_proposal, capacity_avail) -> orderable now
     deferred: int            # new_proposal - proposing -> capacity-blocked
@@ -800,6 +801,7 @@ def inventory_position(db: Session, *, period_days: int = 7,
             "unit_price": iv.get("unit_price"),
             "daily_burn": burn, "cover_days": cover_days,
             "lands_in": lands_in, "at_risk": bool(rec.get("at_risk")),
+            "product_capacity": int(iv.get("capacity", 0) or 0),
         })
 
     # Greedy capacity drawdown, highest net_requirement first (then name) — the
@@ -823,6 +825,7 @@ def inventory_position(db: Session, *, period_days: int = 7,
             position=r["position"], safety_stock=r["safety"],
             net_requirement=r["net_req"], staged_planned=r["staged_planned"],
             capacity_avail=(r["new_proposal"] if remaining is None else cap_avail),
+            product_capacity=r["product_capacity"],
             new_proposal=r["new_proposal"], proposing=proposing, deferred=deferred,
             unit_price=up,
             committed_value=round((up or 0) * adder * r["on_order"], 2),

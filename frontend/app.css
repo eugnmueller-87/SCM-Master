@@ -976,6 +976,12 @@ button { font-family: inherit; }
 .ipos-cov-cell { font-size: 12.5px; color: var(--ts-ink-soft); white-space: nowrap; }
 .ipos-cov-vs { color: var(--ts-ink-mute); font-size: 11px; }
 .ipos-flag-risk { color: #b91c1c; font-weight: 700; font-size: 11px; }
+
+/* ── Clean requisition card ──────────────────────────────────────── */
+.rc-tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--ts-ink-mute); font-weight: 600; }
+.rc-reason { font-size: 11.5px; color: var(--ts-ink-soft); margin-top: 2px; line-height: 1.35; }
+.rc-ctx { color: var(--ts-ink); font-weight: 600; }
+.rc-ctx-l { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; color: var(--ts-ink-mute); font-weight: 500; margin-top: 1px; }
 .ipos-cap { display: flex; flex-direction: column; gap: 4px; min-width: 92px; }
 .ipos-cap__txt { font-size: 11px; color: var(--ts-ink-mute); }
 .ipos-cap__bar { height: 5px; border-radius: 3px; background: var(--ts-line); overflow: hidden; }

@@ -38,9 +38,11 @@ async function loadReqs() {
 
 /* ── render ────────────────────────────────────────────────────────── */
 let _POSROWS = [];   // inventory-position rows, for the panel drill-down
+let _POSBYPID = {};  // product_id -> position row, for the requisition cards
 RENDER.requisitions = async function () {
   const { staged, placed, calib, position } = await loadReqs();
   _POSROWS = position;   // for the position-panel drill-down
+  _POSBYPID = {}; (position || []).forEach((r) => { _POSBYPID[r.product_id] = r; });
   if (typeof COUNTS === "object") { COUNTS.staged = staged.length; renderNav(); }
 
   const autoPlaced = placed.filter((p) => p.auto_placed);
@@ -65,7 +67,7 @@ RENDER.requisitions = async function () {
     </div></div>` : "";
 
   const cards = staged.length
-    ? staged.map(reqCard).join("")
+    ? staged.map((pr) => reqCard(pr, _POSBYPID)).join("")
     : `<div class="panel" style="padding:28px;text-align:center;color:var(--ts-ink-mute)">
          No requisitions awaiting approval. Click <strong>Run agent</strong> to detect demand and stage proposals.</div>`;
 
@@ -115,7 +117,9 @@ function positionPanel(rows) {
   };
 
   const body = active.map((r) => {
-    const capPct = (r.position + r.capacity_avail) > 0 ? Math.min(100, Math.round(r.position / (r.position + r.capacity_avail) * 100)) : 0;
+    // Per-product capacity (this product's own cap), NOT the shared global headroom.
+    const cap = r.product_capacity || (r.position + r.capacity_avail);
+    const capPct = cap > 0 ? Math.min(100, Math.round(r.position / cap * 100)) : 0;
     const stagedCell = r.staged_planned ? `<span class="ipos-pill ipos-pill--prop">${r.staged_planned}</span>` : "—";
     const deferCell = r.deferred ? `<span class="ipos-pill ipos-pill--defer">${r.deferred}</span>` : "—";
     return `<tr class="ipos-row${r.at_risk ? " ipos-row--risk" : ""}" data-ipid="${esc(r.product_id)}">
@@ -126,8 +130,8 @@ function positionPanel(rows) {
         <td class="num">${stagedCell}</td>
         <td class="num">${deferCell}</td>
         <td class="ipos-cov-cell">${cov(r)}</td>
-        <td><div class="ipos-cap"><span class="ipos-cap__txt">${r.position} / ${r.position + r.capacity_avail}</span>
-          <span class="ipos-cap__bar"><span style="width:${capPct}%;background:${r.deferred ? "var(--ts-warning)" : "var(--ts-positive)"}"></span></span></div></td>
+        <td><div class="ipos-cap"><span class="ipos-cap__txt">${r.position} / ${cap}</span>
+          <span class="ipos-cap__bar"><span style="width:${capPct}%;background:${capPct >= 90 ? "var(--ts-negative)" : capPct >= 70 ? "var(--ts-warning)" : "var(--ts-positive)"}"></span></span></div></td>
         <td class="num">${eur0(r.committed_value)}</td>
       </tr>
       <tr class="ipos-drill" data-drill="${esc(r.product_id)}" hidden><td colspan="9"></td></tr>`;
@@ -207,23 +211,49 @@ function reqLineFlags(l) {
   return out;
 }
 
-function reqCard(pr) {
+// Plain-language reason from the trigger + the position context — no token soup.
+const TRIGGER_TXT = {
+  forecast_shortfall: "Forecast shortfall",
+  lifecycle_replacement: "Lifecycle replacement",
+  reorder_floor: "Below reorder floor",
+};
+function reqReason(l, pos) {
+  const base = TRIGGER_TXT[l.trigger_type] || (l.trigger_type || "Demand").replace(/_/g, " ");
+  const bits = [];
+  if (pos) {
+    if (pos.on_order) bits.push(`${pos.on_order} already on order`);
+    if (pos.staged_planned && pos.staged_planned !== l.qty) bits.push(`${pos.staged_planned} staged`);
+    if (pos.deferred) bits.push(`${pos.deferred} can't be stored yet (capacity)`);
+  }
+  return bits.length ? `${base} — ${bits.join("; ")}.` : `${base}.`;
+}
+
+function reqCard(pr, posByPid) {
   const tone = TIER_TONE[pr.tier] || "info";
   const total = pr.lines.filter((l) => l.included).reduce((s, l) => s + (l.qty * (Number(l.unit_price) || 0)), 0);
   const cleared = pr.confidence >= pr.confidence_floor;
-  const barNote = `confidence ${pct(pr.confidence)} vs bar ${pct(pr.confidence_floor)} — ${cleared ? "would auto-place" : "needs approval"}`;
+  const decision = cleared ? "clears the auto-place bar" : "needs your approval";
 
   const lines = pr.lines.map((l) => {
-    const p = PRODUCTS[l.product_id] || {};
+    const pos = (posByPid && posByPid[l.product_id]) || null;
     const edited = l.qty !== l.proposed_qty;
+    const cap = pos ? (pos.product_capacity || 0) : 0;
+    const inStock = pos ? pos.on_hand : "—";
+    const incoming = pos ? pos.on_order : 0;
+    const lead = pos && pos.lands_in_days != null ? `${pos.lands_in_days}d to land`
+      : (pos && pos.cover_days != null ? `${pos.cover_days}d cover` : "—");
+    const riskFlag = pos && pos.at_risk ? ` <span class="ipos-flag-risk">⚠ runs dry first</span>` : "";
     return `<tr data-line="${l.id}" data-unit="${Number(l.unit_price) || 0}" class="${l.included ? "" : "req-line--dropped"}">
-      <td><label class="req-incl"><input type="checkbox" class="req-incl-cb" ${l.included ? "checked" : ""}/> </label></td>
-      <td>${productCell(l.product_id)}</td>
-      <td class="muted" style="font-size:12px">${esc(l.trigger_type || "")}${reqLineFlags(l)}</td>
-      <td class="num"><input class="req-qty" type="number" min="1" value="${l.qty}" ${l.included ? "" : "disabled"} style="width:74px"/>
-        ${edited ? `<div style="font-size:11px;color:var(--ts-warning)">was ${l.proposed_qty}</div>` : ""}</td>
-      <td class="num muted">${l.unit_price != null ? "€" + Number(l.unit_price).toLocaleString() : "—"}</td>
-      <td class="num">€${(l.qty * (Number(l.unit_price) || 0)).toLocaleString()}</td>
+      <td><label class="req-incl"><input type="checkbox" class="req-incl-cb" ${l.included ? "checked" : ""}/></label></td>
+      <td>${productCell(l.product_id)}<div class="rc-reason">${esc(reqReason(l, pos))}${riskFlag}</div></td>
+      <td class="num rc-ctx">${inStock}<div class="rc-ctx-l">in stock</div></td>
+      <td class="num rc-ctx">${incoming || "—"}<div class="rc-ctx-l">incoming</div></td>
+      <td class="num rc-ctx">${esc(lead)}<div class="rc-ctx-l">lead</div></td>
+      <td class="num"><input class="req-qty" type="number" min="1" value="${l.qty}" ${l.included ? "" : "disabled"} style="width:70px"/>
+        ${edited ? `<div class="rc-ctx-l" style="color:var(--ts-warning)">was ${l.proposed_qty}</div>` : ""}
+        ${cap ? `<div class="rc-ctx-l">cap ${cap}</div>` : ""}</td>
+      <td class="num">${l.unit_price != null ? eur0(l.unit_price) : "—"}<div class="rc-ctx-l">unit</div></td>
+      <td class="num"><b>${eur0(l.qty * (Number(l.unit_price) || 0))}</b></td>
     </tr>`;
   }).join("");
 
@@ -231,15 +261,15 @@ function reqCard(pr) {
     <div class="req-card__head" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--ts-line)">
       <strong>${esc(supName(pr.supplier_id))}</strong>
       ${plainPill(pr.tier.toUpperCase(), tone)}
-      <span class="muted" style="font-size:12px">${esc(barNote)}</span>
-      <span style="margin-left:auto;font-weight:600">€<span class="req-total">${total.toLocaleString()}</span></span>
+      <span class="muted" style="font-size:12px">${pct(pr.confidence)} confidence · ${esc(decision)}</span>
+      <span style="margin-left:auto;font-weight:600" class="req-total-wrap">${eur0(total)}<span class="req-total" hidden>${total}</span></span>
     </div>
-    <table class="tbl" style="margin:0">
-      <thead><tr><th style="width:34px"></th><th>Item</th><th>Why</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead>
+    <table class="tbl rc-tbl" style="margin:0">
+      <thead><tr><th style="width:30px"></th><th>Item &amp; reason</th><th class="num">Stock</th><th class="num">Inbound</th><th class="num">Lead</th><th class="num">Order qty</th><th class="num">Unit</th><th class="num">Line</th></tr></thead>
       <tbody>${lines}</tbody>
     </table>
     <div style="display:flex;gap:10px;padding:12px 16px;align-items:center">
-      ${pr.rationale ? `<span class="muted" style="font-size:12px;flex:1">${esc(pr.rationale.split("\n")[0])}</span>` : "<span style='flex:1'></span>"}
+      <span class="muted" style="font-size:12px;flex:1">Approving converts this to a fixed purchase order (reversible until received).</span>
       <button class="btn btn--ghost req-reject">Reject</button>
       <button class="btn btn--ink req-approve">${icon("check", 14)} Approve → create PO</button>
     </div>
@@ -279,7 +309,8 @@ function wireCards() {
         const unit = parseFloat(tr.dataset.unit) || 0;   // from data-unit, not the rendered text
         if (cb.checked) total += (parseInt(q.value, 10) || 0) * unit;
       });
-      card.querySelector(".req-total").textContent = total.toLocaleString();
+      const wrap = card.querySelector(".req-total-wrap");
+      if (wrap) wrap.firstChild.textContent = eur0(total);   // locale-safe, unambiguous
     };
 
     card.querySelectorAll("tr[data-line]").forEach((tr) => {

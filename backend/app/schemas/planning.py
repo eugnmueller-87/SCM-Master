@@ -201,7 +201,8 @@ class InventoryPositionRow(BaseModel):
     safety_stock: int
     net_requirement: int       # Missing = max(0, gross - position - safety)
     staged_planned: int        # open STAGED requisition qty (planned)
-    capacity_avail: int
+    capacity_avail: int        # global shared storable headroom
+    product_capacity: int      # this product's own capacity (per-product cap)
     new_proposal: int
     proposing: int             # orderable now (has capacity)
     deferred: int              # capacity-blocked
