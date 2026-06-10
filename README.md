@@ -8,6 +8,7 @@
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Tests](https://img.shields.io/badge/tests-333_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Agent safety](https://img.shields.io/badge/agent_safety-29_scenarios-8A2BE2?logo=shieldsdotio&logoColor=white)](backend/tests/agent_eval/)
+[![Concurrency-safe](https://img.shields.io/badge/concurrency-row_locked-0A7E8C?logo=postgresql&logoColor=white)](#production-hardening--concurrency-and-scale)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Claude](https://img.shields.io/badge/AI-Claude_(advisory)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 [![Forecast](https://img.shields.io/badge/Forecast-statsforecast-10b981?logo=python&logoColor=white)](docs/forecast-engine-decision.md)
@@ -46,6 +47,7 @@ documented:
 | **Forecast engine** | `statsforecast` (Croston/SBA) for intermittent SKUs | **Benchmarked vs. hand-rolled TSB**: tie at 6 SKUs, ~24% lower error at 1000 → ~21% less mis-ordering, at zero LLM tokens. [Evidence.](docs/forecast-engine-decision.md) |
 | **ML / deep-learning layer** | **Not built — by decision, not omission** | No outcome data to train on yet; procurement is tabular (trees beat nets); a black box fails the audit. We built the *learning loop* (rule-based) + the ML *seam*. [Evaluation.](#ml--deep-learning--evaluated-deferred-not-skipped) |
 | **What learns today** | Rule-based threshold calibration ([`calibration.py`](backend/app/services/calibration.py)) | Learns from human approve/edit/reject outcomes — transparent, no training data needed, no black box. |
+| **Concurrency & scale** | Row-locked write guards, pooled DB, indexed hot paths | The over-receipt and lifecycle guards are `with_for_update`-serialised, so a guard that holds in a demo also holds under two concurrent warehouse users on Postgres. Analytics/planning aggregate in one query, not N. [Detail.](#production-hardening--concurrency-and-scale) |
 
 > **📦 Capstone context.** This repository is the **working MVP (stretch deliverable)** of the
 > AI-bootcamp Final Project. The full consultant package — use-case definition, no-code POC, ROI &
@@ -551,6 +553,38 @@ one capacity metric that's enforced, not just displayed — see the
 - [x] **Order packages** — a `Package` model ([`models/ordering.py`](backend/app/models/ordering.py)): named, reusable bundles (Compute rack, Storage node, GPU pod) that expand to order lines ×N packs. Distinct from a costing BOM (which decomposes one product) — a package groups separately-stocked products bought together.
 - [x] **Cockpit tile** — a "Warehouse capacity & flow" tile on the [analytics cockpit](https://github.com/eugnmueller-87/SCM-POWER-BI) Overview, reading the same endpoint: committed vs free, in/out flow, coverage and depletion at a glance.
 - [x] **Tested** — capacity-flow math (committed/free, daily-in from ETA, coverage + depletion), the guard (fits → ok, partial → clamp, full → reject, over-order → 422), package expansion, and the manual-order API end-to-end.
+
+## Production hardening — concurrency and scale
+
+The system is built to run on SQLite in dev and Postgres in prod. SQLite
+serialises every write and hides whole classes of bug; a guard that passes a
+single-user demo can still be wrong under two concurrent users on Postgres. These
+were found by an evidence-first review (each finding independently verified
+against the source before any fix), and closed so the prod behaviour matches the
+demo's promise:
+
+- **Write guards are row-locked, not just checked.** Receiving and every
+  lifecycle transition take a `SELECT … FOR UPDATE` on the order line / asset row
+  before the read-validate-write, so two simultaneous receipts can't both pass the
+  over-receipt guard and over-receive, and two transitions can't clobber each
+  other's status. On SQLite the lock is a no-op (writes already serialise); on
+  Postgres it does the real work. This is the same principle as the agent gate —
+  *a guard that fails under concurrency isn't deterministic.*
+- **Pooled, health-checked DB connections.** The engine uses `pool_pre_ping`
+  (a stale Railway connection is replaced, not raised on) and explicit
+  `pool_size` / `max_overflow` headroom, so a burst of dashboard traffic alongside
+  a long agent run doesn't exhaust the pool and start failing `/readyz`.
+- **Aggregations are one query, not N.** Spend analytics and the inbound-pipeline
+  planning views aggregate in a single grouped query instead of one query per
+  supplier / per open line (the old N+1). The numbers are identical — the change
+  is purely how many round-trips it takes — but it's the difference between
+  milliseconds and seconds once there are 100k assets / thousands of open lines.
+- **Indexed hot paths.** The four columns the analytics joins, capacity counts,
+  and provenance lookups filter on (`receipt_item.order_item_id`, `asset.status`,
+  `asset.source_order_item_id`, `asset.current_location_id`) are indexed via an
+  additive migration — sequential scans become index lookups at scale.
+
+All additive and backward-compatible; the full suite (333 passing) stays green.
 
 ## Live deployment — two isolated stacks
 
