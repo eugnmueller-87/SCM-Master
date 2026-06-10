@@ -170,9 +170,11 @@ class ContractDocument(IdMixin, TimestampMixin, Base):
     original_filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(128))
     size_bytes: Mapped[int] = mapped_column(Integer)
-    # Opaque store key (e.g. "<org_id>/<uuid>.pdf"); unique so a row maps to exactly
-    # one blob and we never double-register the same object.
-    storage_key: Mapped[str] = mapped_column(String(512), unique=True)
+    # Opaque store key (e.g. "<org_id>/<uuid>.pdf"); a UNIQUE INDEX so a row maps
+    # to exactly one blob (unique) and lookups are fast. index=True + unique=True
+    # makes SQLAlchemy emit a unique index — matching the migration exactly (an
+    # `# autogenerate must be empty` CI gate enforces model==migration).
+    storage_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
     # Free-text label (NDA/DPA/POC/MSA …) — a hint, not a constraint.
     kind: Mapped[Optional[str]] = mapped_column(String(32))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
