@@ -31,7 +31,8 @@ from app.schemas.requisition import (
 from app.services import calibration, ordering
 from app.services.requisition import requisition_service
 
-router = APIRouter(tags=["requisitions"], prefix="/requisitions")
+router = APIRouter(tags=["requisitions"], prefix="/requisitions",
+                   dependencies=[Depends(get_current_user)])
 
 _proc = require_role(Role.PROCUREMENT)
 

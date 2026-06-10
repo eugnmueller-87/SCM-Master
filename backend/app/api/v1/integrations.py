@@ -15,13 +15,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_role
+from app.api.deps import get_current_user, get_db, require_role
 from app.integrations.base import FeedParseError
 from app.integrations.coupa import CoupaCsvAdapter
 from app.integrations.sync import sync_feed
 from app.models.auth import Role
 
-router = APIRouter(tags=["integrations"], prefix="/integrations")
+router = APIRouter(tags=["integrations"], prefix="/integrations",
+                   dependencies=[Depends(get_current_user)])
 
 _import_role = require_role(Role.PROCUREMENT)
 

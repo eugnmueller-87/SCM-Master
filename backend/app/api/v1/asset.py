@@ -12,7 +12,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_role
+from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role
 from app.models.flow import AssetStatus
 from app.schemas.asset import (
@@ -27,7 +27,7 @@ from app.schemas.asset import (
 from app.services import provenance
 from app.services.asset import asset_service
 
-router = APIRouter(tags=["assets"])
+router = APIRouter(tags=["assets"], dependencies=[Depends(get_current_user)])
 
 # Receiving is warehouse work; lifecycle moves span warehouse + datacenter ops.
 _receiving = require_role(Role.WAREHOUSE)

@@ -23,7 +23,8 @@ from app.models.auth import Role, User
 from app.models.decision import DecisionLog
 from app.services.exceptions import NotFoundError
 
-router = APIRouter(tags=["agent"], prefix="/agent")
+router = APIRouter(tags=["agent"], prefix="/agent",
+                   dependencies=[Depends(get_current_user)])
 
 _INSIGHT_MIN = 5
 

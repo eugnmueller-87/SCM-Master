@@ -46,7 +46,7 @@ from app.services.catalog import (
     product_supplier_service,
 )
 
-router = APIRouter(tags=["catalog"])
+router = APIRouter(tags=["catalog"], dependencies=[Depends(get_current_user)])
 
 # Uploading / deleting a supplier's contract files is a procurement action.
 _contracts_write = require_role(Role.PROCUREMENT)

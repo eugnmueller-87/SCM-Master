@@ -30,7 +30,7 @@ from app.schemas.costing import (
 )
 from app.services import costing_service as svc
 
-router = APIRouter(tags=["costing"])
+router = APIRouter(tags=["costing"], dependencies=[Depends(get_current_user)])
 
 _buyer = require_role(Role.PROCUREMENT)
 

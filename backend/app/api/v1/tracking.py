@@ -19,7 +19,7 @@ from app.models.auth import User
 from app.schemas.tracking import OrderTracking, ShipmentEventRead
 from app.services import tracking
 
-router = APIRouter(tags=["tracking"])
+router = APIRouter(tags=["tracking"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/v_order_tracking", response_model=List[OrderTracking])

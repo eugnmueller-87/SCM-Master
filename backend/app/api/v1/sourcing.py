@@ -6,7 +6,7 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.sourcing import (
     CategorySpend,
     ProductSpend,
@@ -16,7 +16,7 @@ from app.schemas.sourcing import (
 )
 from app.services import analytics, sourcing
 
-router = APIRouter(tags=["sourcing"])
+router = APIRouter(tags=["sourcing"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/products/{product_id}/sources", response_model=List[SourceSuggestion])

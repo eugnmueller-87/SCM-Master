@@ -25,7 +25,8 @@ from app.schemas.planning import (
 )
 from app.services import planning
 
-router = APIRouter(tags=["planning"], prefix="/planning")
+router = APIRouter(tags=["planning"], prefix="/planning",
+                   dependencies=[Depends(get_current_user)])
 
 # Moving stock is warehouse/datacenter work.
 _ops = require_role(Role.WAREHOUSE, Role.DATACENTER)

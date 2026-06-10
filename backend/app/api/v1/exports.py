@@ -30,7 +30,8 @@ from app.api.deps import get_current_user, get_db
 from app.models.auth import User
 from app.services import accuracy, analytics
 
-router = APIRouter(tags=["exports"], prefix="/analytics/exports")
+router = APIRouter(tags=["exports"], prefix="/analytics/exports",
+                   dependencies=[Depends(get_current_user)])
 
 
 def _csv_response(rows: list[dict], columns: list[str], filename: str) -> Response:

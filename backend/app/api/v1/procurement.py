@@ -10,7 +10,7 @@ from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_role
+from app.api.deps import get_current_user, get_db, require_role
 from app.models.auth import Role
 from app.schemas.procurement import (
     OrderItemRead,
@@ -21,7 +21,7 @@ from app.schemas.procurement import (
 from app.schemas.sourcing import OrderStatusRequest, ResourceLineRequest
 from app.services.procurement import purchase_order_service
 
-router = APIRouter(tags=["procurement"])
+router = APIRouter(tags=["procurement"], dependencies=[Depends(get_current_user)])
 
 # Procurement write operations require the PROCUREMENT role (ADMIN always passes).
 _procurement = require_role(Role.PROCUREMENT)

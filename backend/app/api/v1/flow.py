@@ -9,11 +9,11 @@ from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.schemas.flow import LocationCreate, LocationRead, LocationUpdate
 from app.services.flow import location_service
 
-router = APIRouter(tags=["flow"])
+router = APIRouter(tags=["flow"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/locations", response_model=LocationRead, status_code=status.HTTP_201_CREATED)

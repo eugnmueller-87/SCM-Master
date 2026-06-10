@@ -21,7 +21,7 @@ from app.models.auth import User
 from app.schemas.tco import AssetTCO, PortfolioTCO, TCOByClassRow
 from app.services import tco as svc
 
-router = APIRouter(tags=["tco"])
+router = APIRouter(tags=["tco"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/assets/{asset_id}/tco", response_model=AssetTCO)
