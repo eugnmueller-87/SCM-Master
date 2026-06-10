@@ -36,7 +36,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-
 # Base confidence before any factor. A clean buy — hard trigger, a contracted
 # source with full data, the full need fits — SHOULD clear the act floor (0.90,
 # the "trust everything above 90%" policy) on merit, because that is exactly the

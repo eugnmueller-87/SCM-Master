@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import time
 from pathlib import Path
 
@@ -80,23 +79,43 @@ _frontend = Path(__file__).resolve().parents[2] / "frontend"
 def _build_token() -> str:
     """A value that is stable within one deploy and changes across deploys.
 
-    Prefers an explicit env stamp (set by the platform), then the git short SHA,
+    Prefers an explicit env stamp (set by the platform — Railway injects the
+    commit SHA), then the git SHA read straight from ``.git`` (no subprocess),
     then the process start time as a last resort. Computed once at import.
     """
     env = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("APP_BUILD")
     if env:
         return env[:12]
-    try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=str(Path(__file__).resolve().parents[2]),
-            capture_output=True, text=True, timeout=2,
-        )
-        if sha.returncode == 0 and sha.stdout.strip():
-            return sha.stdout.strip()
-    except Exception:  # noqa: BLE001 — git absent in the deployed image is fine
-        pass
+    sha = _git_head_sha(Path(__file__).resolve().parents[2])
+    if sha:
+        return sha[:12]
     return str(int(time.time()))
+
+
+def _git_head_sha(repo_root: Path) -> str | None:
+    """Resolve HEAD to a commit SHA by reading the git plumbing files directly.
+
+    Avoids spawning a subprocess (and the security-scanner noise that comes with
+    it). Handles both a detached HEAD (a raw SHA in .git/HEAD) and the normal
+    ``ref: refs/heads/<branch>`` indirection, including a packed ref. Returns
+    None if anything is missing — the caller falls back to a time stamp.
+    """
+    try:
+        head = (repo_root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
+        if not head.startswith("ref:"):
+            return head or None
+        ref = head[4:].strip()
+        loose = repo_root / ".git" / ref
+        if loose.is_file():
+            return loose.read_text(encoding="utf-8").strip() or None
+        packed = repo_root / ".git" / "packed-refs"
+        if packed.is_file():
+            for line in packed.read_text(encoding="utf-8").splitlines():
+                if line.endswith(" " + ref):
+                    return line.split(" ", 1)[0].strip() or None
+    except OSError:
+        return None
+    return None
 
 
 _BUILD = _build_token()

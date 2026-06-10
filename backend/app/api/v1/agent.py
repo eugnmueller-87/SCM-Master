@@ -172,9 +172,9 @@ def _log_decisions(db: Session, result: PurchasingRunResult, actor: Optional[str
                         placed_po_id=d.placed_po_id,
                         actor=actor,
                     ))
-            except Exception:  # noqa: BLE001 — best-effort per-row; skip the bad one
+            except Exception:  # noqa: BLE001  # nosec B112 — best-effort per-row audit; skip the bad row, never fail the run
                 continue
-    except Exception:  # noqa: BLE001 — logging must never break the run
+    except Exception:  # noqa: BLE001  # nosec B110 — the audit write must never break a placed run
         pass
 
 
