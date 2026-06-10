@@ -9,6 +9,9 @@ __pycache__/
 *.db
 *.sqlite3
 
+# Uploaded contract files (local ContractStore dir; prod uses a Railway volume)
+backend/var/
+
 # Generated agent artifacts (sample output for local review)
 agent_insights_sample.json
 

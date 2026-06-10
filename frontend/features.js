@@ -243,8 +243,26 @@ function toggleContract(id) {
   row.classList.add("is-open");
   const chev = row.querySelector(".chev"); if (chev) chev.style.transform = "rotate(90deg)";
   host.hidden = false; host.classList.add("brief");
-  host.firstElementChild.innerHTML = renderContractBrief(contractCache.find((c) => c.id === id));
+  const cdata = contractCache.find((c) => c.id === id);
+  host.firstElementChild.innerHTML = renderContractBrief(cdata);
   $$(`#contract-rows [data-caction]`).forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); toast(b.dataset.caction === "renew" ? "Renewal drafted — pending procurement sign-off" : "Re-source flow opens the ranked alternatives", "ok"); }));
+
+  // Contract files (optional per-supplier PDF repository).
+  const orgId = cdata && cdata.supplier_id;
+  if (orgId) {
+    loadContractFiles(orgId);
+    const up = $(`[data-cfile-upload="${orgId}"]`);
+    if (up) up.addEventListener("click", (ev) => { ev.stopPropagation(); uploadContractFile(orgId); });
+    // Download/remove buttons are rendered ASYNC by loadContractFiles, so delegate
+    // from the (already-present) files host rather than binding each button.
+    const host2 = $(`[data-cfiles="${orgId}"]`);
+    if (host2) host2.addEventListener("click", (ev) => {
+      const dl = ev.target.closest("[data-cfile-dl]");
+      const rm = ev.target.closest("[data-cfile-rm]");
+      if (dl) { ev.stopPropagation(); const [o, d, f] = dl.dataset.cfileDl.split("|"); downloadContractFile(o, d, f); }
+      else if (rm) { ev.stopPropagation(); const [o, d] = rm.dataset.cfileRm.split("|"); removeContractFile(o, d); }
+    });
+  }
 }
 
 function renderContractBrief(r) {
@@ -308,8 +326,83 @@ function renderContractBrief(r) {
     <div>
       <div class="brief__h">Terms</div>
       <div class="prov">${rows.map(([k, v], i) => `<div class="prov__row"${i === rows.length - 1 ? ' style="border-bottom:none"' : ""}><span class="prov__k">${k}</span><span class="prov__v">${v}</span></div>`).join("")}</div>
+      <div class="brief__h" style="margin-top:24px">Contract files</div>
+      <div id="cfiles-${r.supplier_id}" data-cfiles="${r.supplier_id}">
+        <div class="state state--sm"><div class="state__sub">Loading…</div></div>
+      </div>
+      <div class="cfiles-upload" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="file" accept="application/pdf" data-cfile-input="${r.supplier_id}" />
+        <input type="text" class="input input--sm" placeholder="kind (NDA/DPA/POC/MSA)" data-cfile-kind="${r.supplier_id}" style="width:170px" />
+        <button class="btn btn--secondary btn--sm" data-cfile-upload="${r.supplier_id}">${icon("plus", 13)} Upload PDF</button>
+      </div>
     </div>
   </div>`;
+}
+
+/* ── Contract files: optional per-supplier PDF repository ───────────────
+   The shared api() helper does JSON only, so upload (multipart) and download
+   (blob, with the Bearer header) use raw fetch. List + delete go through api().*/
+async function loadContractFiles(orgId) {
+  const host = $(`#cfiles-${CSS.escape(orgId)}`) || $(`[data-cfiles="${orgId}"]`);
+  if (!host) return;
+  let docs = [];
+  try { docs = await api(`/suppliers/${orgId}/contracts`); }
+  catch (e) { host.innerHTML = `<div class="muted" style="font-size:13px">Couldn't load contracts.</div>`; return; }
+  if (!docs.length) {
+    host.innerHTML = `<div class="muted" style="font-size:13px">No contract files on record.</div>`;
+    return;
+  }
+  host.innerHTML = docs.map((d) => `
+    <div class="cfile-row" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--ts-line)">
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${esc(d.original_filename)}${d.kind ? ` <span class="ref">${esc(d.kind)}</span>` : ""}
+        <span class="muted" style="font-size:11px"> · ${(d.size_bytes / 1024).toFixed(0)} KB · ${fmtDate(d.uploaded_at)}</span>
+      </span>
+      <button class="btn btn--ghost btn--sm" data-cfile-dl="${orgId}|${d.id}|${esc(d.original_filename)}">Download</button>
+      <button class="btn btn--ghost btn--sm" data-cfile-rm="${orgId}|${d.id}">Remove</button>
+    </div>`).join("");
+}
+
+async function uploadContractFile(orgId) {
+  const input = $(`[data-cfile-input="${orgId}"]`);
+  const kind = ($(`[data-cfile-kind="${orgId}"]`) || {}).value || "";
+  const f = input && input.files && input.files[0];
+  if (!f) { toast("Choose a PDF first", "err"); return; }
+  const form = new FormData();
+  form.append("file", f);
+  const url = `${API}/suppliers/${orgId}/contracts` + (kind ? `?kind=${encodeURIComponent(kind)}` : "");
+  try {
+    const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+    if (!res.ok) {
+      let d = `Upload failed (${res.status})`;
+      try { d = (await res.json()).detail || d; } catch (e) {}
+      toast(d, "err"); return;
+    }
+    toast("Contract uploaded", "ok");
+    loadContractFiles(orgId);
+  } catch (e) { toast("Upload failed", "err"); }
+}
+
+async function downloadContractFile(orgId, docId, filename) {
+  try {
+    const res = await fetch(`${API}/suppliers/${orgId}/contracts/${docId}/download`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) { toast("Download failed", "err"); return; }
+    const blob = await res.blob();
+    const u = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = u; a.download = filename || "contract.pdf";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(u);
+  } catch (e) { toast("Download failed", "err"); }
+}
+
+async function removeContractFile(orgId, docId) {
+  try {
+    await api(`/suppliers/${orgId}/contracts/${docId}`, { method: "DELETE" });
+    toast("Contract removed", "ok");
+    loadContractFiles(orgId);
+  } catch (e) { toast("Couldn't remove contract", "err"); }
 }
 
 /* ── Autonomy label (used by the Tweaks panel) ─────────────────────────

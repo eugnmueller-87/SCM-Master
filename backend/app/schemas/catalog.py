@@ -7,7 +7,7 @@ Each entity has three shapes:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -165,3 +165,15 @@ class ProductSupplierRead(ReadBase):
     term_end: Optional[date] = None
     annual_budget: Optional[Decimal] = None
     ytd_spend: Optional[Decimal] = None
+
+
+class ContractDocumentRead(ReadBase):
+    """An uploaded contract file's metadata. ``storage_key`` is intentionally NOT
+    exposed — it's an internal store detail, never sent to clients."""
+
+    organization_id: str
+    original_filename: str
+    content_type: str
+    size_bytes: int
+    kind: Optional[str] = None
+    uploaded_at: datetime

@@ -15,13 +15,13 @@ identity or its purchase history.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base, ExternalRefMixin, IdMixin, TimestampMixin
+from app.core.db import Base, ExternalRefMixin, IdMixin, TimestampMixin, _now
 
 
 class Organization(IdMixin, TimestampMixin, ExternalRefMixin, Base):
@@ -146,3 +146,35 @@ class ProductSupplier(IdMixin, TimestampMixin, Base):
     manufacturer: Mapped[Optional["Organization"]] = relationship(
         foreign_keys=[manufacturer_id],
     )
+
+
+class ContractDocument(IdMixin, TimestampMixin, Base):
+    """An uploaded contract file attached to a supplier (Organization).
+
+    This holds the ACTUAL document bytes' location — distinct from the supplier's
+    document *metadata of record* (``Organization.dpa_reference`` / ``nda_reference``),
+    which only note that an agreement was signed. A supplier may have any number of
+    these, or none: the repository is entirely optional.
+
+    The bytes live in a pluggable ``ContractStore`` (a Railway volume today, an
+    SAP/S3 backend tomorrow). ``storage_key`` is the opaque, server-generated key
+    the store uses — never the user's filename, and never exposed to clients.
+    ``kind`` is a free-text hint (NDA/DPA/POC/MSA) and is intentionally NOT
+    enforced; classification/compliance is deliberately out of scope here.
+    """
+
+    __tablename__ = "contract_document"
+
+    organization_id: Mapped[str] = mapped_column(
+        ForeignKey("organization.id"), index=True)
+    original_filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(128))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    # Opaque store key (e.g. "<org_id>/<uuid>.pdf"); unique so a row maps to exactly
+    # one blob and we never double-register the same object.
+    storage_key: Mapped[str] = mapped_column(String(512), unique=True)
+    # Free-text label (NDA/DPA/POC/MSA …) — a hint, not a constraint.
+    kind: Mapped[Optional[str]] = mapped_column(String(32))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+    organization = relationship("Organization")

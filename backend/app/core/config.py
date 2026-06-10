@@ -93,6 +93,17 @@ class Settings(BaseSettings):
     forecast_engine: str = "builtin"
     # statsforecast model key for the intermittent route (see forecasting_sf.SF_MODELS).
     forecast_sf_model: str = "croston_sba"
+
+    # Contract document repository (optional per-supplier PDF uploads). Storage is
+    # pluggable behind app/services/contract_store.py:
+    #   "local" -> filesystem at contract_storage_dir (a mounted Railway volume in
+    #              prod). A future client's "s3"/"sap" backend drops in at the same
+    #              factory. On prod the dir MUST be persistent or uploads vanish on
+    #              redeploy — announce_startup() warns when it can't guarantee that.
+    contract_storage_backend: str = "local"
+    contract_storage_dir: str = "./var/contracts"
+    contract_max_bytes: int = 10 * 1024 * 1024  # 10 MB per contract PDF
+
     # Service-level safety stock (replaces the burn×lead/2 heuristic).
     service_level: float = 0.95                # default/fallback cycle service level (z≈1.645)
     # ABC classification (Pareto by annualised value) → per-class service level:
@@ -167,4 +178,13 @@ def announce_startup() -> None:
         raise RuntimeError(
             "Refusing to boot PRODUCTION on non-persistent storage: SCM_ENV=prod "
             "requires a postgresql:// DATABASE_URL (SQLite resets on redeploy)."
+        )
+    # Contract uploads need durable storage too. We do NOT hard-fail (the backend
+    # boots and creates the dir on demand), but on prod with the local backend the
+    # dir must be a mounted persistent volume or uploaded PDFs are lost on redeploy.
+    if is_production() and settings.contract_storage_backend == "local":
+        print(
+            f"[startup] WARNING contract uploads use local storage at "
+            f"{settings.contract_storage_dir!r} — ensure this is a PERSISTENT "
+            f"Railway volume, or uploaded contracts will be lost on redeploy."
         )

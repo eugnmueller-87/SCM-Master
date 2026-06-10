@@ -7,6 +7,7 @@ from app.models.auth import (  # noqa: F401
     User,
 )
 from app.models.catalog import (  # noqa: F401
+    ContractDocument,
     Organization,
     Product,
     ProductSupplier,
@@ -72,6 +73,7 @@ __all__ = [
     "Organization",
     "Product",
     "ProductSupplier",
+    "ContractDocument",
     "BOM",
     "BOMLine",
     "Commodity",
