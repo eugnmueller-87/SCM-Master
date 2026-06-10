@@ -182,7 +182,7 @@ function toggleInboundDrill(plans) {
     .filter((x) => x.it.on_order > 0)
     .sort((a, b) => (a.p.etaDays ?? 1e9) - (b.p.etaDays ?? 1e9));
   const rows = items.map(({ it, p }) => {
-    const eta = it.next_eta ? fmtDate(it.next_eta) : "—";
+    const eta = it.next_eta ? fmtDateShort(it.next_eta) : "—";
     const when = p.etaDays != null
       ? (p.etaDays <= 0 ? `<span class="ind-late">overdue</span>` : `lands in ${p.etaDays}d`)
       : "no ETA";
@@ -203,7 +203,11 @@ function toggleInboundDrill(plans) {
     <div class="ind-list">${rows}</div>
   </div>`;
 }
-function fmtDate(iso) {
+// Local compact date (day + month, no year) for ETAs / reorder-by lines. Named
+// distinctly from app.js's fmtDate (which includes the year) — both run in the
+// same global scope, so a shared name is a fatal "already declared" SyntaxError
+// that would stop this whole file from executing.
+function fmtDateShort(iso) {
   try { return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" }); }
   catch (e) { return iso; }
 }
@@ -310,7 +314,7 @@ function ictwWhen(it, p, d) {
   if (p.status === "Stock-out risk") return "now";
   if (p.status === "Reorder") return `now · below reorder point (${p.rop})`;
   if (p.status === "On order") {
-    const by = d.order_by ? ` · reorder by ${fmtDate(d.order_by)}` : "";
+    const by = d.order_by ? ` · reorder by ${fmtDateShort(d.order_by)}` : "";
     return `${p.etaDays != null ? p.etaDays + "d to land" : "inbound"}${by}`;
   }
   if (p.status === "Overstock risk") return `trim next PO by ${p.projected - it.capacity}`;
@@ -357,7 +361,7 @@ async function reasonDemand(btn) {
 function demandRec(it) {
   const d = DEMAND[it.name];
   if (!d || d.projected_shortfall <= 0 || !d.recommended_order_qty) return "";
-  const by = d.order_by ? ` by ${fmtDate(d.order_by)}` : "";
+  const by = d.order_by ? ` by ${fmtDateShort(d.order_by)}` : "";
   return ` <span style="color:var(--ts-ink-mute)">· Forecast: order ${d.recommended_order_qty}${by} to cover ${d.horizon_days}-day demand.</span>`;
 }
 
