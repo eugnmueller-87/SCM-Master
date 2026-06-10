@@ -33,6 +33,20 @@ It runs **live** as two isolated stacks — a public [demo](https://scm-master-p
 that self-seeds a lived-in operation, and a forge-locked production stack — each
 with its own [analytics cockpit](https://scm-power-bi-production.up.railway.app).
 
+### TL;DR — key decisions (and why)
+
+The choices that define how this system uses AI, each made on evidence and
+documented:
+
+| Decision | What we chose | Why |
+| --- | --- | --- |
+| **Who decides spend** | Deterministic gate, never the LLM | An AI is good at reading a messy quote and bad with money — money decisions must be tested, auditable, and defensible to a CFO. |
+| **Confidence score** | Computed from evidence ([`confidence.py`](backend/app/agent/confidence.py)), not LLM-asserted | A model that hallucinates `0.99` must not be able to trigger a buy. The score is a factor-by-factor audit trail. |
+| **Auto-place threshold** | `confidence ≥ 0.90 AND order < €200k`, else a human | A bounded, legible rule. (€200k is the working figure, pending management sign-off.) |
+| **Forecast engine** | `statsforecast` (Croston/SBA) for intermittent SKUs | **Benchmarked vs. hand-rolled TSB**: tie at 6 SKUs, ~24% lower error at 1000 → ~21% less mis-ordering, at zero LLM tokens. [Evidence.](docs/forecast-engine-decision.md) |
+| **ML / deep-learning layer** | **Not built — by decision, not omission** | No outcome data to train on yet; procurement is tabular (trees beat nets); a black box fails the audit. We built the *learning loop* (rule-based) + the ML *seam*. [Evaluation.](#ml--deep-learning--evaluated-deferred-not-skipped) |
+| **What learns today** | Rule-based threshold calibration ([`calibration.py`](backend/app/services/calibration.py)) | Learns from human approve/edit/reject outcomes — transparent, no training data needed, no black box. |
+
 > **📦 Capstone context.** This repository is the **working MVP (stretch deliverable)** of the
 > AI-bootcamp Final Project. The full consultant package — use-case definition, no-code POC, ROI &
 > risk assessment, EU AI Act + GDPR compliance, strategic plan, and the slide deck — lives in
@@ -164,6 +178,39 @@ Three structural guards, each tested:
 ### What learns
 
 The auto-place threshold isn't fixed — it **learns from human outcomes**, deterministically and with no ML: [`services/calibration.py`](backend/app/services/calibration.py) moves the bar per (product, supplier) from a `RequisitionFeedback` track record — sources humans approve unchanged earn a lower bar (more auto-placing), ones they edit or reject earn a higher one. It's a transparent rule, not a black box; an ML calibrator is a documented future drop-in at the same function seam ([`docs/autonomy-and-learning.md`](docs/autonomy-and-learning.md)).
+
+### ML / deep learning — evaluated, deferred, not skipped
+
+A fair question for any "AI system": *where's the machine learning?* The honest
+answer is that we **evaluated it and deliberately chose not to build it yet** —
+and that decision is itself part of the design. We compared three approaches for
+the part that could conceivably be learned (the confidence score / auto-place
+threshold):
+
+| Approach | Needs training data? | Explainable to an auditor? | Right for tabular, low-frequency procurement? | Verdict |
+| --- | --- | --- | --- | --- |
+| **Rule-based** (today) | **No** — works day one | **Yes** — read the rule | **Yes** | **Built & running.** The decision logic + the calibration loop. |
+| **Gradient-boosted trees** (XGBoost / LightGBM + SHAP) | Yes — needs `DecisionLog ⨝ outcomes` | Yes — SHAP gives per-factor attribution, same shape as our audit rows | **Yes** — beats nets on this data shape | **Deferred.** The right ML *when* outcomes accrue; drop-in at the `calibrate()` seam. |
+| **Deep learning** (neural confidence) | Yes — thousands–millions of labeled rows | **No** — "the MLP said 0.87" fails the CFO test | **No** — overkill and weaker on tabular data | **Rejected.** Wrong tool; claiming we need it would undercut trust. |
+
+**Why not now, concretely:**
+
+1. **No outcome data to learn from.** A model that predicts "this decision turned out right" needs labeled *outcomes* (did the buy prevent the stockout? was the quantity right?). The `DecisionLog` is days old and dry-run-by-default — a model trained on it would be **worse** than the rule, and confidently so.
+2. **Deep learning is the wrong tool for this data.** Procurement is tabular and low-frequency (thousands of rows, a few decisions per cycle). On that shape, trees beat neural nets and stay inspectable. We saw the same lesson empirically in the forecast benchmark — the deep-learning (LSTM) demand repos were the anti-pattern; the winning method was classical statistics.
+3. **Auditability is the whole thesis.** "Deterministic code decides, every number explainable" is the opposite of a black-box score. An ML *calibrator* that advises the threshold (trees + SHAP) preserves this; a neural net that *is* the decision does not.
+
+**What we built instead so ML is a drop-in, not a rewrite:** the system already
+*learns* (rule-based calibration), `confidence.py`'s factor breakdown **is** the
+feature vector a model would consume, and `calibrate()` is a pure function an ML
+calibrator replaces at the same signature — gated behind a flag, advisory-only,
+human-promoted via shadow-mode. The full evaluation, promotion criteria, and the
+"ML advises the rule, the rule always executes" design are in
+[docs/autonomy-and-learning.md](docs/autonomy-and-learning.md).
+
+> **One-line:** we don't bolt on ML/DL for buzz — procurement data doesn't warrant
+> it yet, deep learning is the wrong tool for it regardless, and we logged the
+> evidence so a *lightweight, explainable* calibrator (trees, not nets) drops in
+> once real outcomes exist.
 
 ### Cost & token posture
 
