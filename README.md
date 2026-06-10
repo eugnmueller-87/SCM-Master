@@ -132,6 +132,27 @@ pure tested arithmetic with no model involved at all.
 | **Plain-language rationale / narration** | The LLM writes the human-readable "why" over the already-computed numbers. | ✅ **Advisory only** — if it's wrong or absent, the decision is unchanged |
 | **Grounded operational Q&A** | The LLM answers questions over a live read-only snapshot. | ✅ Read-only, never writes |
 
+### The forecast engine was a measured decision, not a default
+
+The intermittent-demand engine (`statsforecast`) was **benchmarked against the
+hand-rolled TSB before adoption** — the swap had to earn its place on evidence,
+not on "the library is newer." Two tests ([full breakdown + reproducible
+scripts](docs/forecast-engine-decision.md)):
+
+| | 6 SKUs (local data) | **1000 SKUs × 180 days** (scale) |
+| --- | --- | --- |
+| Backtest accuracy (MAE) | **tie** — proves our TSB is implemented correctly | statsforecast **~24% lower error** on the lumpy tail |
+| Speed | — | built-in TSB ~125× faster (12 ms vs 1.52 s) — *our own code scales fine* |
+| Prediction intervals | unusable (too little data) | **95% conformal coverage** (90% target) |
+
+**Decision:** the 6-SKU tie was a small-sample artefact; at 1000 SKUs the accuracy
+gap opens and the conformal intervals become trustworthy. Translated to money
+(over-order holding cost + under-order stockout cost), that ~24% is **~21% less
+mis-ordering per cycle** on illustrative economics. So statsforecast is adopted
+for **intermittent/lumpy SKUs** — not for speed (TSB wins there), but for accuracy
+at scale + probabilistic safety stock, at **zero LLM-token cost**. It's flag-gated
+(`FORECAST_ENGINE`, default `builtin`) with the fast TSB as instant rollback.
+
 ### Why the LLM can't move money
 
 Three structural guards, each tested:
