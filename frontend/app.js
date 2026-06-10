@@ -224,10 +224,32 @@ function showTab(name) {
   currentTab = name;
   openAssetId = null;
   renderNav();
-  $("#crumbs").innerHTML = `<span>SCM Master</span>${icon("chev", 12)}<strong>${CRUMBS[name]}</strong>`;
+  // A tab's label + renderer live in its own feature script (e.g. inventory.js
+  // sets CRUMBS.inventory and RENDER.inventory). If that script didn't load —
+  // almost always a stale browser cache after a deploy — CRUMBS[name] is
+  // undefined and RENDER[name]() throws, leaving the page stuck on "Loading…"
+  // with an "undefined" crumb. Fail loud and recoverable instead of hanging.
+  const label = CRUMBS[name] || name;
+  $("#crumbs").innerHTML = `<span>SCM Master</span>${icon("chev", 12)}<strong>${esc(label)}</strong>`;
   const screen = $("#screen");
+  const renderer = RENDER[name];
+  if (typeof renderer !== "function") {
+    screen.innerHTML = `<div class="state">
+      <div class="state__icon">${icon("gauge", 22)}</div>
+      <div class="state__sub">This view didn't finish loading — your browser may be holding a stale copy.</div>
+      <button class="btn btn--primary" style="margin-top:12px" onclick="location.reload(true)">Reload</button>
+    </div>`;
+    return;
+  }
   screen.innerHTML = `<div class="state"><div class="state__icon">${icon("gauge", 22)}</div><div class="state__sub">Loading…</div></div>`;
-  RENDER[name]();
+  // A throw inside the renderer must not leave the screen stuck on "Loading…".
+  Promise.resolve().then(renderer).catch((e) => {
+    screen.innerHTML = `<div class="state">
+      <div class="state__icon">${icon("gauge", 22)}</div>
+      <div class="state__sub">Couldn't load this view. ${esc((e && e.message) || "")}</div>
+      <button class="btn btn--primary" style="margin-top:12px" onclick="location.reload(true)">Reload</button>
+    </div>`;
+  });
 }
 
 /* ── Reusable bits ─────────────────────────────────────────────────── */

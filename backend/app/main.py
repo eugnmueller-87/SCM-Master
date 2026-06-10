@@ -11,9 +11,14 @@ Run from the backend/ directory:
 """
 from __future__ import annotations
 
+import os
+import re
+import subprocess
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -59,8 +64,63 @@ def schema(_admin: User = Depends(require_role(Role.ADMIN))) -> dict:
     return {"tables": sorted(Base.metadata.tables.keys())}
 
 
-# Serve the static operations UI at / (mounted last so it never shadows the API
-# or the probes above). Skipped gracefully if the frontend dir isn't present.
+# --- frontend: cache-busted index + static assets ----------------------------
+#
+# The browser caches app.js / inventory.js / etc. With plain <script src="x.js">
+# tags a deploy can leave a browser running a STALE mix — a fresh app.js next to
+# a cached inventory.js — which presents as a half-loaded page (an "undefined"
+# crumb, a view stuck on "Loading…"). To prevent it we stamp every asset URL in
+# index.html with a per-deploy build token: the HTML itself is served no-cache
+# (always re-fetched), and each asset is fetched as ``app.js?v=<token>`` so the
+# browser cache invalidates the instant the token changes — i.e. on every deploy
+# — and otherwise caches hard. No build step, no manual version bump.
 _frontend = Path(__file__).resolve().parents[2] / "frontend"
-if _frontend.is_dir():
+
+
+def _build_token() -> str:
+    """A value that is stable within one deploy and changes across deploys.
+
+    Prefers an explicit env stamp (set by the platform), then the git short SHA,
+    then the process start time as a last resort. Computed once at import.
+    """
+    env = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("APP_BUILD")
+    if env:
+        return env[:12]
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).resolve().parents[2]),
+            capture_output=True, text=True, timeout=2,
+        )
+        if sha.returncode == 0 and sha.stdout.strip():
+            return sha.stdout.strip()
+    except Exception:  # noqa: BLE001 — git absent in the deployed image is fine
+        pass
+    return str(int(time.time()))
+
+
+_BUILD = _build_token()
+# Only rewrite our own first-party assets, never an absolute/external URL.
+_ASSET_REF = re.compile(r'(src|href)="(?!https?://|//)([^"?]+\.(?:js|css))"')
+
+
+def _index_html() -> str:
+    raw = (_frontend / "index.html").read_text(encoding="utf-8")
+    return _ASSET_REF.sub(rf'\1="\2?v={_BUILD}"', raw)
+
+
+if _frontend.is_dir() and (_frontend / "index.html").is_file():
+    _INDEX = _index_html()
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    def index() -> HTMLResponse:
+        # no-store on the shell so a new deploy's version stamps are seen at once;
+        # the stamped assets below are what actually get cached.
+        return HTMLResponse(_INDEX, headers={"Cache-Control": "no-store"})
+
+    # Static assets (the stamped app.js?v=… resolves to app.js here). Mounted
+    # last so it never shadows the API, the probes, or the index route above.
+    app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
+elif _frontend.is_dir():
     app.mount("/", StaticFiles(directory=str(_frontend), html=True), name="frontend")
