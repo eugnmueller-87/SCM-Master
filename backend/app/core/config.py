@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     auto_place_confidence: float = 0.90        # calibrated confidence at/above which a PR auto-converts to a PO
     calibration_min_samples: int = 3           # min feedback rows before trust adjusts the bar
     calibration_max_delta: float = 0.10        # most the bar can move down (trusted) or up (risky)
+    # Shadow-mode ML calibrator (LightGBM + SHAP). OFF by default and advisory
+    # only: when on, it logs what it WOULD advise next to the rule's decision —
+    # the rule still decides. Needs >= this many feedback rows to train, else it
+    # declines (an undertrained model is worse than the rule). See
+    # services/calibration_ml.py + docs/autonomy-and-learning.md.
+    ml_calibration_shadow: bool = False
+    ml_calibration_min_samples: int = 20
 
     # Demand forecasting — usage-driven projection (all env-overridable).
     demand_horizon_days: int = 90              # how far ahead the forecast projects

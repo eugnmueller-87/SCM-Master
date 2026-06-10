@@ -19,3 +19,10 @@ psycopg[binary]>=3.1
 # and gated behind settings.forecast_engine (default "builtin"), so it is inert
 # until explicitly enabled. Pulls numba (compiled) + pandas — see THIRD_PARTY_LICENSES.md.
 statsforecast>=2.0,<3.0
+
+# Shadow-mode ML calibrator: gradient-boosted trees + SHAP attribution over the
+# auto-place feedback signal. MIT (lightgbm) / MIT (shap). Used ONLY via
+# app/services/calibration_ml.py and gated behind settings.ml_calibration_shadow
+# (default off) — advisory/shadow, never decides — so it is inert until enabled.
+lightgbm>=4.0,<5.0
+shap>=0.44,<1.0

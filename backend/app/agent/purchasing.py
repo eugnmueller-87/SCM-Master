@@ -367,6 +367,37 @@ def run_weekly_purchasing(db: Session, *, dry_run: bool = True,
     )
 
 
+def _log_shadow_calibration(db: Session, lines: list, supplier_id: str,
+                            *, rule_bar: float) -> None:
+    """Log what the shadow ML calibrator WOULD advise vs. the rule's bar.
+
+    Strictly observational: it does not change ``rule_bar`` or any decision. Off
+    unless ``settings.ml_calibration_shadow``; silently no-ops if the model
+    declines (not enough data / lightgbm absent) so it can never affect a run.
+    This is the proving ground — once the ML tracks the rule well in these logs
+    over real outcomes, promoting it is a wiring change, not a rewrite.
+    """
+    if not settings.ml_calibration_shadow:
+        return
+    try:
+        from app.services import calibration_ml as _mlcalib
+        advised = [
+            mc for line in lines
+            if (mc := _mlcalib.ml_calibrate(db, line["product_id"], supplier_id)) is not None
+        ]
+        if not advised:
+            return
+        ml_bar = max(mc.adjusted_floor for mc in advised)
+        _log.info(
+            "shadow-calibration",
+            extra={"supplier_id": supplier_id, "rule_bar": round(rule_bar, 3),
+                   "ml_bar": round(ml_bar, 3), "delta": round(ml_bar - rule_bar, 3),
+                   "advice": [mc.as_dict() for mc in advised]},
+        )
+    except Exception:  # noqa: BLE001  # nosec B110 — shadow logging must never affect a real run
+        pass
+
+
 def run_requisition_cycle(db: Session, *, period_days: int = 7,
                           actor: Optional[str] = None, use_llm: bool = True) -> dict:
     """Stage Purchase Requisitions from detected demand, auto-placing the ones
@@ -417,6 +448,11 @@ def run_requisition_cycle(db: Session, *, period_days: int = 7,
              for line in lines),
             default=settings.auto_place_confidence,
         )
+
+        # SHADOW ONLY: if the ML calibrator is enabled, log what it WOULD advise
+        # next to the rule's bar. It never changes `bar` — the rule still decides.
+        # No-op (and no import cost) when the flag is off or the model declines.
+        _log_shadow_calibration(db, lines, supplier_id, rule_bar=bar)
 
         pr_lines = [{
             "product_id": line["product_id"],

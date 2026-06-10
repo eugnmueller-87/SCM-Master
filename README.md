@@ -179,7 +179,7 @@ Three structural guards, each tested:
 
 ### What learns
 
-The auto-place threshold isn't fixed — it **learns from human outcomes**, deterministically and with no ML: [`services/calibration.py`](backend/app/services/calibration.py) moves the bar per (product, supplier) from a `RequisitionFeedback` track record — sources humans approve unchanged earn a lower bar (more auto-placing), ones they edit or reject earn a higher one. It's a transparent rule, not a black box; an ML calibrator is a documented future drop-in at the same function seam ([`docs/autonomy-and-learning.md`](docs/autonomy-and-learning.md)).
+The auto-place threshold isn't fixed — it **learns from human outcomes**, deterministically and with no ML: [`services/calibration.py`](backend/app/services/calibration.py) moves the bar per (product, supplier) from a `RequisitionFeedback` track record — sources humans approve unchanged earn a lower bar (more auto-placing), ones they edit or reject earn a higher one. It's a transparent rule, not a black box; a **LightGBM + SHAP** ML calibrator now rides alongside it in **shadow mode** ([`services/calibration_ml.py`](backend/app/services/calibration_ml.py)) — it trains on the same feedback and logs what it *would* advise, but the rule still decides until the ML proves out ([`docs/autonomy-and-learning.md`](docs/autonomy-and-learning.md)).
 
 ### ML / deep learning — evaluated, deferred, not skipped
 
@@ -192,7 +192,7 @@ threshold):
 | Approach | Needs training data? | Explainable to an auditor? | Right for tabular, low-frequency procurement? | Verdict |
 | --- | --- | --- | --- | --- |
 | **Rule-based** (today) | **No** — works day one | **Yes** — read the rule | **Yes** | **Built & running.** The decision logic + the calibration loop. |
-| **Gradient-boosted trees** (XGBoost / LightGBM + SHAP) | Yes — needs `DecisionLog ⨝ outcomes` | Yes — SHAP gives per-factor attribution, same shape as our audit rows | **Yes** — beats nets on this data shape | **Deferred.** The right ML *when* outcomes accrue; drop-in at the `calibrate()` seam. |
+| **Gradient-boosted trees** (LightGBM + SHAP) | Yes — learns from the `RequisitionFeedback` signal | Yes — SHAP gives per-feature attribution, same shape as our audit rows | **Yes** — ensemble (not a single tree); beats nets on this data shape | **Built in shadow mode.** [`services/calibration_ml.py`](backend/app/services/calibration_ml.py) — trains + advises a bar, **logs what it *would* do next to the rule; the rule still decides.** Flag-gated (`ml_calibration_shadow`, default off); declines when undertrained. |
 | **Deep learning** (neural confidence) | Yes — thousands–millions of labeled rows | **No** — "the MLP said 0.87" fails the CFO test | **No** — overkill and weaker on tabular data | **Rejected.** Wrong tool; claiming we need it would undercut trust. |
 
 **Why not now, concretely:**
