@@ -6,10 +6,11 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-298_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-333_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
 [![Agent safety](https://img.shields.io/badge/agent_safety-29_scenarios-8A2BE2?logo=shieldsdotio&logoColor=white)](backend/tests/agent_eval/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
-[![Claude](https://img.shields.io/badge/AI-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Claude](https://img.shields.io/badge/AI-Claude_(advisory)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
+[![Forecast](https://img.shields.io/badge/Forecast-statsforecast-10b981?logo=python&logoColor=white)](docs/forecast-engine-decision.md)
 
 A supply-chain management system for **hardware procurement and asset lifecycle tracking** — built for the case where a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
 
@@ -103,6 +104,51 @@ replayed stale approval, garbage JSON — and asserts the gate refuses or clamps
 every time. Each adversarial case is *teeth-verified*: the same hostile world
 **does** place an order when the one blocking condition is relaxed, so a green run
 means the gate held, not that the harness couldn't act.
+
+## AI & automation — the breakdown
+
+This system uses AI, but deliberately keeps it on a short leash. The governing
+rule is **"the LLM advises, deterministic code decides"** — so it's worth being
+precise about *where* an AI actually runs, what it's allowed to touch, and what is
+pure tested arithmetic with no model involved at all.
+
+### The model
+
+| | |
+| --- | --- |
+| **Provider / model** | Anthropic **Claude** — `claude-sonnet-4-6` by default ([`core/config.py`](backend/app/core/config.py), env-overridable via `ANTHROPIC_MODEL`). |
+| **Single entry point** | One function, [`agent/client.py::call_claude`](backend/app/agent/client.py) — every LLM call in the system goes through it. Nothing else talks to the API. |
+| **Optional** | The key is optional. With no `ANTHROPIC_API_KEY`, the agent runs **deterministically** (templated narration), boots fast, and costs zero tokens — used for seed-on-boot and CI. |
+
+### Where AI is used — and where it isn't
+
+| Concern | Who decides | AI involved? |
+| --- | --- | --- |
+| **What to buy / how much / from whom** | Deterministic — net demand + MOQ + the inventory-position model; supplier from the sourcing service. | ❌ Never |
+| **Demand forecast (the order's basis)** | Deterministic — Syntetos–Boylan routing → run-rate / TSB, or **Nixtla `statsforecast`** (Croston/SBA) for intermittent SKUs. Pure CPU statistics. | ❌ Never — **zero LLM tokens** |
+| **Confidence score** (gates auto-place) | Deterministic — [`agent/confidence.py`](backend/app/agent/confidence.py) computes it from the buy's evidence (sole-source? full contract data? observed vs forecast demand? fits storage?), with a factor-by-factor audit trail. | ❌ Never — the LLM's self-reported confidence is **recorded but never gates** |
+| **Auto-place vs. escalate** | Deterministic gate — confidence ≥ 0.90 **and** order < €200k, else a human approves. Spend caps + approved-source + storage headroom are hard rails. | ❌ Never |
+| **Cost floor (should-cost) / TCO** | Deterministic — commodity-indexed teardown + whole-life rollup. | ❌ Never |
+| **Plain-language rationale / narration** | The LLM writes the human-readable "why" over the already-computed numbers. | ✅ **Advisory only** — if it's wrong or absent, the decision is unchanged |
+| **Grounded operational Q&A** | The LLM answers questions over a live read-only snapshot. | ✅ Read-only, never writes |
+
+### Why the LLM can't move money
+
+Three structural guards, each tested:
+
+1. **The grounding guard** ([`agent/grounding.py`](backend/app/agent/grounding.py)) forces the model's decision-critical numbers (quantity, shortfall) onto the code-computed truth before anything reads them — the model can narrate, never re-derive.
+2. **Deterministic confidence** gates auto-placement, so a model that hallucinates a `0.99` cannot trigger a buy; the score comes from evidence, and **garbage / unavailable LLM output can't force an auto-place** — the €200k spend ceiling is the brake.
+3. **The agent-safety harness** ([`tests/agent_eval/`](backend/tests/agent_eval/)) runs the *real* gate with the Claude call stubbed and feeds it hostile advice (unapproved supplier, over-cap spend, prompt injection, poisoned calibration, garbage JSON) — asserting the gate refuses or clamps every time, and teeth-verifying that the same world *does* act when the one blocking condition is relaxed.
+
+### What learns
+
+The auto-place threshold isn't fixed — it **learns from human outcomes**, deterministically and with no ML: [`services/calibration.py`](backend/app/services/calibration.py) moves the bar per (product, supplier) from a `RequisitionFeedback` track record — sources humans approve unchanged earn a lower bar (more auto-placing), ones they edit or reject earn a higher one. It's a transparent rule, not a black box; an ML calibrator is a documented future drop-in at the same function seam ([`docs/autonomy-and-learning.md`](docs/autonomy-and-learning.md)).
+
+### Cost & token posture
+
+Forecasting and every spend decision use **zero LLM tokens** — they're CPU math. The only token cost is the per-line *narration*, which collapses to a templated string when the key is absent. So the AI makes the system more legible without ever being the thing that decides — and the bill scales with explanation, not with operations.
+
+> **Design docs:** [autonomy-and-learning.md](docs/autonomy-and-learning.md) (the gate + learning loop + ML seam) · [deterministic-confidence.md](docs/deterministic-confidence.md) (how the score is computed and audited) · [forecast-engine-decision.md](docs/forecast-engine-decision.md) (the statsforecast adoption, with the money/accuracy evidence).
 
 ## What makes it different
 
@@ -229,7 +275,8 @@ All entities share a UUID primary key and `date_created` / `last_updated` audit 
 - **SQLAlchemy 2.0** (typed `Mapped[...]` models) for the ORM, **Alembic** for versioned migrations.
 - **Pydantic 2** / **pydantic-settings** for config and `Create`/`Update`/`Read` request/response schemas.
 - **SQLite** by default for development; **Postgres 16** in production — the same code runs against both (driver auto-pinned on `DATABASE_URL`), with a CI job proving the Postgres path.
-- **Anthropic Claude** for the procurement copilot — strictly advisory; deterministic services own every decision.
+- **Anthropic Claude** (`claude-sonnet-4-6`, env-overridable) for the procurement copilot — strictly advisory; deterministic services own every decision. See [AI & automation](#ai--automation--the-breakdown).
+- **Nixtla `statsforecast`** (Apache-2.0) for intermittent-demand forecasting (Croston/SBA + conformal prediction intervals) — CPU-only, **zero LLM tokens**, flag-gated behind `FORECAST_ENGINE`. Evidence & rationale: [docs/forecast-engine-decision.md](docs/forecast-engine-decision.md).
 - **GitHub Actions** CI (ruff · migrate-check · pytest+coverage · Postgres smoke · bandit · pip-audit · agent-safety), deployed on **Railway**, with a **Power BI**-style executive cockpit ([SCM-POWER-BI](https://github.com/eugnmueller-87/SCM-POWER-BI)).
 
 ## Project layout
