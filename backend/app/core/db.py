@@ -16,8 +16,24 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from app.core.config import settings
 
 # check_same_thread is only needed for SQLite; harmless to compute conditionally.
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, connect_args=connect_args)
+_is_sqlite = settings.database_url.startswith("sqlite")
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
+
+# Connection-pool tuning matters only for a real server DB (Postgres on prod);
+# SQLite uses a SingletonThreadPool/StaticPool and ignores these knobs.
+#   - pool_pre_ping: validate a connection before use, so a stale/recycled
+#     Postgres connection (Railway idle-times these out) is transparently
+#     replaced instead of raising on the next query.
+#   - pool_size/max_overflow: headroom above SQLAlchemy's tiny 5+10 default, so a
+#     burst of dashboard traffic alongside a long agent run doesn't hit
+#     "QueuePool limit reached" and start failing /readyz.
+pool_kwargs = {} if _is_sqlite else {
+    "pool_pre_ping": True,
+    "pool_size": 10,
+    "max_overflow": 20,
+    "pool_recycle": 1800,
+}
+engine = create_engine(settings.database_url, connect_args=connect_args, **pool_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

@@ -100,7 +100,13 @@ class AssetService(CRUDService[Asset]):
         db.flush()
 
         for line in lines:
-            order_item = db.get(OrderItem, line["order_item_id"])
+            # Lock the order line for the duration of this transaction so the
+            # over-receipt guard below is concurrency-safe: without the row lock,
+            # two simultaneous receipts against the same line both read the same
+            # "already received" total and both pass the check, over-receiving.
+            # with_for_update() serialises them on Postgres (prod); it is a no-op
+            # on SQLite, which already serialises writes, so dev/tests are unaffected.
+            order_item = db.get(OrderItem, line["order_item_id"], with_for_update=True)
             if order_item is None:
                 raise NotFoundError(f"OrderItem {line['order_item_id']!r} not found")
             if order_item.order_id != order.id:
@@ -122,8 +128,14 @@ class AssetService(CRUDService[Asset]):
             ))
 
             # Mint one Asset per unit, each born RECEIVED with provenance intact.
+            # Assign the id explicitly (same uuid the IdMixin default would mint)
+            # so the AssetEvent FK can reference it WITHOUT a per-unit flush —
+            # SQLAlchemy applies column defaults only at flush time, so relying on
+            # the default here would leave asset.id None. One flush after the loop
+            # then persists every asset and event, instead of one round-trip each.
             for _ in range(qty):
                 asset = Asset(
+                    id=str(uuid.uuid4()),
                     serial_number=_gen_serial(),
                     product_id=order_item.product_id,
                     status=AssetStatus.RECEIVED,
@@ -132,7 +144,6 @@ class AssetService(CRUDService[Asset]):
                     received_date=receipt.receipt_date,
                 )
                 db.add(asset)
-                db.flush()
                 self._log(db, asset, AssetEventType.RECEIVED,
                           to_status=AssetStatus.RECEIVED, to_location_id=location.id,
                           actor=actor, note=f"Received against {order.order_number}")
@@ -178,6 +189,13 @@ class AssetService(CRUDService[Asset]):
         already set.
         """
         asset = self.get_or_404(db, asset_id)
+        # Lock the asset row so the read-validate-write of its lifecycle status is
+        # atomic: without it, two concurrent transitions both read the same
+        # from_status, both pass assert_transition(), and the second silently
+        # overwrites the first (e.g. MAINTENANCE->DEPLOYED racing MAINTENANCE->
+        # DECOMMISSIONED). with_for_update() serialises them on Postgres; no-op on
+        # SQLite. We re-read under the lock in case the row changed since get_or_404.
+        db.refresh(asset, with_for_update=True)
         lifecycle.assert_transition(asset.status, target)
 
         from_status = asset.status

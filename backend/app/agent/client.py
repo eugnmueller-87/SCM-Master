@@ -11,6 +11,30 @@ from app.core.config import settings
 
 _MAX_TOKENS = 2000
 
+# One shared client, built lazily on first use and reused thereafter. The
+# Anthropic SDK client is thread-safe and keeps a pooled, keep-alive HTTP
+# connection, so reusing it avoids a fresh TLS handshake on every call — which
+# matters when the purchasing run makes one LLM call per product line. Cached as
+# a module global rather than constructed per call.
+_client = None
+
+
+def _get_client():
+    """Return the shared Anthropic client, or None if it cannot be built.
+
+    Raises nothing: a missing key or missing package is reported by the caller as
+    an ``[agent-error]`` string, preserving the never-raises contract.
+    """
+    global _client
+    if _client is not None:
+        return _client
+    try:
+        import anthropic
+    except ImportError:
+        return None
+    _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    return _client
+
 
 def call_claude(system: str, user: str, *, max_tokens: int = _MAX_TOKENS) -> str:
     """Send one system+user turn to Claude and return the text response.
@@ -21,13 +45,11 @@ def call_claude(system: str, user: str, *, max_tokens: int = _MAX_TOKENS) -> str
     """
     if not settings.anthropic_api_key:
         return "[agent-error] ANTHROPIC_API_KEY is not set"
-    try:
-        import anthropic
-    except ImportError:
+    client = _get_client()
+    if client is None:
         return "[agent-error] the 'anthropic' package is not installed"
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         resp = client.messages.create(
             model=settings.anthropic_model,
             max_tokens=max_tokens,

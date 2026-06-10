@@ -59,28 +59,42 @@ def _unit_price(order_item: OrderItem) -> Decimal:
     return order_item.unit_price if order_item.unit_price is not None else Decimal("0")
 
 
-def spend_by_supplier(db: Session, year: int | None = None) -> list[dict]:
+def _supplier_names(db: Session, supplier_ids) -> dict[str, str | None]:
+    """Resolve many supplier ids to names in ONE query (replaces a per-supplier
+    ``db.get`` loop / N+1). Missing ids map to None, matching the old behaviour."""
+    ids = [sid for sid in supplier_ids if sid is not None]
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(Organization.id, Organization.name).where(Organization.id.in_(ids))
+    ).all()
+    return {oid: name for oid, name in rows}
+
+
+def spend_by_supplier(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
+    rows = _received_spend_rows(db, year) if rows is None else rows
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0"), "name": None})
-    for _asset, oi, order, _product in _received_spend_rows(db, year):
+    for _asset, oi, order, _product in rows:
         bucket = totals[order.supplier_id]
         bucket["units"] += 1
         bucket["spend"] += _unit_price(oi)
-    # resolve names
-    out = []
-    for supplier_id, b in totals.items():
-        org = db.get(Organization, supplier_id)
-        out.append({
+    names = _supplier_names(db, totals.keys())
+    out = [
+        {
             "supplier_id": supplier_id,
-            "supplier_name": org.name if org else None,
+            "supplier_name": names.get(supplier_id),
             "units": b["units"],
             "spend": b["spend"],
-        })
+        }
+        for supplier_id, b in totals.items()
+    ]
     return sorted(out, key=lambda r: r["spend"], reverse=True)
 
 
-def spend_by_product(db: Session, year: int | None = None) -> list[dict]:
+def spend_by_product(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
+    rows = _received_spend_rows(db, year) if rows is None else rows
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0"), "name": None, "category": None})
-    for asset, oi, _order, product in _received_spend_rows(db, year):
+    for asset, oi, _order, product in rows:
         b = totals[asset.product_id]
         b["units"] += 1
         b["spend"] += _unit_price(oi)
@@ -94,9 +108,10 @@ def spend_by_product(db: Session, year: int | None = None) -> list[dict]:
     return sorted(out, key=lambda r: r["spend"], reverse=True)
 
 
-def spend_by_category(db: Session, year: int | None = None) -> list[dict]:
+def spend_by_category(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
+    rows = _received_spend_rows(db, year) if rows is None else rows
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0")})
-    for _asset, oi, _order, product in _received_spend_rows(db, year):
+    for _asset, oi, _order, product in rows:
         cat = product.category or "(uncategorised)"
         totals[cat]["units"] += 1
         totals[cat]["spend"] += _unit_price(oi)
@@ -108,11 +123,14 @@ def spend_by_category(db: Session, year: int | None = None) -> list[dict]:
 
 
 def spend_summary(db: Session, year: int | None = None) -> dict:
+    # Materialise the join ONCE and share it across all three rollups, instead of
+    # re-running the 4-table join three times per request. The numbers are
+    # identical — same rows, same per-asset Decimal arithmetic.
     rows = _received_spend_rows(db, year)
     total = sum((_unit_price(oi) for _a, oi, _o, _p in rows), Decimal("0"))
     return {
         "total_units": len(rows),
         "total_spend": total,
-        "by_supplier": spend_by_supplier(db, year),
-        "by_category": spend_by_category(db, year),
+        "by_supplier": spend_by_supplier(db, year, rows=rows),
+        "by_category": spend_by_category(db, year, rows=rows),
     }

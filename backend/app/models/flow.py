@@ -69,7 +69,9 @@ class ReceiptItem(IdMixin, TimestampMixin, Base):
     __tablename__ = "receipt_item"
 
     receipt_id: Mapped[str] = mapped_column(ForeignKey("receipt.id"), index=True)
-    order_item_id: Mapped[str] = mapped_column(ForeignKey("order_item.id"))
+    # Indexed: every received-quantity rollup (planning + receiving guard) sums
+    # ReceiptItem filtered by order_item_id, so this is a hot join/filter key.
+    order_item_id: Mapped[str] = mapped_column(ForeignKey("order_item.id"), index=True)
     quantity_received: Mapped[int] = mapped_column(Integer)
 
     receipt: Mapped["Receipt"] = relationship(back_populates="items")
@@ -97,12 +99,16 @@ class Asset(IdMixin, TimestampMixin, Base):
 
     serial_number: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     product_id: Mapped[str] = mapped_column(ForeignKey("product.id"), index=True)
-    status: Mapped[AssetStatus] = mapped_column(SAEnum(AssetStatus), default=AssetStatus.RECEIVED)
+    # Indexed: on-hand/deployed capacity counts and the /assets?status= filter all
+    # narrow by status, so it's a hot filter key at asset scale.
+    status: Mapped[AssetStatus] = mapped_column(SAEnum(AssetStatus), default=AssetStatus.RECEIVED, index=True)
 
     # Current physical location (warehouse early in life, a rack once deployed).
-    current_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("location.id"))
+    # Indexed: capacity group-bys and the location filter join on this.
+    current_location_id: Mapped[Optional[str]] = mapped_column(ForeignKey("location.id"), index=True)
     # Provenance: which buy this unit came from. Never broken.
-    source_order_item_id: Mapped[Optional[str]] = mapped_column(ForeignKey("order_item.id"))
+    # Indexed: the spend-analytics join and provenance lookup key on this.
+    source_order_item_id: Mapped[Optional[str]] = mapped_column(ForeignKey("order_item.id"), index=True)
 
     received_date: Mapped[Optional[date]] = mapped_column(Date)
     deployed_date: Mapped[Optional[date]] = mapped_column(Date)

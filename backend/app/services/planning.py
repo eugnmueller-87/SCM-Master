@@ -43,6 +43,26 @@ def _received_qty(db: Session, order_item_id: str) -> int:
     return int(total or 0)
 
 
+def _received_qty_map(db: Session, order_item_ids) -> dict[str, int]:
+    """Received quantity for many order lines in ONE grouped query.
+
+    Replaces calling ``_received_qty`` once per line (an N+1 over the open
+    pipeline). Returns ``{order_item_id: received}``; a line with no receipts is
+    simply absent — callers default it to 0, which is exactly what the per-line
+    ``coalesce(sum, 0)`` produced. ``order_item_ids`` may be any iterable; an
+    empty one short-circuits without a query.
+    """
+    ids = list(order_item_ids)
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(ReceiptItem.order_item_id, func.coalesce(func.sum(ReceiptItem.quantity_received), 0))
+        .where(ReceiptItem.order_item_id.in_(ids))
+        .group_by(ReceiptItem.order_item_id)
+    ).all()
+    return {oid: int(total or 0) for oid, total in rows}
+
+
 # --- shared aggregations (one definition, reused across the read views) ----
 
 def _on_hand_by_product(db: Session) -> dict[str, int]:
@@ -60,13 +80,15 @@ def _inbound_by_destination(db: Session) -> tuple[dict[str, int], dict[str, set[
     numbers heading to each. Open orders only. Returns (units_by_loc, pos_by_loc)."""
     units: dict[str, int] = {}
     pos: dict[str, set[str]] = {}
-    for oi, order in db.execute(
+    rows = db.execute(
         select(OrderItem, PurchaseOrder)
         .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
         .where(PurchaseOrder.status.in_(_OPEN_ORDER),
                PurchaseOrder.destination_id.is_not(None))
-    ).all():
-        outstanding = oi.quantity - _received_qty(db, oi.id)
+    ).all()
+    received = _received_qty_map(db, (oi.id for oi, _ in rows))
+    for oi, order in rows:
+        outstanding = oi.quantity - received.get(oi.id, 0)
         if outstanding <= 0:
             continue
         dest = order.destination_id
@@ -84,9 +106,10 @@ def inbound_pipeline(db: Session, *, as_of: Optional[date] = None) -> list[dict]
         .where(PurchaseOrder.status.in_(_OPEN_ORDER))
     )
     rows = db.execute(stmt).all()
+    received_map = _received_qty_map(db, (oi.id for oi, _ in rows))
     out = []
     for oi, order in rows:
-        received = _received_qty(db, oi.id)
+        received = received_map.get(oi.id, 0)
         outstanding = oi.quantity - received
         if outstanding <= 0:
             continue
