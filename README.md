@@ -6,7 +6,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
 [![Postgres](https://img.shields.io/badge/Postgres-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Tests](https://img.shields.io/badge/tests-337_passing-2ea44f?logo=pytest&logoColor=white)](backend/tests/)
+[![CI](https://github.com/eugnmueller-87/SCM-Master/actions/workflows/ci.yml/badge.svg)](https://github.com/eugnmueller-87/SCM-Master/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-%E2%89%A580%25_(CI--gated)-2ea44f?logo=pytest&logoColor=white)](.github/workflows/ci.yml)
 [![Agent safety](https://img.shields.io/badge/agent_safety-29_scenarios-8A2BE2?logo=shieldsdotio&logoColor=white)](backend/tests/agent_eval/)
 [![ML calibrator](https://img.shields.io/badge/ML-LightGBM_(shadow)-0194E2?logo=scikitlearn&logoColor=white)](backend/app/services/calibration_ml.py)
 [![Concurrency-safe](https://img.shields.io/badge/concurrency-row_locked-0A7E8C?logo=postgresql&logoColor=white)](#production-hardening--concurrency-and-scale)
@@ -96,7 +97,7 @@ the purchase-order line it came from (see [What makes it different](#what-makes-
 | **Operational core** | Procurement → receiving → asset lifecycle, with an unbroken provenance link from each serial unit back to its PO line. | [`models/`](backend/app/models/), [`services/`](backend/app/services/) |
 | **Planning** | Inbound pipeline, warehouse capacity + over-capacity diagnosis, and real inventory science: demand-pattern-routed forecasting (run-rate / TSB, backtest-proven), service-level safety stock, and ABC classification — backtested against ~18 months of history. | [`services/planning.py`](backend/app/services/planning.py), [`forecasting.py`](backend/app/services/forecasting.py) |
 | **Decision layer** | An LLM copilot that proposes buys; a should-cost engine; a TCO/TSCMC rollup. The LLM **advises**; deterministic services **decide**. | [`agent/`](backend/app/agent/), [`services/costing.py`](backend/app/services/costing.py), [`services/tco.py`](backend/app/services/tco.py) |
-| **Trust** | A 29-scenario [agent safety harness](backend/tests/agent_eval/) that proves the gate refuses hostile AI advice; 244 tests; 6-job CI (lint, migrations, Postgres, SAST, CVE audit, agent-safety). | [`tests/`](backend/tests/), [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
+| **Trust** | A 29-scenario [agent safety harness](backend/tests/agent_eval/) that proves the gate refuses hostile AI advice; 52 test files with a CI-gated ≥80% coverage floor; 5-job CI (tests+coverage, Postgres smoke, SAST, CVE audit, agent-safety). | [`tests/`](backend/tests/), [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | **Delivery** | Two isolated live stacks (forge-locked production + self-seeding demo), each with an executive analytics cockpit. | [docs/DEPLOY.md](docs/DEPLOY.md), [SCM-POWER-BI](https://github.com/eugnmueller-87/SCM-POWER-BI) |
 
 ## Why you can trust the numbers
