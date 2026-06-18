@@ -1,37 +1,56 @@
 # SCM topology reconciliation — demo / prod / cockpit
 
-**Status: DIAGNOSTIC + PLAN. No Railway actions taken. No authenticated request
-made to any host pending Step 1 host-ownership confirmation.**
+**Status: RESOLVED. Host ownership confirmed on Railway (Settings → Domains).
+This is the canonical stack map — do not infer host identity from a name again.**
 
 ---
 
-## ✅ RESOLVED (Step 1 + 2 reads, by owner)
+## ✅ CONFIRMED TOPOLOGY (the canonical map)
 
-**Host ownership — CONFIRMED Case (ii), the clean outcome:**
+| Hostname | Railway project | Role | Key facts |
+|---|---|---|---|
+| `scm-master-production.up.railway.app` | **"SCM master"** | **DEMO** | `SCM_ENV`≠prod, synthetic data, `admin/admin` expected. The cockpit reads this. **No Postgres service** → currently ephemeral SQLite (see Follow-up 1). |
+| `vivacious-delight-production-c128.up.railway.app` | **SCM-Master-Prod** | **REAL PROD** | `SCM_ENV=prod`, long `ADMIN_PASSWORD`, Postgres-backed (3/3 services). **Never touched this session.** |
+| `scm-power-bi-production.up.railway.app` | **"SCM MASTER Power-BI"** | **COCKPIT** (demo) | Reads the DEMO backend above. One cockpit; its `API_BASE` selects the backend. |
 
-| Hostname | Owner (Settings → Domains) | Role |
-|---|---|---|
-| `scm-master-production.up.railway.app` | **"SCM master"** project | **DEMO** — this is what every session curl + the cockpit default hit |
-| `vivacious-delight-production-c128.up.railway.app` | **SCM-Master-Prod** project | **REAL PROD** (`SCM_ENV=prod`, long `ADMIN_PASSWORD`) — never touched |
+**The clean outcome (Case ii):** every session request + the cockpit default that
+hit `scm-master-production…` hit the **DEMO**, not the forge-locked prod. Real prod
+was never contacted. No admin/admin exposure on prod. The `-production` in the demo
+hostname is Railway's *environment* name, not `SCM_ENV` — the exact trap this doc exists to kill.
 
-**Implications:**
-- §i (admin/admin reached prod) — **NOT APPLICABLE.** All admin/admin traffic hit
-  the demo. Real prod has its own domain + strong admin and was never contacted.
-- The `-production` in the demo's hostname is Railway's env name, not `SCM_ENV`
-  (the exact trap this doc is about).
+## Final state of the year-filter work
 
-**Still to read on the "SCM master" (demo) project before deploying:**
-- [ ] `SCM_ENV` (expect unset/`dev` — must NOT be `prod` for seeding to work)
-- [ ] `SEED_DEMO` (expect `1`)
-- [ ] Durable DB? (no Postgres icon on the card → may be ephemeral SQLite → §iii)
-- [ ] Cockpit `API_BASE` → should point at this demo host (Step 3)
+- **Feature shipped to demo and verified green:** the cockpit's per-year spend is
+  live — 5 years (2022–2026), real distinct per-year totals summing to all-time.
+- **Design:** section-scoped (year buttons on Spend/Forecast; inventory labelled
+  "live snapshot (now)") — NOT a global selector, because inventory is a live
+  snapshot with no history to rewind. This is the honest shape.
+- **PRs:** cockpit PR closed as superseded (main's section-scoped design won); the
+  backend year-filter code converged onto `main` independently; this doc + the
+  deploy runbook ship via the (now docs-only) SCM-Master PR.
 
-**Heads-up observed on SCM-Master-Prod Settings:** auto-deploy ON (branch
-`production`), "Wait for CI" OFF — a merge to that branch auto-deploys to real prod
-without waiting for green CI. Out of scope here; noted.
+## Two genuine follow-ups (not blocking the demo feature)
 
-Everything below is asserted **only as far as the code/docs prove it**. Anything
-about which Railway project owns what is marked **[VERIFY ON RAILWAY — yours]**.
+1. **Demo durability — add Postgres.** The demo serves 5 years now but has **no
+   Postgres service**, so on SQLite that data resets on redeploy/restart. Add a
+   Postgres to the "SCM master" project: `+ New → PostgreSQL`, set
+   `DATABASE_URL=${{Postgres.DATABASE_URL}}` + `SEED_DEMO=1`. Protects the showcase.
+2. **Verify the prod forge-lock actually engages.** "Forge-locked" is currently
+   *inferred* from `SCM_ENV=prod`, not verified on the live box. Confirm real prod
+   (`vivacious-delight…`) **refuses** `admin@example.com`/`admin`. Hard prerequisite
+   before promoting anything to prod.
+
+**Note on prod auto-deploy:** SCM-Master-Prod auto-deploys on push to branch
+`production` with **"Wait for CI" OFF** — a merge there deploys immediately to real
+prod, migration-against-real-data, no automated gate. Promote only deliberately via
+the `/promote` skill, after the two follow-ups above.
+
+---
+
+## Appendix — original investigation (how the map was pinned)
+
+The sections below are the original diagnostic that resolved the confusion; kept for
+provenance. The map above is the conclusion.
 
 ---
 
