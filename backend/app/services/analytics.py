@@ -10,17 +10,33 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import extract, select
+from sqlalchemy import and_, extract, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.catalog import Organization, Product
 from app.models.flow import Asset
 from app.models.procurement import OrderItem, PurchaseOrder
 
 
+def _analytics_only_prefixes() -> tuple[str, ...]:
+    """Product-code prefixes that are ANALYTICS-ONLY synthetic fixtures (the TCO
+    and should-cost datasets). Shared with the procurement exclusion so the
+    cockpit's spend and the buyer board hide the SAME synthetic products — a
+    single source of truth. Their assets are real cost fixtures for the TCO /
+    should-cost pages, but they are not real procurement spend, so they (and the
+    synthetic 'vendor' that only supplies them) must not appear in spend
+    analytics alongside real suppliers."""
+    return tuple(
+        p.strip() for p in settings.procurement_excluded_code_prefixes.split(",") if p.strip()
+    )
+
+
 def _received_spend_rows(db: Session, year: int | None = None):
     """Yield (asset, order_item, order, product) for every asset that traces to
-    an order line. Assets with no provenance link are skipped.
+    an order line. Assets with no provenance link are skipped, and assets of
+    analytics-only synthetic products (TCO-*/SCN-*) are excluded so spend
+    reflects only real, buyable products and their real suppliers.
 
     When ``year`` is given, only assets *received* in that calendar year are
     included (by ``Asset.received_date``); assets with no received date are
@@ -32,6 +48,19 @@ def _received_spend_rows(db: Session, year: int | None = None):
         .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
         .join(Product, Asset.product_id == Product.id)
     )
+    prefixes = _analytics_only_prefixes()
+    if prefixes:
+        # Keep a product only if its code matches NONE of the excluded prefixes
+        # (AND of the NOT LIKEs), OR the code is NULL (a real product without a
+        # code is not a synthetic fixture). A plain OR of the NOT LIKEs would let
+        # every synthetic row through, since e.g. a 'TCO-' code still satisfies
+        # 'NOT LIKE SCN-%'.
+        stmt = stmt.where(
+            or_(
+                Product.product_code.is_(None),
+                and_(*[Product.product_code.notlike(f"{p}%") for p in prefixes]),
+            )
+        )
     if year is not None:
         stmt = stmt.where(
             Asset.received_date.is_not(None),
@@ -46,12 +75,24 @@ def spend_years(db: Session) -> list[int]:
     Drives the cockpit's year selector so it only ever offers years that have
     data, instead of a hardcoded range.
     """
-    rows = db.execute(
+    stmt = (
         select(extract("year", Asset.received_date))
         .join(OrderItem, Asset.source_order_item_id == OrderItem.id)
+        .join(Product, Asset.product_id == Product.id)
         .where(Asset.received_date.is_not(None))
         .distinct()
-    ).all()
+    )
+    prefixes = _analytics_only_prefixes()
+    if prefixes:
+        # Same analytics-only exclusion as _received_spend_rows, so the year
+        # selector never offers a year that exists only because of synthetic data.
+        stmt = stmt.where(
+            or_(
+                Product.product_code.is_(None),
+                and_(*[Product.product_code.notlike(f"{p}%") for p in prefixes]),
+            )
+        )
+    rows = db.execute(stmt).all()
     return sorted({int(r[0]) for r in rows if r[0] is not None}, reverse=True)
 
 
