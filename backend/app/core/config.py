@@ -72,15 +72,18 @@ class Settings(BaseSettings):
     ml_calibration_shadow: bool = False
     ml_calibration_min_samples: int = 20
 
-    # Product codes whose deployed assets are ANALYTICS-ONLY fixtures (synthetic
-    # TCO / should-cost datasets) and must never drive procurement demand. They
-    # own real cost layers for the TCO / should-cost pages, but they have no
-    # sourcing story, so if they leaked into the demand forecast they'd surface as
-    # zero-stock, no-lead-time "phantom" requisition lines. Matched by prefix, so
-    # the whole synthetic family (TCO-STORAGE, TCO-GPU, …) is excluded at once.
-    # Comma-separated + env-overridable so an operator can add a family without a
-    # code change. The buyer catalog stays real; analytics tables are untouched.
-    procurement_excluded_code_prefixes: str = "TCO-"
+    # Product codes that are ANALYTICS-ONLY fixtures and must never drive
+    # procurement demand:
+    #   TCO- : synthetic TCO dataset (carries deployed assets → leaks via usage);
+    #   SCN- : should-cost demo BOMs (carry a preferred source → leak via the
+    #          forecast's source-driven default demand, even with no assets).
+    # Both own real cost layers for the TCO / should-cost pages but have no
+    # sourcing story, so unfiltered they surface as zero-stock, no-lead-time
+    # "phantom" requisition lines. Matched by prefix so a whole synthetic family
+    # is excluded at once. Comma-separated + env-overridable so an operator can
+    # add a family without a code change. The buyer catalog stays real; the
+    # analytics tables (TCO, should-cost) are untouched.
+    procurement_excluded_code_prefixes: str = "TCO-,SCN-"
 
     # Demand forecasting — usage-driven projection (all env-overridable).
     demand_horizon_days: int = 90              # how far ahead the forecast projects
