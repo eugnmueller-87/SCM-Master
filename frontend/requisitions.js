@@ -20,6 +20,12 @@ CRUMBS.requisitions = "Requisitions";
 if (typeof COUNTS === "object") COUNTS.staged = null;
 
 const TIER_TONE = { act: "positive", propose: "warning", escalate: "negative" };
+// The DEFAULT auto-place confidence bar (backend settings.auto_place_confidence).
+// The KPI shows this default; each card compares against its own *calibrated*
+// per-pair floor (pr.confidence_floor), which the "learned pairs" panel moves.
+// Keep this in sync with core/config.py so the headline number can't contradict
+// the policy or a card's "clears the bar" verdict.
+const AUTO_PLACE_BAR = 0.90;
 const supName = (id) => (ORGS[id] ? ORGS[id].name : (id || "—").slice(0, 8));
 // `pct` is provided globally by app.js — do NOT redeclare it here. A second
 // top-level `const pct` is a SyntaxError that aborts parsing this whole file,
@@ -56,7 +62,7 @@ RENDER.requisitions = async function () {
   const kpis = `<div class="tkpis">
     <div class="tkpi"><div class="tkpi__label">Awaiting approval</div><div class="tkpi__val${staged.length ? " tkpi__val--neg" : ""}">${staged.length}</div></div>
     <div class="tkpi"><div class="tkpi__label">Auto-placed (recent)</div><div class="tkpi__val tkpi__val--info">${autoPlaced.length}</div></div>
-    <div class="tkpi"><div class="tkpi__label">Auto-place bar</div><div class="tkpi__val">85%<span style="font-size:12px;color:var(--ts-ink-faint)"> default</span></div></div>
+    <div class="tkpi"><div class="tkpi__label">Auto-place bar</div><div class="tkpi__val">${pct(AUTO_PLACE_BAR)}<span style="font-size:12px;color:var(--ts-ink-faint)"> default</span></div></div>
     <div class="tkpi"><div class="tkpi__label">Learned pairs</div><div class="tkpi__val">${calib.length}</div></div>
   </div>`;
 
@@ -126,7 +132,7 @@ function positionPanel(rows) {
         <td><div class="ipos-name">${esc(r.name || r.product_id)}</div><div class="ipos-cat">${esc(r.category || "")}</div></td>
         <td class="num">${r.gross_demand}</td>
         <td class="num">${r.position}</td>
-        <td class="num">${r.net_requirement || "—"}</td>
+        <td class="num">${r.net_requirement != null && r.net_requirement !== 0 ? r.net_requirement : (r.net_requirement === 0 ? "0" : "—")}</td>
         <td class="num">${stagedCell}</td>
         <td class="num">${deferCell}</td>
         <td class="ipos-cov-cell">${cov(r)}</td>
@@ -211,6 +217,35 @@ function reqLineFlags(l) {
   return out;
 }
 
+// Surface the agent's own rationale as an expandable "why" line. The backend
+// rationale already carries the demand headline and a confidence factor-trail
+// like "[confidence 0.88: sole source x0.96, forecast_shortfall x0.97]". We show
+// the narrative as prose and reframe the bracketed trail as a labelled audit
+// chip-row so it reads as an intentional decision trail, not a stray log line.
+function reqRationale(l) {
+  const raw = (l.rationale || "").trim();
+  if (!raw) return "";
+  // Split the confidence audit suffix out of the prose.
+  const m = raw.match(/\[confidence\s+([0-9.]+):\s*([^\]]+)\]/i);
+  let prose = raw;
+  let factorRow = "";
+  if (m) {
+    prose = raw.slice(0, m.index).trim();
+    const factors = m[2].split(/,\s*/).map((f) => {
+      const fm = f.trim().match(/^(.*?)\s*x\s*([0-9.]+)$/i);
+      return fm
+        ? `<span class="req-cf" title="confidence multiplier">${esc(fm[1])} <b>×${fm[2]}</b></span>`
+        : `<span class="req-cf">${esc(f.trim())}</span>`;
+    }).join("");
+    factorRow = `<div class="req-cf-row"><span class="req-cf-lbl">why ${pct(Number(m[1]))} conf</span>${factors}</div>`;
+  }
+  // Strip the residual/capped bracket tags reqLineFlags already renders as badges.
+  prose = prose.replace(/\[residual:[^\]]*\]/gi, "").replace(/\[capped[^\]]*\]/gi, "").trim();
+  const proseHtml = prose ? `<div class="req-why">${esc(prose)}</div>` : "";
+  if (!proseHtml && !factorRow) return "";
+  return `<details class="req-rationale"><summary>Why this line</summary>${proseHtml}${factorRow}</details>`;
+}
+
 // Plain-language reason from the trigger + the position context — no token soup.
 const TRIGGER_TXT = {
   forecast_shortfall: "Forecast shortfall",
@@ -238,16 +273,20 @@ function reqCard(pr, posByPid) {
     const pos = (posByPid && posByPid[l.product_id]) || null;
     const edited = l.qty !== l.proposed_qty;
     const cap = pos ? (pos.product_capacity || 0) : 0;
-    const inStock = pos ? pos.on_hand : "—";
-    const incoming = pos ? pos.on_order : 0;
+    const inStock = pos && pos.on_hand != null ? pos.on_hand : "—";
+    const incoming = pos && pos.on_order != null ? pos.on_order : null;
+    // Lead: prefer the live coverage/landing metric; fall back to the source's
+    // CONTRACTED lead time so a column named "Lead" never dashes when we plainly
+    // know the supplier's lead time (it rides on the line as standard_lead_time_days).
     const lead = pos && pos.lands_in_days != null ? `${pos.lands_in_days}d to land`
-      : (pos && pos.cover_days != null ? `${pos.cover_days}d cover` : "—");
+      : (pos && pos.cover_days != null ? `${pos.cover_days}d cover`
+      : (l.standard_lead_time_days != null ? `${l.standard_lead_time_days}d lead` : "—"));
     const riskFlag = pos && pos.at_risk ? ` <span class="ipos-flag-risk">⚠ runs dry first</span>` : "";
     return `<tr data-line="${l.id}" data-unit="${Number(l.unit_price) || 0}" class="${l.included ? "" : "req-line--dropped"}">
       <td><label class="req-incl"><input type="checkbox" class="req-incl-cb" ${l.included ? "checked" : ""}/></label></td>
-      <td>${productCell(l.product_id)}<div class="rc-reason">${esc(reqReason(l, pos))}${riskFlag}</div></td>
+      <td>${productCell(l.product_id)}<div class="rc-reason">${esc(reqReason(l, pos))}${riskFlag}</div>${reqLineFlags(l)}${reqRationale(l)}</td>
       <td class="num rc-ctx">${inStock}<div class="rc-ctx-l">in stock</div></td>
-      <td class="num rc-ctx">${incoming || "—"}<div class="rc-ctx-l">incoming</div></td>
+      <td class="num rc-ctx">${incoming != null ? incoming : "—"}<div class="rc-ctx-l">incoming</div></td>
       <td class="num rc-ctx">${esc(lead)}<div class="rc-ctx-l">lead</div></td>
       <td class="num"><input class="req-qty" type="number" min="1" value="${l.qty}" ${l.included ? "" : "disabled"} style="width:70px"/>
         ${edited ? `<div class="rc-ctx-l" style="color:var(--ts-warning)">was ${l.proposed_qty}</div>` : ""}
@@ -261,7 +300,9 @@ function reqCard(pr, posByPid) {
     <div class="req-card__head" style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--ts-line)">
       <strong>${esc(supName(pr.supplier_id))}</strong>
       ${plainPill(pr.tier.toUpperCase(), tone)}
-      <span class="muted" style="font-size:12px">${pct(pr.confidence)} confidence · ${esc(decision)}</span>
+      <span class="muted" style="font-size:12px">${pct(pr.confidence)} confidence · ${esc(decision)}
+        <span class="req-floor" title="This pair's calibrated auto-place bar. Confidence at or above it clears; escalation can still apply on spend.">(bar ${pct(pr.confidence_floor)})</span></span>
+      ${pr.order_by ? `<span class="muted" style="font-size:12px">· order by ${shortDate(pr.order_by)}</span>` : ""}
       <span style="margin-left:auto;font-weight:600" class="req-total-wrap">${eur0(total)}<span class="req-total" hidden>${total}</span></span>
     </div>
     <table class="tbl rc-tbl" style="margin:0">

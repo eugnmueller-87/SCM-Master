@@ -2,7 +2,10 @@
 
 Builds a believable Frankfurt-DC hardware operation through the REAL services
 (same rules as the API), so the data is internally consistent:
-  - 6 suppliers/manufacturers, 6 products across categories, multi-sourced;
+  - suppliers/manufacturers, products across categories, multi-sourced, with
+    onboarding driven through the real gate (risk + DPA/NDA) — plus one
+    prospective supplier left mid-onboarding so the compliance gate visibly
+    holds a source out;
   - sourcing contracts at varied lifecycle states (active / renewal-due /
     expiring / expired / draft) with annual budgets;
   - locations including a near-full rack and an OVER-capacity staging cage;
@@ -79,6 +82,42 @@ def seed_demo() -> None:
         arrow = organization_service.create(db, dict(code="ARW", name="Arrow Electronics", is_supplier=True, is_manufacturer=False))
         samsung = organization_service.create(db, dict(code="SSNLF", name="Samsung Semiconductor", is_supplier=True, is_manufacturer=True))
         intel = organization_service.create(db, dict(code="INTC", name="Intel", is_supplier=False, is_manufacturer=True))
+
+        # --- Supplier onboarding (risk + DPA + NDA) -----------------------
+        # Drive the real onboarding gate via the SAME setters the API uses, so
+        # `onboarding_complete` is genuinely satisfied (risk timestamp + both
+        # agreements) rather than a raw column write that would leave the card
+        # self-contradictory ("APPROVED" but no risk on file). See catalog.py.
+        # All incumbents (which already have POs) are fully onboarded so nothing
+        # they order trips the compliance gate at create() time.
+        def onboard(org, *, risk):
+            organization_service.record_risk(
+                db, org, risk_level=risk, risk_notes=f"Desk review — {risk} exposure",
+                assessed_at=TODAY - timedelta(days=45))
+            for kind in ("dpa", "nda"):
+                organization_service.record_document(
+                    db, org, kind=kind, signed=True,
+                    reference=f"{kind.upper()}-{org.code}-2025",
+                    signed_at=TODAY - timedelta(days=40))
+            if org.onboarding_complete:
+                organization_service.approve(db, org)
+
+        for _org, _risk in ((dell, "LOW"), (samsung, "LOW"), (arrow, "LOW"),
+                            (smci, "MEDIUM"), (tdsynnex, "MEDIUM")):
+            onboard(_org, risk=_risk)
+
+        # A PROSPECTIVE supplier under evaluation — risk assessed, DPA on file,
+        # NDA still outstanding → onboarding_complete=False → NOT orderable. It has
+        # no POs (nothing to break) and gives the demo a live example of the
+        # compliance gate holding a source out until paperwork clears.
+        prospect = organization_service.onboard_new(db, dict(
+            code="VANTAGE", name="Vantage Compute (prospective)", is_manufacturer=False))
+        organization_service.record_risk(
+            db, prospect, risk_level="MEDIUM", risk_notes="Initial desk review — pending NDA",
+            assessed_at=TODAY - timedelta(days=8))
+        organization_service.record_document(
+            db, prospect, kind="dpa", signed=True,
+            reference="DPA-VANTAGE-2026", signed_at=TODAY - timedelta(days=5))
 
         # --- Products -----------------------------------------------------
         srv = product_service.create(db, dict(product_code="DELL-R760", name="PowerEdge R760 · 2U server", category="Servers", description="2U dual-socket server"))
@@ -220,11 +259,42 @@ def seed_demo() -> None:
         # --- PO 5: OVERDUE placed order (no receipts) — Inbound flags it ---
         make_po(arrow, [(cpu, ps_cpu_arrow, 6)], status=OrderStatus.PLACED, eta_days=-10, ordered_days_ago=45)
 
-        # --- PO 6: approved (awaiting placement) --------------------------
-        make_po(dell, [(nic, ps_nic, 8)], status=OrderStatus.APPROVED, eta_days=25, ordered_days_ago=5)
+        # --- PO 6: NIC fully received, mostly in storage ------------------
+        # Received so the core NIC SKU shows real on-hand (was 0, which read as
+        # a data gap). A follow-on replenishment PO (below) keeps its pipeline
+        # non-empty so it looks like a live, healthy source.
+        po6 = make_po(arrow, [(nic, ps_nic, 16)], status=OrderStatus.PLACED, eta_days=-6, ordered_days_ago=28)
+        receive(po6, [16], days_ago=20)
+        drive(nic, AssetStatus.DEPLOYED, 4, rack_b)
+        drive(nic, AssetStatus.IN_STORAGE, 12, wh)
 
-        # --- PO 7: pending PSUs (fresh draft) -----------------------------
-        make_po(dell, [(psu, ps_psu, 40)], status=OrderStatus.PENDING, eta_days=18, ordered_days_ago=2)
+        # --- PO 7: PSU fully received, healthy shelf ----------------------
+        # Received so the PSU SKU sits comfortably covered (on-hand well above its
+        # modest run-rate need) — the "boringly healthy" steady-state row.
+        po7 = make_po(dell, [(psu, ps_psu, 40)], status=OrderStatus.PLACED, eta_days=-4, ordered_days_ago=24)
+        receive(po7, [40], days_ago=16)
+        drive(psu, AssetStatus.DEPLOYED, 8, rack_a)
+        drive(psu, AssetStatus.IN_STORAGE, 32, wh)
+
+        # --- PO 6b / 7b: small open replenishments (live pipeline) --------
+        # One modest in-flight order behind the two SKUs above and the high-burn
+        # DIMM, so the Inbound column + `lands_in_days` populate and the coverage
+        # math has a real landing date to reconcile against. ETA ≈ today + the
+        # source's contracted lead time, so "Nd to land" lines up with "Nd lead".
+        make_po(arrow, [(nic, ps_nic, 8)], status=OrderStatus.PLACED,
+                eta_days=ps_nic.standard_lead_time_days, ordered_days_ago=3)
+        make_po(dell, [(psu, ps_psu, 20)], status=OrderStatus.PLACED,
+                eta_days=ps_psu.standard_lead_time_days, ordered_days_ago=2)
+        make_po(samsung, [(dimm, ps_dimm_ss, 48)], status=OrderStatus.PLACED,
+                eta_days=ps_dimm_ss.standard_lead_time_days, ordered_days_ago=4)
+
+        # --- Keep the full PO lifecycle represented on the Orders screen ---
+        # PO6/PO7 above are now received, so re-introduce a genuine PENDING (fresh
+        # draft, awaiting approval) and an APPROVED (approved, awaiting placement)
+        # order — smaller top-ups on already-healthy SKUs — so a reviewer still
+        # sees every status PENDING→APPROVED→PLACED→(PARTIALLY_)RECEIVED→CANCELLED.
+        make_po(dell, [(psu, ps_psu, 12)], status=OrderStatus.PENDING, eta_days=18, ordered_days_ago=1)
+        make_po(arrow, [(nic, ps_nic, 6)], status=OrderStatus.APPROVED, eta_days=14, ordered_days_ago=3)
 
         # --- PO 8: cancelled --------------------------------------------
         make_po(tdsynnex, [(srv, ps_srv_dell, 2)], status=OrderStatus.CANCELLED, ordered_days_ago=15)
@@ -277,13 +347,25 @@ def seed_demo() -> None:
         _seed_tracking_from_pos(db)
 
         # --- Summary ------------------------------------------------------
+        # Counts computed LIVE from the DB (never hard-coded) so the summary can't
+        # drift out of sync with the seed as POs/orgs are added or restaged.
+        from sqlalchemy import func
+
+        from app.models.catalog import Organization, ProductSupplier
         from app.models.flow import Asset
-        counts = {s.value: db.scalar(select(__import__("sqlalchemy").func.count(Asset.id)).where(Asset.status == s)) for s in AssetStatus}
+        from app.models.procurement import PurchaseOrder
+        counts = {s.value: db.scalar(select(func.count(Asset.id)).where(Asset.status == s)) for s in AssetStatus}
+        n_org = db.scalar(select(func.count(Organization.id)))
+        n_prod = db.scalar(select(func.count(Product.id)).where(Product.product_code.notlike("TCO-%")).where(Product.product_code.notlike("SCN-%")))
+        n_contracts = db.scalar(select(func.count(ProductSupplier.id)))
+        po_status = dict(db.execute(select(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(PurchaseOrder.status)).all())
+        n_po = sum(po_status.values())
         print("Demo seed complete:")
         print("  users        : admin/buyer/warehouse/dc (pw = role)")
-        print("  organizations: 6   products: 6   contracts: 9")
+        print(f"  organizations: {n_org}   buyer products: {n_prod}   contracts: {n_contracts}")
         print("  locations    : 5 (warehouse, staging cage [over-cap], DC, 2 racks)")
-        print("  purchase orders: 8 across PENDING/APPROVED/PLACED/PARTIALLY_RECEIVED/RECEIVED/CANCELLED")
+        print(f"  purchase orders: {n_po} across "
+              + "/".join(f"{s.value}:{c}" for s, c in sorted(po_status.items(), key=lambda kv: kv[0].value)))
         print(f"  assets by status: {counts}")
 
         # --- Stage the demo requisition queue (fresh-seed only) -----------

@@ -504,6 +504,34 @@ _VARIABILITY_WINDOW_DAYS = 365  # longer window for demand-variability (σ) — 
 _DEFAULT_CAPACITY = 100       # per-product capacity proxy (no per-product field in the model)
 
 
+def _procurement_excluded(db: Session, product_ids: set[str]) -> set[str]:
+    """Drop analytics-only synthetic products (e.g. the TCO fixtures) from a set
+    of product ids. Those products carry deployed assets — so they reach the
+    usage forecast and inventory_plan — but have no sourcing story and must never
+    surface as procurement demand or position rows. Matched by the configured
+    code-prefix family (settings.procurement_excluded_code_prefixes). Single
+    source of truth for BOTH demand_forecast and inventory_position so the two
+    can't drift and reintroduce the phantom rows this exists to prevent.
+
+    NOTE: prefix-matching couples "is this buyable" to a naming convention; a
+    real product legitimately coded with an excluded prefix would be dropped from
+    all procurement surfaces. Acceptable for the synthetic demo fixtures; if the
+    catalog grows a genuine collision, promote this to a Product.analytics_only
+    model flag (a migration) and filter on that instead.
+    """
+    prefixes = tuple(
+        p.strip() for p in settings.procurement_excluded_code_prefixes.split(",") if p.strip()
+    )
+    if not prefixes:
+        return set(product_ids)
+    kept = set()
+    for pid in product_ids:
+        p = db.get(Product, pid)
+        if not (p and p.product_code and p.product_code.startswith(prefixes)):
+            kept.add(pid)
+    return kept
+
+
 def _preferred_source(db: Session, product_id: str) -> Optional[ProductSupplier]:
     return db.scalars(
         select(ProductSupplier)
@@ -796,6 +824,11 @@ def inventory_position(db: Session, *, period_days: int = 7,
     adder = 1.0 + settings.landed_cost_adder_pct
 
     pids = set(inv) | set(forecast) | set(extra_demand)
+    # `forecast` is already filtered; the exclusion here is what stops a TCO
+    # fixture reaching the canonical position model via the UNFILTERED inv
+    # (inventory_plan) or extra_demand sources. Shared helper so this can't drift
+    # from demand_forecast's filter (see _procurement_excluded).
+    pids = _procurement_excluded(db, pids)
     prelim: list[dict] = []
     for pid in pids:
         iv = inv.get(pid, {})
@@ -935,6 +968,10 @@ def demand_forecast(db: Session, *, today: Optional[date] = None,
         inbound[row["product_id"]] = inbound.get(row["product_id"], 0) + int(row["outstanding"])
 
     product_ids = set(deploys_by_product) | set(on_hand) | set(inbound)
+    # Drop analytics-only synthetic products (the TCO fixtures): they carry
+    # deployed assets for the cost pages but have no sourcing story, so they must
+    # never generate procurement demand. Shared helper — see _procurement_excluded.
+    product_ids = _procurement_excluded(db, product_ids)
     out: list[dict] = []
     for pid in product_ids:
         product = db.get(Product, pid)
