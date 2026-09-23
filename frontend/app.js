@@ -92,6 +92,7 @@ const NAV_DAAS = [
   { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },
   { id: "contracts",    label: "Contracts",    icon: "contract" },
   { id: "spend",        label: "Spend",        icon: "euro" },
+  { id: "tco",          label: "Device TCO",   icon: "tco" },
 ];
 let NAV = NAV_DC;
 

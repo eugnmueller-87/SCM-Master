@@ -71,6 +71,8 @@ from app.models.tco import (  # noqa: F401
     LandedCostType,
     OpexLedger,
     RecoveryValue,
+    ServiceEvent,
+    ServiceKind,
 )
 from app.models.tracking import (  # noqa: F401
     Shipment,
@@ -128,4 +130,6 @@ __all__ = [
     "EolCost",
     "RecoveryValue",
     "DepreciationMethod",
+    "ServiceEvent",
+    "ServiceKind",
 ]

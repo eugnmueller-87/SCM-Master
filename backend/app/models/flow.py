@@ -136,6 +136,13 @@ class Asset(IdMixin, TimestampMixin, Base):
         Index("ix_asset_status_product", "status", "product_id"),
         Index("ix_asset_status_cycle", "status", "cycle_no"),
         Index("ix_asset_id_product", "id", "product_id"),
+        # The device TCO (migration c9d1e3f5a680). The id is a text key that no index carried next
+        # to status, so a join driven from a status set (the 31,200 finished lives into their
+        # contracts and service events) fetched the row behind every device just for its id; the
+        # first index makes that side index-only. The second makes the dwell and resale reads by
+        # order line index-only, sale price included: 100,000 rows on hand answered from the index.
+        Index("ix_asset_status_id_product", "status", "id", "product_id"),
+        Index("ix_asset_status_line_since_sale", "status", "source_order_item_id", "status_since", "sale_price"),
     )
 
     serial_number: Mapped[str] = mapped_column(String(128), unique=True, index=True)

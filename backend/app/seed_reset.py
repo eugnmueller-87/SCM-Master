@@ -63,8 +63,13 @@ def dataset_is_stale(db: Session) -> Optional[str]:
     So the check is the same one the rest of this module makes, asked of the warehouse:
     a fleet whose compartments are not the compartments this build defines is stale.
     That generalises past this one change, because the compartment registry is the one
-    place a new station is ever added. Returns the reason, or None when it is current.
+    place a new station is ever added. The second check is the same idea for the device
+    TCO, which reads repairs and refurbishments from service events the seed writes with
+    the fleet: a fleet with devices on a second rental and not one service event was seeded
+    before the events existed, and its cost tab would come up correct and empty. Returns
+    the reason, or None when it is current.
     """
+    from app.models.tco import ServiceEvent
     from app.services import warehouse
 
     want = {c.code for c in warehouse.COMPARTMENTS}
@@ -73,6 +78,9 @@ def dataset_is_stale(db: Session) -> Optional[str]:
     missing = sorted(want - have)
     if missing:
         return f"the warehouse has no {', '.join(missing)}, a compartment this build defines"
+    if (db.scalar(select(ServiceEvent.id).limit(1)) is None
+            and db.scalar(select(Asset.id).where(Asset.cycle_no >= 2).limit(1)) is not None):
+        return "the fleet has devices on a second rental and no service event, the repair layer this build reads"
     return None
 
 

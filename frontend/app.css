@@ -1226,3 +1226,21 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .wh-detail__head { font-size: 11.5px; font-weight: 600; color: var(--ts-ink-mute); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
 .wh-oldest tbody td { padding: 6px 10px; }
 .wh-foot { font-size: 12px; color: var(--ts-ink-mute); line-height: 1.5; margin-top: 12px; }
+
+/* ─── Device TCO (tco.js) ────────────────────────────────────────────── */
+.tco-toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: var(--section-gap); flex-wrap: wrap; }
+.tco-toolbar__desc { font-size: 12.5px; color: var(--ts-ink-mute); max-width: 78ch; line-height: 1.45; }
+.tco-toolbar__asof { margin-left: auto; font-size: 12px; color: var(--ts-ink-faint); white-space: nowrap; }
+.tco-tbl tbody td { vertical-align: top; }
+.tco-tbl .cell-prod__cat { white-space: normal; line-height: 1.35; }
+.tco-bar { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--ts-paper-deep); border: 1px solid var(--ts-line); min-width: 160px; margin-top: 6px; }
+.tco-bar__seg { height: 100%; }
+.tco-big { font-variant-numeric: tabular-nums lining-nums; font-size: 18px; font-weight: 600; color: var(--ts-ink); letter-spacing: -0.02em; white-space: nowrap; }
+.tco-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: middle; }
+.tco-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11.5px; color: var(--ts-ink-mute); margin-top: 10px; }
+.tco-layer td { border-bottom: none !important; border-top: 1px solid var(--ts-line); padding-bottom: 4px !important; }
+.tco-layer:first-child td { border-top: none; }
+.tco-part td { border-bottom: none !important; padding-top: 2px !important; padding-bottom: 6px !important; font-size: 12.5px; color: var(--ts-ink-soft); }
+.tco-part__label { padding-left: 38px !important; }
+.tco-measured { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ts-positive); }
+.tco-placeholder { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: #8C6510; border: 1px dashed var(--ts-warning); border-radius: 3px; padding: 0 5px; cursor: help; white-space: nowrap; }

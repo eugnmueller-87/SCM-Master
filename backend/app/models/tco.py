@@ -7,6 +7,14 @@ acquisition:
 
     TCO = acquisition + Σlanded + Σdeployment + Σopex + Σeol − recovery_value
 
+Two scenarios share this module. The five layer tables above belong to the
+datacenter operation (power, cooling, racking). The device-as-a-service fleet
+stores only one cost fact per device, the ``ServiceEvent`` at the end of the
+file: what a repair or a refurbishment cost. Every other layer of the device TCO
+is a measured quantity (a price on the order line, months on the contracts, days
+in a compartment, proceeds of a sale) times a rate, and is computed, not stored;
+see ``services/tco_device.py``.
+
 Design (agreed in Phase 0):
   - One table per layer, FK → asset.id (String(36) UUID), repo conventions
     (IdMixin/TimestampMixin, Numeric money, SAEnum). The per-asset roll-up is a
@@ -26,7 +34,7 @@ import enum
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Numeric, String
+from sqlalchemy import Date, ForeignKey, Index, Integer, Numeric, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -152,3 +160,43 @@ class RecoveryValue(IdMixin, TimestampMixin, Base):
     recovery_date: Mapped[Optional[date]] = mapped_column(Date)
 
     asset = relationship("Asset")
+
+
+class ServiceKind(str, enum.Enum):
+    REPAIR = "REPAIR"    # grade C or a defect: the repair partner's invoice
+    REFURB = "REFURB"    # made ready for the next rental: the refurbishment partner's invoice
+
+
+class ServiceEvent(IdMixin, TimestampMixin, Base):
+    """One repair or refurbishment of one device, at the cost the partner invoiced.
+
+    The device-as-a-service scenario's only stored cost layer. It exists because the
+    fleet records where a device is, not what was done to it: a device on its second
+    rental says nothing about the refurbishment that got it there, and the cost of that
+    refurbishment is not a rate times a count, it is an invoice per device. One row per
+    event, written when the partner's invoice is known; a device still on the bench has
+    no row yet and is reported as in progress.
+
+    ``product_id`` is copied from the asset for the same reason as on the rental
+    contract: the TCO groups these by model, and a device never changes model. Both
+    composite indexes carry the cost so that a sum, per model or per device, is read
+    from the index alone without touching a row per event; the one that leads with
+    ``asset_id`` is also the foreign key's lookup index.
+    """
+
+    __tablename__ = "service_event"
+    __table_args__ = (
+        Index("ix_service_event_product_kind_cost", "product_id", "kind", "cost"),
+        Index("ix_service_event_asset_kind_cost", "asset_id", "kind", "cost"),
+    )
+
+    asset_id: Mapped[str] = mapped_column(ForeignKey("asset.id"))
+    product_id: Mapped[str] = mapped_column(ForeignKey("product.id"), index=True)
+    kind: Mapped[ServiceKind] = mapped_column(SAEnum(ServiceKind))
+    cycle_no: Mapped[int] = mapped_column(Integer)                 # the rental this event prepared the device for
+    event_date: Mapped[date] = mapped_column(Date)
+    cost: Mapped[float] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="EUR")
+
+    asset = relationship("Asset")
+    product = relationship("Product")

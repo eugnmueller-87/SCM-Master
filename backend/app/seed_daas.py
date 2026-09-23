@@ -3,8 +3,9 @@
 The company is "the DaaS provider": it buys smartphones, tablets and laptops, rents
 them to business customers for 12 to 48 months, takes them back, wipes and grades
 them, repairs or refurbishes them, rents them a second time, and finally sells or
-recycles them. Every serial carries its history in ``asset`` + ``rental_contract``
-so Overview, Fleet, Returns, Warehouse, KPIs and Spend all read one truth.
+recycles them. Every serial carries its history in ``asset`` + ``rental_contract`` +
+``service_event`` so Overview, Fleet, Returns, Warehouse, KPIs, Spend and the device
+TCO all read one truth.
 
 **Scale.** 300,000 devices at customers, 100,000 in the warehouse — the business
 owner's instruction of 21.09.2026, at full size by default. With the resale and
@@ -58,6 +59,7 @@ from app.models.catalog import Product
 from app.models.flow import Asset, AssetStatus, LocationType
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.models.rental import ContractStatus, RentalContract
+from app.models.tco import ServiceEvent, ServiceKind
 from app.services import warehouse
 from app.services.auth import ensure_user
 from app.services.catalog import organization_service, product_service, product_supplier_service
@@ -133,6 +135,17 @@ SLOW_MOVER_SHARE = 0.04
 CHANNEL_MIX = {"marketplace": 0.55, "b2b_wholesale": 0.30, "employee_buyout": 0.10, "as_is": 0.05}
 CHANNEL_FEE = {"marketplace": 0.12, "b2b_wholesale": 0.20, "employee_buyout": 0.00, "as_is": 0.25}
 GRADE_FACTOR = {"A": 1.09, "B": 1.00, "C": 0.86, "D": 0.73}       # marketplace grade offsets, simplified from the public curves
+# Repair and refurbishment invoices, EUR net per event, whole euros, per device class. The
+# fleet records where a device is, not what was done to it, so the events a device's state
+# proves are written with it: a device on or past its second rental was refurbished once
+# before that rental; if its recorded grade is C it was also repaired before the
+# refurbishment (the grade rule of the return chain: C goes to repair first); a device in
+# the second-life stock or the swap buffer after a rental was refurbished on arrival. A
+# device still in REPAIR or REFURB has no invoice yet and the cost view reports it as in
+# progress. The device TCO reads these; nothing else is added and no fleet total moves.
+# [placeholder, Head of Service Operations (repair) and Head of Recommerce (refurbishment)]
+REPAIR_COST = {"Smartphone": (60, 140), "Tablet": (70, 150), "Laptop": (90, 220)}
+REFURB_COST = {"Smartphone": (22, 38), "Tablet": (25, 40), "Laptop": (35, 60)}
 
 # The catalogue: public launch RRPs, gross EUR, Germany. Source URL on every row.
 # (code, name, family, oem, launch, rrp_gross, source)
@@ -200,17 +213,19 @@ def _line_id(code: str, ym: str) -> str:
 class _Sink:
     """Buffered bulk insert for the fleet.
 
-    Assets and contracts are flushed together, assets first, because a contract points
-    at an asset. Counters live here so the summary at the end does not need the rows to
-    still be in memory.
+    Assets, contracts and service events are flushed together, assets first, because the
+    other two point at an asset. Counters live here so the summary at the end does not
+    need the rows to still be in memory.
     """
 
     def __init__(self, db, chunk: int = CHUNK):
         self.db, self.chunk = db, chunk
         self.assets: list[dict] = []
         self.contracts: list[dict] = []
+        self.events: list[dict] = []
         self.n_assets = 0
         self.n_contracts = 0
+        self.n_events: Counter = Counter()
         self.by_status: Counter = Counter()
         self.cycle2_rented = 0
         self.first_rental_by_quarter: Counter = Counter()
@@ -229,6 +244,10 @@ class _Sink:
             s = row["start_date"]
             self.first_rental_by_quarter[f"{s.year}-Q{(s.month - 1) // 3 + 1}"] += 1
 
+    def event(self, row: dict) -> None:
+        self.events.append(row)
+        self.n_events[row["kind"]] += 1
+
     def flush(self) -> None:
         if self.assets:
             self.db.execute(insert(Asset), self.assets)
@@ -236,6 +255,9 @@ class _Sink:
         if self.contracts:
             self.db.execute(insert(RentalContract), self.contracts)
             self.contracts.clear()
+        if self.events:
+            self.db.execute(insert(ServiceEvent), self.events)
+            self.events.clear()
         self.db.commit()
 
 
@@ -408,10 +430,22 @@ def seed_daas() -> None:
             return aid
 
         def add_contract(aid: str, code: str, cycle: int, start: date, term: int, end, reason, customer: str) -> None:
-            sink.contract(dict(asset_id=aid, customer_id=customer, cycle_no=cycle, start_date=start, term_months=term,
+            sink.contract(dict(asset_id=aid, product_id=products[code][0].id, customer_id=customer, cycle_no=cycle,
+                               start_date=start, term_months=term,
                                planned_end=start + timedelta(days=round(term * DAYS_PER_MONTH)), actual_end=end, end_reason=reason,
                                rent_eur_month=rent_for(code, term, cycle),
                                status=ContractStatus.ENDED if end else ContractStatus.RUNNING))
+
+        def add_service(aid: str, code: str, refurbished: date, grade) -> None:
+            """The service events a device's state proves (see REPAIR_COST): one refurbishment,
+            finished on ``refurbished``, and a repair before it when the recorded grade is C."""
+            p, family = products[code][0], products[code][1]
+            if grade == "C":
+                sink.event(dict(asset_id=aid, product_id=p.id, kind=ServiceKind.REPAIR, cycle_no=2,
+                                event_date=refurbished - timedelta(days=rng.randint(5, 20)),
+                                cost=Decimal(rng.randint(*REPAIR_COST[family])), currency="EUR"))
+            sink.event(dict(asset_id=aid, product_id=p.id, kind=ServiceKind.REFURB, cycle_no=2, event_date=refurbished,
+                            cost=Decimal(rng.randint(*REFURB_COST[family])), currency="EUR"))
 
         # rented fleet — the scale-up shows here: elapsed time is skewed toward the start
         for _ in range(N_RENTED):
@@ -447,15 +481,17 @@ def seed_daas() -> None:
                 start_now = today - timedelta(days=round(term_now * DAYS_PER_MONTH) + rng.randint(1, OVERDUE_MAX_DAYS))
                 start_now = max(start_now, purchase + timedelta(days=7))
             cust = customer_for(start_now)
+            grade = _pick(rng, GRADE_MIX) if cycle == 2 else None
             aid = add_asset(code, purchase, status=AssetStatus.RENTED, cycle_no=cycle, customer_id=cust,
                             received_date=purchase + timedelta(days=rng.randint(2, 6)), deployed_date=start_now, status_since=start_now,
-                            grade=(_pick(rng, GRADE_MIX) if cycle == 2 else None),
+                            grade=grade,
                             battery_health=round(max(0.6, 1.0 - 0.006 * ((today - purchase).days / DAYS_PER_MONTH) + rng.gauss(0, 0.03)), 3),
                             warranty_end_date=purchase + timedelta(days=730))
             if cycle == 2:
                 sink.cycle2_rented += 1
                 end1 = max(end1, start1 + timedelta(days=30))
                 add_contract(aid, code, 1, start1, t1, end1, "planned", customer_for(start1))
+                add_service(aid, code, start_now - timedelta(days=rng.randint(3, 10)), grade)
             add_contract(aid, code, cycle, start_now, term_now, None, None, cust)
 
         # warehouse
@@ -529,6 +565,10 @@ def seed_daas() -> None:
                                 status_since=status_since, grade=grade,
                                 battery_health=round(max(0.6, 1.0 - 0.006 * ((today - purchase).days / DAYS_PER_MONTH) + rng.gauss(0, 0.03)), 3),
                                 warranty_end_date=purchase + timedelta(days=730))
+                if cycle_done == 2:
+                    add_service(aid, code, start2 - timedelta(days=rng.randint(3, 10)), grade)
+                elif st in (AssetStatus.READY_SECOND, AssetStatus.SWAP_BUFFER):
+                    add_service(aid, code, status_since, grade)
                 reason1 = "defect" if defect else ("early" if (early and cycle_done == 1) else "planned")
                 add_contract(aid, code, 1, start1, t1, end1, reason1, customer_for(start1))
                 if cycle_done == 2:
@@ -573,6 +613,7 @@ def seed_daas() -> None:
                 add_contract(aid, code, 1, start1, t1, end1, "planned", customer_for(start1))
                 if cycle_done == 2:
                     add_contract(aid, code, 2, start2, t2, end2, "planned", customer_for(start2))
+                    add_service(aid, code, start2 - timedelta(days=rng.randint(3, 10)), grade)
 
         sink.flush()
 
@@ -625,7 +666,9 @@ def seed_daas() -> None:
         print(f"DaaS fleet seeded: {sink.n_assets:,} serials - rented {sink.by_status[AssetStatus.RENTED]:,} "
               f"(second rental {sink.cycle2_rented:,}), warehouse {sum(sink.by_status[s] for s in WAREHOUSE_MIX):,}, "
               f"sold {sink.by_status[AssetStatus.SOLD]:,}, recycled {sink.by_status[AssetStatus.RECYCLED]:,}; "
-              f"{sink.n_contracts:,} rental contracts; {len(po_rows) - len(empty):,} received orders, {len(qty):,} lines; "
+              f"{sink.n_contracts:,} rental contracts; {sum(sink.n_events.values()):,} service events "
+              f"(repairs {sink.n_events[ServiceKind.REPAIR]:,}, refurbishments {sink.n_events[ServiceKind.REFURB]:,}); "
+              f"{len(po_rows) - len(empty):,} received orders, {len(qty):,} lines; "
               f"{len(inbound_pos)} open orders, {sum(r['quantity'] for r in inbound_items):,} devices inbound; scale {SCALE}")
         print(f"  first rentals started, last five quarters: {growth}")
     finally:
