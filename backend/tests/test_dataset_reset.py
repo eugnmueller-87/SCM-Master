@@ -10,6 +10,7 @@ logins survive either way.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -122,3 +123,36 @@ def test_a_fleet_from_before_a_new_compartment_counts_as_stale(db_session):
     db_session.delete(gone)
     db_session.flush()
     assert "ST-SECOND" in (dataset_is_stale(db_session) or ""), "a missing compartment names itself"
+
+
+def test_seeding_does_not_also_measure(monkeypatch):
+    """Seeding and measuring are separate boot steps, and have to stay that way.
+
+    Together in one process their memory peaks add, because a Python process keeps the
+    arenas it has grown; that is what got the hosted container killed on 23.09.2026.
+    The boot command runs them apart, so nothing in the seeding path may quietly call
+    the measurement again.
+    """
+    import inspect
+
+    from app import seed_reset
+
+    source = inspect.getsource(seed_reset.ensure_dataset)
+    assert "ensure_measured" not in source, (
+        "ensure_dataset must not measure: the boot runs 'python -m app.seed_kpis' as its own process"
+    )
+    assert hasattr(seed_reset, "ensure_measured"), "the measurement itself still lives here"
+
+
+def test_the_boot_runs_the_measurement_as_its_own_step():
+    """The container's start command must actually contain that separate step."""
+    import json
+
+    root = Path(__file__).resolve().parents[2]
+    start = json.loads((root / "railway.json").read_text(encoding="utf-8"))["deploy"]["startCommand"]
+    for image in ("Dockerfile", "backend/Dockerfile"):
+        assert "app.seed_kpis" in (root / image).read_text(encoding="utf-8"), image
+    assert "app.seed_kpis" in start
+    assert start.index("app.seed_demo") < start.index("app.seed_kpis") < start.index("uvicorn"), (
+        "measure after the seed and before the server"
+    )

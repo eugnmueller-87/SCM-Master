@@ -65,7 +65,7 @@ from app.services.flow import location_service
 
 DAYS_PER_MONTH = 30.4375
 VAT = 0.19
-CHUNK = 25_000                          # rows per bulk insert; the fleet never sits in memory as a whole
+CHUNK = 5_000                           # rows per bulk insert; the fleet never sits in memory as a whole
 LINE_NS = uuid.UUID("6f1b6a3e-1d5a-4f7b-9a1e-2c0d5f8b41aa")   # fixed namespace: an order line's id is a function of (product, month)
 
 # ---------------------------------------------------------------------------

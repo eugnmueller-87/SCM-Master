@@ -28,4 +28,4 @@ EXPOSE 8000
 # Boot: migrate (always) -> ensure login users (admin + guest in demo) ->
 # self-wiring demo seed (the scripts seed unless SCM_ENV=prod or SEED_DEMO=0;
 # idempotent) -> 18mo history -> serve on $PORT.
-CMD ["sh", "-c", "alembic upgrade head; python -m app.services.auth || true; python -m app.seed_demo || true; python -m app.seed_history || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "alembic upgrade head; python -m app.services.auth || true; python -m app.seed_demo || true; python -m app.seed_history || true; python -m app.seed_kpis || true; uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

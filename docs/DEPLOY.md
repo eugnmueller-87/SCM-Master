@@ -70,14 +70,31 @@ reseeded on an ordinary redeploy, so the data survives — that is the point of 
 Postgres. `DAAS_SCALE=0.1` gives the same shape at a tenth of the size if a fast boot
 matters more than the real number.
 
+**Memory: the boot is a chain of separate processes, on purpose.** Seeding 431,200
+serials peaks around 170 MB and the KPI measurement peaks around 140 MB. Run in one
+process those peaks add, because a Python process keeps the memory arenas it has grown
+rather than handing them straight back to the operating system. On 23.09.2026 the demo
+container was killed for running out of memory on the boot that seeded the fleet and
+then measured it in the same process. The boot command therefore runs each step on its
+own (`alembic` then `auth` then `seed_demo` then `seed_history` then `seed_kpis` then
+`uvicorn`), so the peak is the largest single step, not the sum, and the operating
+system reclaims everything in between.
+
+If a container still runs out of memory, the dial is `DAAS_SCALE`: `0.25` gives the same
+shape at a quarter of the size (75,000 rented, 25,000 in the warehouse) and roughly a
+quarter of the seeding peak. Raising the container's memory is the other way, and the
+better one if the full 400,000 is the point of the demo.
+
 **KPIs are measured once a day.** Thirty-two reads over a 400,000-device fleet take about
 40 seconds; running them on every page load would make the tab unusable and would not
 change a number, because each KPI is defined over a day. The boot takes the day's
 measurement, the tab serves it, and **Measure again** on the tab forces a new one.
 
 Boot sequence (every deploy): `alembic upgrade head` → `python -m
-app.services.auth` (ensures admin+guest) → demo seed **iff** `SEED_DEMO=1` →
-`uvicorn`. On persistent Postgres the data now **survives redeploys**.
+app.services.auth` (ensures admin+guest) → demo seed **iff** `SEED_DEMO=1` → `python -m
+app.seed_kpis` (today's measurement, skipped when it is already taken) → `uvicorn`. Each
+step is its own process; see the memory note above for why that matters. On persistent
+Postgres the data **survives redeploys**.
 
 > `SCM_ANALYTICS_URL` is read by the operations UI to point its sidebar **SCM
 > Analytics** link at the matching cockpit. If unset, it defaults to the demo

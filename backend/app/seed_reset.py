@@ -114,8 +114,6 @@ def ensure_dataset() -> str:
         stale = dataset_is_stale(db) if (have == want == "daas") else None
         if have == want and not force and stale is None:
             print(f"Dataset is already '{have}' - keeping it.")
-            db.close()
-            ensure_measured()
             return "kept"
         action = "seeded"
         if have is not None:
@@ -140,17 +138,24 @@ def ensure_dataset() -> str:
     else:
         from app.seed_demo import seed_demo
         seed_demo()
-    ensure_measured()
     return action
 
 
 def ensure_measured() -> int:
-    """Take today's KPI measurement at boot, if it has not been taken yet.
+    """Take today's KPI measurement, if it has not been taken yet.
 
-    A KPI is measured once a day by design. Doing it here rather than on the first page
-    load means nobody opens the KPIs tab and waits for 32 reads over a 400,000-device
-    fleet; the tab is complete the moment the service answers. Returns how many KPIs
-    were measured now.
+    A KPI is measured once a day by design. Doing it at boot rather than on the first
+    page load means nobody opens the KPIs tab and waits for 32 reads over a
+    400,000-device fleet; the tab is complete the moment the service answers.
+
+    **This runs as its own boot step, in its own process** (``python -m app.seed_kpis``),
+    and that is not a detail. Seeding 431,200 serials peaks around 170 MB and measuring
+    peaks around 140 MB; in one process those peaks add, because a Python process does
+    not hand freed memory straight back to the operating system. On 23.09.2026 the
+    hosted container was killed for running out of memory doing exactly that. Run apart,
+    the boot's peak is the larger of the two rather than their sum.
+
+    Returns how many KPIs were measured now.
     """
     from datetime import date
 
@@ -161,6 +166,7 @@ def ensure_measured() -> int:
         today = date.today()
         have = len(kpis._today_snapshots(db, today))
         if have >= len(kpis.KPIS):
+            print(f"KPIs for {today} are already measured ({have}) - nothing to do.")
             return 0
         kpis.compute_all(db, today=today)
         db.commit()
