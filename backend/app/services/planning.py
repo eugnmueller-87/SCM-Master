@@ -21,13 +21,20 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.catalog import Product, ProductSupplier
-from app.models.flow import Asset, AssetStatus, Location, LocationType, ReceiptItem
+from app.models.flow import (
+    DEPLOYABLE_STATUSES,
+    IN_USE_STATUSES,
+    Asset,
+    Location,
+    LocationType,
+    ReceiptItem,
+)
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.models.requisition import PurchaseRequisition, RequisitionLine, RequisitionStatus
 from app.services import forecasting, recovery
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
-_ON_HAND = (AssetStatus.RECEIVED, AssetStatus.IN_STORAGE)
+_ON_HAND = tuple(DEPLOYABLE_STATUSES)   # new units plus refurbished units cleared for the next rental
 # Order statuses that still have units expected to arrive.
 _OPEN_ORDER = (
     OrderStatus.PENDING, OrderStatus.APPROVED,
@@ -485,7 +492,7 @@ def deployment_forecast(db: Session) -> dict:
         select(func.count(Asset.id)).where(Asset.status.in_(_ON_HAND))
     ) or 0
     deployed = db.scalar(
-        select(func.count(Asset.id)).where(Asset.status == AssetStatus.DEPLOYED)
+        select(func.count(Asset.id)).where(Asset.status.in_(tuple(IN_USE_STATUSES)))
     ) or 0
     inbound = sum(r["outstanding"] for r in inbound_pipeline(db))
     return {
@@ -948,19 +955,31 @@ def demand_forecast(db: Session, *, today: Optional[date] = None,
     life = settings.asset_useful_life_days
     method = method or settings.forecast_method
 
-    # All deployment dates per product (for the rate) and deployed ages (for EOL).
-    deployed = db.scalars(
-        select(Asset).where(Asset.deployed_date.is_not(None))
-    ).all()
+    # Deployment dates per product (for the rate) and deployed ages (for EOL) — both
+    # read as grouped counts, not as assets.
+    #
+    # Only deployments inside the estimator's window can move the rate (it weights by
+    # age and drops everything older), and the EOL term only looks at a band around the
+    # useful life. Both are date ranges, so the database does the filtering and the
+    # counting. At 400,000 devices, loading every deployed asset to read two fields cost
+    # seven seconds per call — and the backtest calls this once per month of history.
+    window_start = today - timedelta(days=settings.demand_window_days)
     deploys_by_product: dict[str, list[date]] = {}
-    eol_by_product: dict[str, int] = {}
-    for a in deployed:
-        deploys_by_product.setdefault(a.product_id, []).append(a.deployed_date)
-        # still in service (DEPLOYED/MAINTENANCE) and crosses useful-life within horizon?
-        if a.status in (AssetStatus.DEPLOYED, AssetStatus.MAINTENANCE):
-            age = (today - a.deployed_date).days
-            if life - horizon <= age < life + horizon:
-                eol_by_product[a.product_id] = eol_by_product.get(a.product_id, 0) + 1
+    for pid, d, n in db.execute(
+        select(Asset.product_id, Asset.deployed_date, func.count(Asset.id))
+        .where(Asset.deployed_date.is_not(None), Asset.deployed_date >= window_start, Asset.deployed_date <= today)
+        .group_by(Asset.product_id, Asset.deployed_date)
+    ).all():
+        deploys_by_product.setdefault(pid, []).extend([d] * int(n))
+    eol_by_product: dict[str, int] = {
+        pid: int(n) for pid, n in db.execute(
+            select(Asset.product_id, func.count(Asset.id))
+            .where(Asset.status.in_(tuple(IN_USE_STATUSES)), Asset.deployed_date.is_not(None),
+                   Asset.deployed_date > today - timedelta(days=life + horizon),
+                   Asset.deployed_date <= today - timedelta(days=life - horizon))
+            .group_by(Asset.product_id)
+        ).all()
+    }
 
     on_hand = _on_hand_by_product(db)
     inbound = {}

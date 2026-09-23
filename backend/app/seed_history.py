@@ -192,9 +192,14 @@ def seed_history() -> None:
 
 if __name__ == "__main__":
     # Self-wiring demo (same rule as seed_demo): seed unless prod or SEED_DEMO=0.
+    import os
+
     from app.core.safety import should_seed_demo
 
-    if should_seed_demo():
+    if os.getenv("SCM_SCENARIO", "daas").lower() == "daas":
+        # the DaaS fleet carries its own rental history; the datacenter history would add racks to a device fleet
+        print("Skipping history seed (SCM_SCENARIO=daas).")
+    elif should_seed_demo():
         seed_history()
     else:
         print("Skipping history seed (production, or SEED_DEMO=0).")

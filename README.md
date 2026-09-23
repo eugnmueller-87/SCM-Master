@@ -15,7 +15,12 @@
 [![Claude](https://img.shields.io/badge/AI-Claude_(advisory)-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/)
 [![Forecast](https://img.shields.io/badge/Forecast-statsforecast-10b981?logo=python&logoColor=white)](docs/forecast-engine-decision.md)
 
-A supply-chain management system for **hardware procurement and asset lifecycle tracking** — built for the case where a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
+A supply-chain management system for **hardware procurement and asset lifecycle tracking**, in two scenarios on one spine:
+
+- **Device-as-a-Service fleet** (since 22.09.2026, the default demo): a provider buys smartphones, tablets and laptops, rents them to business customers for 12 to 48 months, takes them back, wipes and grades them, repairs or refurbishes them, rents them a second time, and finally sells or recycles them. The console follows the cycle: Fleet, Returns (what comes back when), Warehouse stations (returns intake, MDM release hold, wipe and grading, repair, refurbishment, sellable stock, swap buffer, new stock) and a KPIs tab with the inventory and working-capital figures a fleet owner steers by. Seeded at full size: **300,000 devices at customers, 100,000 in the warehouse**, 493,272 rental contracts, and a fleet that is visibly mid-scale-up — first rentals rising quarter on quarter, 28,000 devices still on order, two intake stations already over capacity. This is the default dataset; a database holding the other one is replaced on boot (`backend/app/seed_reset.py`), and `DAAS_SCALE=0.1` gives the same shape at a tenth of the size.
+- **Datacenter operation** (the original case): a small, fast-turning *transit warehouse* feeds equipment into datacenter racks.
+
+The scenario is detected from the data, never configured in the UI: a database with rented devices is a fleet.
 
 It joins together three things that off-the-shelf tools usually keep apart:
 

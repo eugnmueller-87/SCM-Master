@@ -10,8 +10,10 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.costing import router as costing_router
 from app.api.v1.exports import router as exports_router
+from app.api.v1.fleet import router as fleet_router
 from app.api.v1.flow import router as flow_router
 from app.api.v1.integrations import router as integrations_router
+from app.api.v1.kpis import router as kpis_router
 from app.api.v1.planning import router as planning_router
 from app.api.v1.procurement import router as procurement_router
 from app.api.v1.requisitions import router as requisitions_router
@@ -34,3 +36,5 @@ api_router.include_router(exports_router)
 api_router.include_router(requisitions_router)
 api_router.include_router(costing_router)
 api_router.include_router(tco_router)
+api_router.include_router(kpis_router)
+api_router.include_router(fleet_router)

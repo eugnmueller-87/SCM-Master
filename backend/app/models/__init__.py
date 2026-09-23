@@ -26,6 +26,10 @@ from app.models.decision import (  # noqa: F401
     DecisionLog,
 )
 from app.models.flow import (  # noqa: F401
+    DEPLOYABLE_STATUSES,
+    GONE_STATUSES,
+    IN_USE_STATUSES,
+    WAREHOUSE_STATUSES,
     Asset,
     AssetEvent,
     AssetEventType,
@@ -35,6 +39,10 @@ from app.models.flow import (  # noqa: F401
     Receipt,
     ReceiptItem,
 )
+from app.models.kpi import (  # noqa: F401
+    KpiSnapshot,
+    KpiTarget,
+)
 from app.models.ordering import (  # noqa: F401
     Package,
     PackageLine,
@@ -43,6 +51,10 @@ from app.models.procurement import (  # noqa: F401
     OrderItem,
     OrderStatus,
     PurchaseOrder,
+)
+from app.models.rental import (  # noqa: F401
+    ContractStatus,
+    RentalContract,
 )
 from app.models.requisition import (  # noqa: F401
     PurchaseRequisition,
@@ -74,6 +86,12 @@ __all__ = [
     "Product",
     "ProductSupplier",
     "ContractDocument",
+    "KpiTarget",
+    "KpiSnapshot",
+    "RentalContract",
+    "ContractStatus",
+    "WAREHOUSE_STATUSES",
+    "IN_USE_STATUSES",
     "BOM",
     "BOMLine",
     "Commodity",

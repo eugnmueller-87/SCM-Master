@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 
-from sqlalchemy import and_, extract, or_, select
+from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -112,8 +112,57 @@ def _supplier_names(db: Session, supplier_ids) -> dict[str, str | None]:
     return {oid: name for oid, name in rows}
 
 
+def _spend_grouped(db: Session, year: int | None, *group_cols):
+    """(group columns…, units, spend) straight from the database.
+
+    Same join and same filter as ``_received_spend_rows``, but the counting happens in
+    SQL. The row-by-row version is kept for callers that already hold the rows; it is
+    only viable while the fleet is small — at 431,000 serials it returned 431,000
+    four-entity ORM rows and took fifteen seconds per call.
+    """
+    stmt = (
+        select(*group_cols, func.count(Asset.id), func.coalesce(func.sum(OrderItem.unit_price), 0))
+        .select_from(Asset)
+        .join(OrderItem, Asset.source_order_item_id == OrderItem.id)
+        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
+        .join(Product, Asset.product_id == Product.id)
+        .group_by(*group_cols)
+    )
+    prefixes = _analytics_only_prefixes()
+    if prefixes:
+        stmt = stmt.where(or_(Product.product_code.is_(None),
+                              and_(*[Product.product_code.notlike(f"{p}%") for p in prefixes])))
+    if year is not None:
+        stmt = stmt.where(Asset.received_date.is_not(None), extract("year", Asset.received_date) == year)
+    return db.execute(stmt).all()
+
+
+def spend_totals(db: Session, year: int | None = None) -> tuple[int, Decimal]:
+    """(units, spend) over everything with provenance — one scalar read."""
+    stmt = (
+        select(func.count(Asset.id), func.coalesce(func.sum(OrderItem.unit_price), 0))
+        .select_from(Asset)
+        .join(OrderItem, Asset.source_order_item_id == OrderItem.id)
+        .join(PurchaseOrder, OrderItem.order_id == PurchaseOrder.id)
+        .join(Product, Asset.product_id == Product.id)
+    )
+    prefixes = _analytics_only_prefixes()
+    if prefixes:
+        stmt = stmt.where(or_(Product.product_code.is_(None),
+                              and_(*[Product.product_code.notlike(f"{p}%") for p in prefixes])))
+    if year is not None:
+        stmt = stmt.where(Asset.received_date.is_not(None), extract("year", Asset.received_date) == year)
+    units, spend = db.execute(stmt).one()
+    return int(units or 0), Decimal(str(spend or 0))
+
+
 def spend_by_supplier(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
-    rows = _received_spend_rows(db, year) if rows is None else rows
+    if rows is None:
+        grouped = _spend_grouped(db, year, PurchaseOrder.supplier_id)
+        names = _supplier_names(db, [sid for sid, _u, _s in grouped])
+        out = [{"supplier_id": sid, "supplier_name": names.get(sid), "units": int(u), "spend": Decimal(str(sp or 0))}
+               for sid, u, sp in grouped]
+        return sorted(out, key=lambda r: r["spend"], reverse=True)
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0"), "name": None})
     for _asset, oi, order, _product in rows:
         bucket = totals[order.supplier_id]
@@ -133,7 +182,11 @@ def spend_by_supplier(db: Session, year: int | None = None, *, rows=None) -> lis
 
 
 def spend_by_product(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
-    rows = _received_spend_rows(db, year) if rows is None else rows
+    if rows is None:
+        grouped = _spend_grouped(db, year, Asset.product_id, Product.name, Product.category)
+        out = [{"product_id": pid, "product_name": name, "category": cat, "units": int(u), "spend": Decimal(str(sp or 0))}
+               for pid, name, cat, u, sp in grouped]
+        return sorted(out, key=lambda r: r["spend"], reverse=True)
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0"), "name": None, "category": None})
     for asset, oi, _order, product in rows:
         b = totals[asset.product_id]
@@ -150,7 +203,11 @@ def spend_by_product(db: Session, year: int | None = None, *, rows=None) -> list
 
 
 def spend_by_category(db: Session, year: int | None = None, *, rows=None) -> list[dict]:
-    rows = _received_spend_rows(db, year) if rows is None else rows
+    if rows is None:
+        grouped = _spend_grouped(db, year, Product.category)
+        out = [{"category": cat or "(uncategorised)", "units": int(u), "spend": Decimal(str(sp or 0))}
+               for cat, u, sp in grouped]
+        return sorted(out, key=lambda r: r["spend"], reverse=True)
     totals: dict[str, dict] = defaultdict(lambda: {"units": 0, "spend": Decimal("0")})
     for _asset, oi, _order, product in rows:
         cat = product.category or "(uncategorised)"
@@ -164,14 +221,15 @@ def spend_by_category(db: Session, year: int | None = None, *, rows=None) -> lis
 
 
 def spend_summary(db: Session, year: int | None = None) -> dict:
-    # Materialise the join ONCE and share it across all three rollups, instead of
-    # re-running the 4-table join three times per request. The numbers are
-    # identical — same rows, same per-asset Decimal arithmetic.
-    rows = _received_spend_rows(db, year)
-    total = sum((_unit_price(oi) for _a, oi, _o, _p in rows), Decimal("0"))
+    """Three grouped reads instead of one fleet-sized join.
+
+    Each rollup aggregates in the database over exactly the same join and filter, so the
+    totals agree with each other by construction rather than by shared Python state.
+    """
+    units, total = spend_totals(db, year)
     return {
-        "total_units": len(rows),
+        "total_units": units,
         "total_spend": total,
-        "by_supplier": spend_by_supplier(db, year, rows=rows),
-        "by_category": spend_by_category(db, year, rows=rows),
+        "by_supplier": spend_by_supplier(db, year),
+        "by_category": spend_by_category(db, year),
     }

@@ -39,12 +39,41 @@ bootstrapped on every boot so login always works.
 | `SECRET_KEY` | any long string | **strong, ≥32 chars** (guard enforces it) |
 | `SCM_ENV` | unset (`dev`) | `prod` |
 | `SEED_DEMO` | `1` (seed the synthetic dataset) | **unset** (no seed — real data only) |
+| `SCM_SCENARIO` | unset (`daas` — the device-as-a-service fleet: buy, rent, take back, refurbish, sell) or `datacenter` for the old rack operation | unset (real data decides what the console shows) |
+| `DAAS_SCALE` | unset (`1.0` — 300,000 rented + 100,000 in the warehouse, the full instruction); `0.1` for a tenth | unset |
+| `SCM_RESET` | unset; `1` rebuilds the dataset on the next boot even when it already matches (use after changing `DAAS_SCALE`) | never set it |
 | `ANTHROPIC_API_KEY` | your key | same key |
 | `SCM_ANALYTICS_URL` | demo cockpit URL | prod cockpit URL |
 | `PORT` | injected by Railway | injected by Railway |
 
 Service **Settings → Root Directory = `backend`** (Dockerfile `COPY` paths are
 relative to it). Builder: Dockerfile.
+
+**Switching the demo's dataset: nothing to do.** The boot compares what the database
+holds with what this service is supposed to show and replaces it when they differ. The
+dataset in a database is read from the data itself, never from a flag — a database with
+rented devices is a DaaS fleet, one with deployed assets and no rentals is the datacenter
+operation. So a deploy of this code onto the existing demo Postgres empties the
+operational tables (logins are kept), seeds the 400,000-device fleet and measures the
+KPIs. `SCM_SCENARIO=datacenter` brings the rack operation back the same way.
+
+*Why this exists:* on 22.09.2026 the console had been rebuilt for the fleet, the code was
+deployed, and the screens still showed racks and EPYC CPUs — both seeders bail out on a
+populated catalog and nothing ever removed what was there. A demo that cannot change its
+own dataset silently shows last month's story. See `backend/app/seed_reset.py`.
+
+**First boot after the switch takes a few minutes.** Seeding 431,200 serials and about 493,000
+rental contracts is about a minute of bulk inserts locally, longer against a hosted
+Postgres, and the first KPI measurement adds roughly another minute. It happens **once**:
+every later deploy finds the dataset it wants and comes up immediately. Nothing is
+reseeded on an ordinary redeploy, so the data survives — that is the point of persistent
+Postgres. `DAAS_SCALE=0.1` gives the same shape at a tenth of the size if a fast boot
+matters more than the real number.
+
+**KPIs are measured once a day.** Thirty-one reads over a 400,000-device fleet take about
+40 seconds; running them on every page load would make the tab unusable and would not
+change a number, because each KPI is defined over a day. The boot takes the day's
+measurement, the tab serves it, and **Measure again** on the tab forces a new one.
 
 Boot sequence (every deploy): `alembic upgrade head` → `python -m
 app.services.auth` (ensures admin+guest) → demo seed **iff** `SEED_DEMO=1` →

@@ -15,7 +15,7 @@ import enum
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Float, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -79,12 +79,37 @@ class ReceiptItem(IdMixin, TimestampMixin, Base):
 
 
 class AssetStatus(str, enum.Enum):
+    # --- the original datacenter flow (kept: the tests and the datacenter scenario use it)
     RECEIVED = "RECEIVED"        # arrived at warehouse, on the floor
-    IN_STORAGE = "IN_STORAGE"    # staged in transit warehouse
+    IN_STORAGE = "IN_STORAGE"    # staged in transit warehouse; in the DaaS scenario: a new device before its first rental
     DEPLOYED = "DEPLOYED"        # installed, in-service in a rack
     MAINTENANCE = "MAINTENANCE"
     DECOMMISSIONED = "DECOMMISSIONED"
     DISPOSED = "DISPOSED"
+    # --- the Device-as-a-Service cycle: buy, rent, take back, refurbish, rent again, sell
+    RENTED = "RENTED"            # at a customer under a rental contract (cycle_no says which rental)
+    RETURNED = "RETURNED"        # back in the warehouse: receipt and lock
+    MDM_RELEASE = "MDM_RELEASE"  # waiting for the old customer to release the device from its MDM
+    WIPE_GRADING = "WIPE_GRADING"  # certified wipe, function test, grade A to D
+    REPAIR = "REPAIR"            # grade C or a defect: at the repair partner
+    REFURB = "REFURB"            # refurbishment for the next rental
+    SELLABLE = "SELLABLE"        # graded and cleared for resale, waiting for a channel
+    SWAP_BUFFER = "SWAP_BUFFER"  # replacement device held ready for a customer defect
+    SOLD = "SOLD"                # resold; terminal
+    RECYCLED = "RECYCLED"        # recycled; terminal
+
+
+# The warehouse in the DaaS scenario: every status that means "the device is physically with us".
+WAREHOUSE_STATUSES = frozenset({
+    AssetStatus.RECEIVED, AssetStatus.IN_STORAGE, AssetStatus.RETURNED, AssetStatus.MDM_RELEASE,
+    AssetStatus.WIPE_GRADING, AssetStatus.REPAIR, AssetStatus.REFURB, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER,
+})
+# At a customer: the rack in the datacenter scenario, the rental in the DaaS scenario.
+IN_USE_STATUSES = frozenset({AssetStatus.DEPLOYED, AssetStatus.RENTED, AssetStatus.MAINTENANCE})
+# Stock that can go out next: new units, and refurbished units cleared for the next rental.
+# Sellable stock and the swap buffer are reserved for something else and do not count.
+DEPLOYABLE_STATUSES = frozenset({AssetStatus.RECEIVED, AssetStatus.IN_STORAGE, AssetStatus.REFURB})
+GONE_STATUSES = frozenset({AssetStatus.DECOMMISSIONED, AssetStatus.DISPOSED, AssetStatus.SOLD, AssetStatus.RECYCLED})
 
 
 class Asset(IdMixin, TimestampMixin, Base):
@@ -96,6 +121,19 @@ class Asset(IdMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "asset"
+    # Composite indexes for a fleet of 400,000: every screen asks how many devices are
+    # in a station and how long they have been there, or what a product deployed
+    # recently. Single-column indexes left those queries touching the whole table.
+    # Mirrored by migration f6a8b0c2d357 for databases that already exist.
+    __table_args__ = (
+        Index("ix_asset_status_status_since", "status", "status_since"),
+        Index("ix_asset_product_deployed", "product_id", "deployed_date"),
+        Index("ix_asset_deployed_date", "deployed_date"),
+        Index("ix_asset_sold_date", "sold_date"),
+        Index("ix_asset_status_product", "status", "product_id"),
+        Index("ix_asset_status_cycle", "status", "cycle_no"),
+        Index("ix_asset_id_product", "id", "product_id"),
+    )
 
     serial_number: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     product_id: Mapped[str] = mapped_column(ForeignKey("product.id"), index=True)
@@ -115,6 +153,16 @@ class Asset(IdMixin, TimestampMixin, Base):
     warranty_end_date: Mapped[Optional[date]] = mapped_column(Date)
     decommissioned_date: Mapped[Optional[date]] = mapped_column(Date)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    # --- DaaS scenario fields (nullable; the datacenter flow leaves them empty)
+    cycle_no: Mapped[int] = mapped_column(Integer, default=0)                 # 0 never rented, 1 first rental, 2 second rental
+    grade: Mapped[Optional[str]] = mapped_column(String(1))                    # A B C D, set at wipe and grading
+    battery_health: Mapped[Optional[float]] = mapped_column(Float)             # 0..1, read at grading
+    customer_id: Mapped[Optional[str]] = mapped_column(ForeignKey("organization.id"), index=True)   # while RENTED
+    status_since: Mapped[Optional[date]] = mapped_column(Date)                 # when the current status began (dwell per station)
+    sold_date: Mapped[Optional[date]] = mapped_column(Date)
+    sale_price: Mapped[Optional[float]] = mapped_column(Numeric(14, 2))        # net proceeds after channel fee
+    sale_channel: Mapped[Optional[str]] = mapped_column(String(32))            # marketplace | b2b_wholesale | employee_buyout | as_is
 
     product = relationship("Product")
     current_location = relationship("Location")

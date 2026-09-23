@@ -35,6 +35,9 @@ from app.models.flow import Asset
 _STEP_DAYS = 30
 
 
+BACKTEST_MAX_DAYS = 730   # how far back the walk-forward test reaches: two years
+
+
 def _as_of_dates(history_start: date, history_end: date, horizon: int) -> list[date]:
     """Month-spaced as-of dates that have BOTH enough trailing history to
     forecast from (>= the usage window) and a full horizon of future actuals to
@@ -86,6 +89,10 @@ def backtest(db: Session, *, method: Optional[str] = None) -> list[dict]:
     if bounds is None:
         return []
     history_start, history_end = bounds
+    # Score the recent past, not the whole archive. A fleet that has changed its intake
+    # is not usefully judged on how well the model would have predicted four years ago,
+    # and the walk costs one full forecast per as-of month.
+    history_start = max(history_start, history_end - timedelta(days=BACKTEST_MAX_DAYS))
     horizon = settings.demand_horizon_days
 
     out: list[dict] = []

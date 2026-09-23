@@ -39,8 +39,24 @@ const STATUS = {
   MAINTENANCE:    { label: "Maintenance",    tone: "warning" },
   DECOMMISSIONED: { label: "Decommissioned", tone: "mute" },
   DISPOSED:       { label: "Disposed",       tone: "negative" },
+  // the device-as-a-service cycle
+  RENTED:         { label: "Rented",         tone: "positive" },
+  RETURNED:       { label: "Returned",       tone: "info" },
+  MDM_RELEASE:    { label: "MDM release",    tone: "warning" },
+  WIPE_GRADING:   { label: "Wipe & grading", tone: "info" },
+  REPAIR:         { label: "Repair",         tone: "warning" },
+  REFURB:         { label: "Refurbishment",  tone: "info" },
+  SELLABLE:       { label: "Sellable",       tone: "gold" },
+  SWAP_BUFFER:    { label: "Swap buffer",    tone: "neutral" },
+  SOLD:           { label: "Sold",           tone: "mute" },
+  RECYCLED:       { label: "Recycled",       tone: "negative" },
 };
 const STEP_SHORT = ["Recv", "Store", "Deploy", "Maint", "Decom", "Disp"];
+const LIFECYCLE_DAAS = ["IN_STORAGE", "RENTED", "RETURNED", "MDM_RELEASE", "WIPE_GRADING", "REPAIR", "REFURB", "SELLABLE", "SWAP_BUFFER", "SOLD", "RECYCLED"];
+// The scenario the database holds. Set at boot from /fleet/summary; a fleet with rented devices is DaaS.
+window.FLEET = null;
+const isDaas = () => !!(window.FLEET && window.FLEET.scenario === "daas");
+const lifecycleOf = () => isDaas() ? LIFECYCLE_DAAS : LIFECYCLE;
 
 const TONE = {
   info:     { dot: "var(--ts-info)",        bg: "var(--ts-info-wash)",       fg: "var(--ts-info)" },
@@ -48,11 +64,13 @@ const TONE = {
   warning:  { dot: "var(--ts-warning)",     bg: "var(--ts-warning-wash)",    fg: "#8C6510" },
   negative: { dot: "var(--ts-negative)",    bg: "var(--ts-negative-wash)",   fg: "var(--ts-negative)" },
   neutral:  { dot: "var(--ts-line-strong)", bg: "var(--ts-paper-deep)",      fg: "var(--ts-ink-soft)" },
+  gold:     { dot: "var(--ts-brand-gold)",  bg: "var(--ts-brand-gold-wash)", fg: "var(--ts-brand-gold-deep)" },
   mute:     { dot: "var(--ts-ink-faint)",   bg: "var(--ts-paper-deep)",      fg: "var(--ts-ink-mute)" },
 };
 
-const NAV = [
+const NAV_DC = [
   { id: "overview",     label: "Overview",     icon: "gauge" },
+  { id: "kpis",         label: "KPIs",         icon: "target" },
   { id: "inventory",    label: "Inventory",    icon: "stock" },
   { id: "requisitions", label: "Requisitions", icon: "cart",  countKey: "staged" },
   { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },
@@ -61,13 +79,29 @@ const NAV = [
   { id: "contracts",    label: "Contracts",    icon: "contract" },
   { id: "spend",        label: "Spend",        icon: "euro" },
 ];
+// The DaaS fleet: the same console, ordered by the cycle — buy, rent, take back, refurbish, sell.
+const NAV_DAAS = [
+  { id: "overview",     label: "Overview",     icon: "gauge" },
+  { id: "kpis",         label: "KPIs",         icon: "target" },
+  { id: "assets",       label: "Fleet",        icon: "box",   countKey: "assets" },
+  { id: "returns",      label: "Returns",      icon: "return", countKey: "returns30" },
+  { id: "capacity",     label: "Warehouse",    icon: "layers" },
+  { id: "inventory",    label: "Inventory",    icon: "stock" },
+  { id: "requisitions", label: "Requisitions", icon: "cart",  countKey: "staged" },
+  { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },
+  { id: "contracts",    label: "Contracts",    icon: "contract" },
+  { id: "spend",        label: "Spend",        icon: "euro" },
+];
+let NAV = NAV_DC;
 
 /* ── Icons (Lucide stroke language) ────────────────────────────────── */
 const ICONS = {
+  return: '<path d="M9 14l-4-4 4-4"/><path d="M5 10h9a5 5 0 0 1 0 10h-3"/>',
   gauge:  '<path d="M12 14l4-4"/><path d="M3.5 18a9 9 0 1 1 17 0"/><circle cx="12" cy="14" r="1.4" fill="currentColor" stroke="none"/>',
   box:    '<path d="M12 3l8 4v10l-8 4-8-4V7z"/><path d="M4 7l8 4 8-4"/><path d="M12 11v10"/>',
   truck:  '<path d="M3 6h11v9H3z"/><path d="M14 9h4l3 3v3h-7z"/><circle cx="7" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/>',
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  trend:  '<path d="M3 17l6-6 4 4 7-7"/><path d="M20 8h-5"/><path d="M20 8v5"/>',
   euro:   '<path d="M17 6.5a6 6 0 1 0 0 11"/><path d="M5 10h8"/><path d="M5 14h7"/>',
   server: '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>',
   cpu:    '<rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/>',
@@ -165,6 +199,12 @@ function logout() {
 async function boot() {
   try {
     const me = await api("/auth/me");
+    window.ME = me;   // feature scripts (kpis.js) read the role to decide what a user may edit
+    // Which scenario is this database? A fleet with rented devices is device-as-a-service;
+    // the console reorders itself around the rental cycle. Otherwise: the datacenter flow.
+    window.FLEET = await api("/fleet/summary").catch(() => null);
+    NAV = isDaas() ? NAV_DAAS : NAV_DC;
+    const tag = $(".sidebar__tag"); if (tag) tag.textContent = isDaas() ? "Device fleet operations" : "Asset operations";
     $("#user-name").textContent = me.full_name || me.email;
     $("#user-sub").innerHTML = `<span class="role-pill">${esc(me.role)}</span>`;
     $("#user-avatar").textContent = initials(me.full_name || me.email);
@@ -184,11 +224,20 @@ async function boot() {
     $("#app-view").classList.remove("hidden");
     renderNav();
     primeCounts();
-    showTab("overview");
+    // The address bar names the tab, so a screen can be linked to and a reload comes
+    // back where you were. An unknown or missing hash falls back to the overview.
+    showTab(tabFromHash());
+    window.addEventListener("hashchange", () => {
+      const want = tabFromHash();
+      if (want !== currentTab) showTab(want);
+    });
   } catch (e) {
     logout();
   }
 }
+// Whole numbers, German grouping. At a fleet of 400,000 an ungrouped "45400" is a
+// number nobody reads correctly at a glance, least of all out loud in a meeting.
+const num = (v) => (v == null || v === "" ? "—" : Number(v).toLocaleString("de-DE"));
 const initials = (s) => s.replace(/@.*/, "").split(/[ ._-]+/).slice(0, 2).map((w) => w[0] || "").join("").toUpperCase() || "··";
 
 async function primeCounts() {
@@ -197,7 +246,10 @@ async function primeCounts() {
       api("/assets?limit=1000").catch(() => []),
       api("/planning/inbound").catch(() => []),
     ]);
-    COUNTS.assets = assets.length;
+    // The fleet is what is still in it: devices already sold or recycled are history,
+    // not stock. The body of the overview says 400.000, so the sidebar must too.
+    COUNTS.assets = isDaas() && window.FLEET ? (window.FLEET.rented + window.FLEET.warehouse) : assets.length;
+    COUNTS.returns30 = isDaas() && window.FLEET ? window.FLEET.returns_due_30d : null;
     COUNTS.inbound = inbound.length;
     COUNTS.overdue = inbound.filter((r) => r.overdue).length;
     renderNav();
@@ -211,7 +263,7 @@ function renderNav() {
     const active = currentTab === n.id;
     const c = n.countKey ? COUNTS[n.countKey] : null;
     const urgent = n.id === "tracking" && COUNTS.overdue > 0;
-    const badge = c != null ? `<span class="navlink__count${urgent ? " navlink__count--urgent" : ""}">${c}</span>` : "";
+    const badge = c != null ? `<span class="navlink__count${urgent ? " navlink__count--urgent" : ""}">${Number(c).toLocaleString("de-DE")}</span>` : "";
     return `<button class="navlink${active ? " navlink--active" : ""}" data-tab="${n.id}">
       <span class="navlink__icon">${icon(n.icon, 16)}</span><span>${n.label}</span>${badge}</button>`;
   }).join("");
@@ -219,17 +271,24 @@ function renderNav() {
 }
 
 const CRUMBS = { overview: "Overview", assets: "Assets", inbound: "Inbound", capacity: "Capacity", spend: "Spend" };
+const crumbLabel = (name) => (isDaas() && name === "assets") ? "Fleet" : (isDaas() && name === "capacity") ? "Warehouse" : (CRUMBS[name] || name);
 const RENDER = {};
+function tabFromHash() {
+  const want = (location.hash || "").replace(/^#/, "");
+  return NAV.some((n) => n.id === want) ? want : "overview";
+}
+
 function showTab(name) {
   currentTab = name;
   openAssetId = null;
+  if (tabFromHash() !== name) location.hash = name;
   renderNav();
   // A tab's label + renderer live in its own feature script (e.g. inventory.js
   // sets CRUMBS.inventory and RENDER.inventory). If that script didn't load —
   // almost always a stale browser cache after a deploy — CRUMBS[name] is
   // undefined and RENDER[name]() throws, leaving the page stuck on "Loading…"
   // with an "undefined" crumb. Fail loud and recoverable instead of hanging.
-  const label = CRUMBS[name] || name;
+  const label = crumbLabel(name);
   $("#crumbs").innerHTML = `<span>SCM Master</span>${icon("chev", 12)}<strong>${esc(label)}</strong>`;
   const screen = $("#screen");
   const renderer = RENDER[name];
@@ -279,6 +338,7 @@ const locName = (id) => id && LOCATIONS[id] ? LOCATIONS[id].name : "—";
 
 /* ── Overview ──────────────────────────────────────────────────────── */
 RENDER.overview = async function () {
+  if (isDaas()) return renderDaasOverview();
   try {
     const [assets, inbound, capacity, spend, forecast] = await Promise.all([
       api("/assets?limit=1000"),
@@ -307,7 +367,7 @@ RENDER.overview = async function () {
     overCap.forEach((r) => attn.push({
       tone: "negative", ic: "alert",
       title: `${r.name} is over capacity`,
-      sub: `${r.used} units in a ${r.capacity}-unit location. Re-stage incoming stock.`,
+      sub: `${num(r.used)} units in a ${num(r.capacity)}-unit location. Re-stage incoming stock.`,
       go: "capacity",
     }));
     if (inMaint.length) attn.push({
@@ -385,18 +445,26 @@ RENDER.overview = async function () {
 };
 
 /* ── Assets ────────────────────────────────────────────────────────── */
-const FILTERS = [
+const FILTERS_DC = [
   { id: "all", label: "All" }, { id: "RECEIVED", label: "Received" }, { id: "IN_STORAGE", label: "In storage" },
   { id: "DEPLOYED", label: "Deployed" }, { id: "MAINTENANCE", label: "Maintenance" }, { id: "retired", label: "Retired" },
 ];
+const FILTERS_DAAS = [
+  { id: "all", label: "All" }, { id: "RENTED", label: "Rented" }, { id: "RETURNED", label: "Returned" }, { id: "MDM_RELEASE", label: "MDM release" },
+  { id: "WIPE_GRADING", label: "Wipe & grading" }, { id: "REPAIR", label: "Repair" }, { id: "REFURB", label: "Refurb" },
+  { id: "SELLABLE", label: "Sellable" }, { id: "SWAP_BUFFER", label: "Swap buffer" }, { id: "IN_STORAGE", label: "New stock" }, { id: "SOLD", label: "Sold" },
+];
+const FILTERS = new Proxy({}, { get: (_, k) => (isDaas() ? FILTERS_DAAS : FILTERS_DC)[k] });
 let assetFilter = "all";
 let assetCache = [];
 
 RENDER.assets = async function () {
   $("#screen").innerHTML = `
-    ${pageHead("Asset lifecycle", "Assets", "Every serialised unit, followed from receipt to disposal. Open a row to trace its provenance and move it along the lifecycle.", `<button class="btn btn--ink" disabled title="Receiving runs against a purchase order">${icon("box", 15)} Receive units</button>`)}
+    ${isDaas()
+      ? pageHead("Device fleet", "Fleet", `Every serial, from purchase through rental, return and refurbishment to its second life or its sale. ${window.FLEET ? window.FLEET.total.toLocaleString("de-DE") + " devices; the list shows the first 1,000 of a filter." : ""} Open a row to trace provenance and move it along the cycle.`)
+      : pageHead("Asset lifecycle", "Assets", "Every serialised unit, followed from receipt to disposal. Open a row to trace its provenance and move it along the lifecycle.", `<button class="btn btn--ink" disabled title="Receiving runs against a purchase order">${icon("box", 15)} Receive units</button>`)}
     <div class="toolbar">
-      <div class="segmented" id="asset-filter">${FILTERS.map((f) => `<button class="${assetFilter === f.id ? "active" : ""}" data-f="${f.id}">${f.label}</button>`).join("")}</div>
+      <div class="segmented" id="asset-filter">${Array.from(isDaas() ? FILTERS_DAAS : FILTERS_DC).map((f) => `<button class="${assetFilter === f.id ? "active" : ""}" data-f="${f.id}">${f.label}</button>`).join("")}</div>
       <div class="toolbar__spacer"></div>
       <span class="toolbar__count" id="asset-count"></span>
     </div>
@@ -467,10 +535,11 @@ async function toggleAsset(id) {
 }
 
 function renderBrief(asset, prov, events) {
-  const idx = LIFECYCLE.indexOf(asset.status);
-  const stepper = `<div class="stepper">${LIFECYCLE.map((s, i) => {
+  const LC = lifecycleOf();
+  const idx = LC.indexOf(asset.status);
+  const stepper = `<div class="stepper">${LC.map((s, i) => {
     const cls = i < idx ? "step--done" : i === idx ? "step--current" : "";
-    return `<div class="step ${cls}"><div class="step__node"><div class="step__dot"></div></div>${i < LIFECYCLE.length - 1 ? '<div class="step__bar"></div>' : ""}</div>`;
+    return `<div class="step ${cls}"><div class="step__node"><div class="step__dot"></div></div>${i < LC.length - 1 ? '<div class="step__bar"></div>' : ""}</div>`;
   }).join("")}</div>
   <div class="steplabels">${STEP_SHORT.map((s, i) => `<div class="steplabel${i === idx ? " steplabel--current" : ""}">${s}</div>`).join("")}</div>`;
 
@@ -578,8 +647,8 @@ RENDER.capacity = async function () {
         <td><div class="cell-prod"><span class="cell-prod__icon">${icon("pin", 15)}</span>
           <div><div class="cell-prod__name">${esc(r.name)}</div><div class="cell-prod__cat ref">${esc(r.code)}</div></div></div></td>
         <td class="muted">${pretty(r.location_type)}</td>
-        <td class="num" style="font-weight:600">${r.used}</td>
-        <td class="num muted">${r.capacity ?? "—"}</td>
+        <td class="num" style="font-weight:600">${num(r.used)}</td>
+        <td class="num muted">${num(r.capacity)}</td>
         <td><div style="display:flex;align-items:center;gap:12px"><div class="cap-bar"><div class="cap-bar__fill" style="width:${Math.min(u, 1) * 100}%;background:${tone}"></div></div><span class="cap-util" style="color:${tone}">${pct(u)}</span></div></td>
         <td style="display:flex;align-items:center;gap:8px;justify-content:flex-end">
           ${r.over_capacity ? plainPill("Over capacity", "negative") : (d ? plainPill("Near capacity", "warning") : "")}
@@ -592,17 +661,17 @@ RENDER.capacity = async function () {
         <div class="cap-cause__inner">
           <div class="cap-cause__why">${esc(d.summary)}</div>
           <div class="cap-cause__bits">
-            ${d.by_source_po.length ? `<span class="cap-tag">filled by ${d.by_source_po.slice(0,3).map((p)=>`${esc(p.order_number)} (${p.units})`).join(", ")}</span>` : ""}
-            ${d.inbound_units > 0 ? `<span class="cap-tag cap-tag--warn">+${d.inbound_units} inbound · ${d.inbound_pos.map(esc).join(", ")}</span>` : ""}
-            ${d.by_product.length ? `<span class="cap-tag">${d.by_product.slice(0,3).map((p)=>`${p.units}× ${esc(p.name)}`).join(", ")}</span>` : ""}
+            ${d.by_source_po.length ? `<span class="cap-tag">filled by ${d.by_source_po.slice(0,3).map((p)=>`${esc(p.order_number)} (${num(p.units)})`).join(", ")}</span>` : ""}
+            ${d.inbound_units > 0 ? `<span class="cap-tag cap-tag--warn">+${num(d.inbound_units)} inbound · ${d.inbound_pos.map(esc).join(", ")}</span>` : ""}
+            ${d.by_product.length ? `<span class="cap-tag">${d.by_product.slice(0,3).map((p)=>`${num(p.units)}× ${esc(p.name)}`).join(", ")}</span>` : ""}
           </div>
         </div></td></tr>` : "";
       return mainRow + causeRow;
     }).join("");
 
     const hr = headroom && headroom.storable_max != null
-      ? `<div class="cap-headroom"><strong>${headroom.storable_max}</strong> units max we can still store
-         <span class="muted">(${headroom.free_now} free now − ${headroom.committed_inbound} already inbound)</span>
+      ? `<div class="cap-headroom"><strong>${num(headroom.storable_max)}</strong> units max we can still store
+         <span class="muted">(${num(headroom.free_now)} free now − ${num(headroom.committed_inbound)} already inbound)</span>
          — any order is capped to this so nothing arrives with nowhere to go.</div>`
       : "";
 
@@ -686,3 +755,123 @@ fetch("/health").then((r) => r.json()).then((h) => {
 // Boot is triggered by the host page AFTER features.js has registered its
 // nav items / agent button (see the init script in index.html).
 window.__scmInit = function () { if (token) boot(); else logout(); };
+
+
+/* ── Overview, device-as-a-service ─────────────────────────────────── */
+/* The scale-up, drawn from the contracts: how many devices started their first
+   rental in each of the last 24 months. A bar per month, no library — the shape is
+   the point, and the shape is what a return wave is built from. */
+function growthSection(G, n) {
+  const months = (G.by_month || []).filter((m) => m.first_rentals != null);
+  if (months.length < 6) return "";
+  const max = Math.max(1, ...months.map((m) => m.first_rentals));
+  const label = (ym) => new Date(ym + "-01T00:00:00").toLocaleDateString("en-GB", { month: "short" });
+  const bars = months.map((m, i) => {
+    const h = Math.max(2, Math.round(m.first_rentals / max * 100));
+    const show = i % 3 === 0 || i === months.length - 1;
+    return `<div class="growth__col" title="${m.month}: ${n(m.first_rentals)} first rentals">
+      <div class="growth__bar" style="height:${h}%"></div>
+      <div class="growth__tick">${show ? label(m.month) : ""}</div></div>`;
+  }).join("");
+  const last = months[months.length - 1];
+  return `<div class="section">
+    <div class="section__head"><span class="section__title">Devices entering service</span>
+      <span class="section__count">${n(months.reduce((a, m) => a + m.first_rentals, 0))} in 24 months</span>
+      <span class="section__hint">first rentals started per month · latest ${label(last.month)} ${n(last.first_rentals)}</span></div>
+    <div class="panel"><div class="growth">${bars}</div></div>
+  </div>`;
+}
+
+async function renderDaasOverview() {
+  try {
+    const [F, inbound, capacity, spend] = await Promise.all([
+      api("/fleet/summary"),
+      api("/planning/inbound").catch(() => []),
+      api("/planning/capacity").catch(() => []),
+      api("/analytics/spend").catch(() => null),
+    ]);
+    window.FLEET = F;
+    const n = (v) => Number(v || 0).toLocaleString("de-DE");
+    const dist = LIFECYCLE_DAAS.map((s) => ({ status: s, n: F.by_status[s] || 0 }));
+    const inFleet = dist.filter((d) => d.status !== "SOLD" && d.status !== "RECYCLED");
+    const total = inFleet.reduce((a, d) => a + d.n, 0);
+    const overdue = inbound.filter((r) => r.overdue);
+    const outstanding = inbound.reduce((s, r) => s + (r.outstanding || 0), 0);
+    const overCap = capacity.filter((r) => r.over_capacity);
+    const st = (k) => F.stations.find((s) => s.status === k) || {};
+    const mdm = st("MDM_RELEASE"), sell = st("SELLABLE"), swap = st("SWAP_BUFFER"), repair = st("REPAIR");
+
+    const G = F.growth || {};
+    const attn = [];
+    if (G.growth_12m_pct != null && G.growth_12m_pct > 0 && overCap.length) attn.push({
+      tone: "warning", ic: "layers",
+      title: `The fleet grew ${G.growth_12m_pct}% in twelve months, ${overCap.length} station${overCap.length > 1 ? "s are" : " is"} over capacity`,
+      sub: `${n(G.added_12m)} more devices at customers than a year ago (${n(G.rented_12m_ago)} then, ${n(G.rented_now)} now). Intake capacity has not followed. Decide: add space, add shifts, or slow the ramp.`,
+      go: "capacity" });
+    if (F.returns_overdue) attn.push({ tone: "negative", ic: "clock", title: `${n(F.returns_overdue)} devices past their planned return`, sub: "The contract ended, the device is still out. Chase the return or extend the contract.", go: "returns" });
+    if (mdm.over_sla) attn.push({ tone: "warning", ic: "alert", title: `${n(mdm.over_sla)} returned devices waiting over 21 days for the old customer's MDM release`, sub: "Nothing can be wiped or graded until the release comes. Escalate with the account owner.", go: "assets" });
+    if (sell.over_90_days) attn.push({ tone: "warning", ic: "euro", title: `${n(sell.over_90_days)} sellable devices older than 90 days`, sub: `Sellable stock is ${n(sell.count)} devices, median ${Math.round(sell.median_days || 0)} days. Every month costs capital and residual value; open a channel or take the buy-back offer.`, go: "assets" });
+    if (F.returns_due_30d) attn.push({ tone: "info", ic: "return", title: `${n(F.returns_due_30d)} returns due in the next 30 days`, sub: `${n(F.returns_due_90d)} in 90 days. Plan intake, MDM releases and refurbishment capacity now.`, go: "returns" });
+    overdue.forEach((r) => attn.push({ tone: "negative", ic: "clock", title: `${r.order_number} is overdue — ${r.outstanding}× ${(PRODUCTS[r.product_id] || {}).name || "units"} outstanding`, sub: `ETA ${fmtDate(r.estimated_delivery_date)} has passed. Chase the supplier or re-source the line.`, go: "tracking" }));
+    overCap.forEach((r) => attn.push({ tone: "negative", ic: "alert", title: `${r.name} is over capacity`, sub: `${n(r.used)} devices in a ${n(r.capacity)}-device station. Move stock or add space.`, go: "capacity" }));
+
+    const stat = (label, ic, val, hint, hintCls = "", valCls = "") =>
+      `<div class="stat"><div class="stat__label">${icon(ic, 14)} ${label}</div><div class="stat__val ${valCls}">${val}</div>${hint ? `<div class="stat__hint ${hintCls}">${hint}</div>` : ""}</div>`;
+    const distBar = inFleet.map((d) => {
+      if (d.n === 0) return "";
+      const t = TONE[STATUS[d.status].tone];
+      const wide = total && d.n / total > 0.06;
+      return `<div class="dist__seg" title="${STATUS[d.status].label}: ${n(d.n)}" style="flex:${d.n};background:${t.bg};border-right:1px solid var(--ts-surface)">${wide ? `<span class="dist__seg-n" style="color:${t.fg}">${n(d.n)}</span>` : ""}</div>`;
+    }).join("");
+    const legend = inFleet.map((d) => {
+      const t = TONE[STATUS[d.status].tone];
+      return `<div class="dist-legend__item"><span class="dist-legend__dot" style="background:${t.dot}"></span>${STATUS[d.status].label}<span class="dist-legend__n">${n(d.n)}</span></div>`;
+    }).join("");
+    const attnHTML = attn.length ? `<div class="panel" style="padding:4px 22px"><div class="attn">${attn.map((a) => {
+      const t = TONE[a.tone];
+      return `<div class="attn__item"><div class="attn__icon" style="background:${t.bg};color:${t.fg}">${icon(a.ic, 16)}</div>
+        <div><div class="attn__title">${esc(a.title)}</div><div class="attn__sub">${esc(a.sub)}</div></div>
+        <button class="btn btn--ghost btn--sm attn__action" data-go="${a.go}">Open</button></div>`;
+    }).join("")}</div></div>`
+      : `<div class="panel"><div class="state"><div class="state__icon">${icon("check", 22)}</div><div class="state__title">Nothing needs you right now</div><div class="state__sub">No overdue returns, no MDM holds over the SLA, no aging sellable stock.</div></div></div>`;
+    const railHTML = `
+      <aside class="rail">
+        <div class="rail__head"><span class="rail__dot"></span> Warehouse stations</div>
+        <div class="panel" style="padding:6px 20px;margin-bottom:18px">
+          ${F.stations.filter((s) => s.count).map((s, i, arr) => `<div class="prov__row"${i === arr.length - 1 ? ' style="border-bottom:none"' : ""}><span class="prov__k">${esc(s.label)}<span class="muted" style="font-size:11px;margin-left:6px">${s.median_days != null ? Math.round(s.median_days) + " d" : ""}</span></span><span class="prov__v" style="font-variant-numeric:tabular-nums;font-weight:600">${n(s.count)}</span></div>`).join("")}
+        </div>
+        <div class="rail__head">Last 90 days</div>
+        <div class="panel" style="padding:6px 20px;margin-bottom:18px">
+          ${Object.entries(F.ended_last_90d || {}).map(([k, v], i, arr) => `<div class="prov__row"${i === arr.length - 1 ? ' style="border-bottom:none"' : ""}><span class="prov__k">Contracts ended, ${esc(k)}</span><span class="prov__v" style="font-variant-numeric:tabular-nums;font-weight:600">${n(v)}</span></div>`).join("") || `<div class="prov__row" style="border-bottom:none"><span class="prov__k">No contract ended</span></div>`}
+        </div>
+        <div class="rail__head">Inbound</div>
+        <div class="panel" style="padding:6px 20px">
+          <div class="prov__row"><span class="prov__k">Units outstanding</span><span class="prov__v" style="font-weight:600">${n(outstanding)}</span></div>
+          <div class="prov__row" style="border-bottom:none"><span class="prov__k">Lines overdue</span><span class="prov__v" style="font-weight:600;color:${overdue.length ? "var(--ts-negative)" : "inherit"}">${n(overdue.length)}</span></div>
+        </div>
+      </aside>`;
+    $("#screen").innerHTML = `<div class="content--rail fade-in"><div>
+      ${pageHead("Operations", "Fleet overview", "Where every device is, what comes back, and what needs you — composed live from the fleet, the rental contracts, the warehouse stations and the inbound pipeline.")}
+      <div class="stats stats--5">
+        ${stat("At customers", "check", n(F.rented), `${F.rented ? Math.round(F.rented_cycle2 / F.rented * 100) : 0}% on their second rental`, "stat__hint--pos")}
+        ${stat("In the warehouse", "layers", n(F.warehouse), `${n(sell.count || 0)} sellable · ${n(swap.count || 0)} swap buffer · ${n(repair.count || 0)} in repair`)}
+        ${stat("Growth, 12 months", "trend", G.growth_12m_pct != null ? `+${G.growth_12m_pct}%` : "—", `${n(G.added_12m)} more at customers than a year ago`, "stat__hint--pos")}
+        ${stat("Returns due, 30 days", "return", n(F.returns_due_30d), F.returns_overdue ? `${n(F.returns_overdue)} overdue` : `${n(F.returns_due_90d)} within 90 days`, F.returns_overdue ? "stat__hint--neg" : "")}
+        ${stat("Resale, last 12 months", "euro", euro(F.sold_12m_eur), `${n(F.sold_12m)} devices sold · ${n(F.recycled_12m)} recycled`, "", "stat__val--gold")}
+      </div>
+      ${growthSection(G, n)}
+      <div class="section">
+        <div class="section__head"><span class="section__title">The fleet</span><span class="section__count">${n(total)} devices</span><span class="section__hint">new stock → rented → returned → MDM release → wipe & grading → repair / refurb → rented again or sellable</span></div>
+        <div class="dist">${distBar}</div>
+        <div class="dist-legend">${legend}</div>
+      </div>
+      <div class="section" style="margin-bottom:0">
+        <div class="section__head"><span class="section__title">Needs you this week</span><span class="section__count">${attn.length}</span>${spend ? `<span class="section__hint">Spend tracked via provenance: ${euro(spend.total_spend)}</span>` : ""}</div>
+        ${attnHTML}
+      </div>
+    </div>${railHTML}</div>`;
+    $$("#screen [data-go]").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.go)));
+  } catch (e) {
+    $("#screen").innerHTML = errState(e.message);
+  }
+}

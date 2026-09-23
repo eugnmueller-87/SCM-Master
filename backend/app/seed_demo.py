@@ -501,11 +501,15 @@ def _seed_tracking_from_pos(db) -> None:
 
 
 if __name__ == "__main__":
-    # Self-wiring demo: seed unless this is production (forge-locked) or the
-    # operator opted out with SEED_DEMO=0. Idempotent on an already-seeded DB.
+    # Self-wiring demo: seed unless this is production (forge-locked) or the operator
+    # opted out with SEED_DEMO=0. ``ensure_dataset`` does the idempotent part AND the
+    # part that was missing until 22.09.2026: a database holding the other scenario is
+    # replaced instead of silently kept. SCM_SCENARIO picks the dataset (default: the
+    # device-as-a-service fleet); SCM_SCENARIO=datacenter brings this seed back.
     from app.core.safety import should_seed_demo
 
     if should_seed_demo():
-        seed_demo()
+        from app.seed_reset import ensure_dataset
+        ensure_dataset()
     else:
         print("Skipping demo seed (production, or SEED_DEMO=0).")

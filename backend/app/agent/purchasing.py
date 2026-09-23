@@ -33,7 +33,7 @@ from app.agent.schemas import (
     PurchasingRunResult,
 )
 from app.core.config import settings
-from app.models.flow import Asset, AssetStatus
+from app.models.flow import DEPLOYABLE_STATUSES, GONE_STATUSES, Asset
 from app.models.requisition import (
     PurchaseRequisition,
     RequisitionLine,
@@ -44,8 +44,8 @@ from app.services.procurement import purchase_order_service
 
 _log = logging.getLogger("app.agent.purchasing")
 
-_ON_HAND = (AssetStatus.RECEIVED, AssetStatus.IN_STORAGE)
-_GONE = (AssetStatus.DECOMMISSIONED, AssetStatus.DISPOSED)
+_ON_HAND = tuple(DEPLOYABLE_STATUSES)
+_GONE = tuple(GONE_STATUSES)
 
 
 # --- Step 1: detect justified need per product ----------------------------
