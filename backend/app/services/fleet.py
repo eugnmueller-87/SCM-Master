@@ -38,10 +38,12 @@ NEXT_STEP_SHARE = {
     2: {"second_rental": 0.0, "repair": 0.0, "sale": 0.96, "recycling": 0.04},
 }
 STATION_ORDER = [AssetStatus.RETURNED, AssetStatus.MDM_RELEASE, AssetStatus.WIPE_GRADING, AssetStatus.REPAIR,
-                 AssetStatus.REFURB, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER, AssetStatus.IN_STORAGE, AssetStatus.RECEIVED]
+                 AssetStatus.REFURB, AssetStatus.READY_SECOND, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER,
+                 AssetStatus.IN_STORAGE, AssetStatus.RECEIVED]
 STATION_LABEL = {
     AssetStatus.RETURNED: "Returns intake", AssetStatus.MDM_RELEASE: "MDM release hold", AssetStatus.WIPE_GRADING: "Wipe and grading",
-    AssetStatus.REPAIR: "Repair", AssetStatus.REFURB: "Refurbishment", AssetStatus.SELLABLE: "Sellable stock",
+    AssetStatus.REPAIR: "Repair", AssetStatus.REFURB: "Refurbishment", AssetStatus.READY_SECOND: "Second-life stock",
+    AssetStatus.SELLABLE: "Sellable stock",
     AssetStatus.SWAP_BUFFER: "Swap buffer", AssetStatus.IN_STORAGE: "New stock", AssetStatus.RECEIVED: "Just received",
 }
 

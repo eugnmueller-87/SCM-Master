@@ -20,6 +20,7 @@ from app.api.v1.requisitions import router as requisitions_router
 from app.api.v1.sourcing import router as sourcing_router
 from app.api.v1.tco import router as tco_router
 from app.api.v1.tracking import router as tracking_router
+from app.api.v1.warehouse import router as warehouse_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -38,3 +39,4 @@ api_router.include_router(costing_router)
 api_router.include_router(tco_router)
 api_router.include_router(kpis_router)
 api_router.include_router(fleet_router)
+api_router.include_router(warehouse_router)

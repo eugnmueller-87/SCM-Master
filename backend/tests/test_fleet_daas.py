@@ -12,7 +12,7 @@ import pytest
 from app.models.catalog import Organization, Product
 from app.models.flow import WAREHOUSE_STATUSES, Asset, AssetStatus, Location, LocationType
 from app.models.rental import ContractStatus, RentalContract
-from app.services import fleet, lifecycle
+from app.services import fleet, lifecycle, warehouse
 from app.services.exceptions import ValidationError
 
 TODAY = date(2026, 9, 22)
@@ -50,7 +50,9 @@ def test_lifecycle_allows_the_cycle_and_refuses_shortcuts():
     assert lifecycle.can_transition(AssetStatus.RENTED, AssetStatus.RETURNED)
     assert lifecycle.can_transition(AssetStatus.RETURNED, AssetStatus.MDM_RELEASE)
     assert lifecycle.can_transition(AssetStatus.WIPE_GRADING, AssetStatus.REPAIR)
-    assert lifecycle.can_transition(AssetStatus.REFURB, AssetStatus.RENTED)
+    assert lifecycle.can_transition(AssetStatus.REFURB, AssetStatus.READY_SECOND)
+    assert lifecycle.can_transition(AssetStatus.READY_SECOND, AssetStatus.RENTED)
+    assert not lifecycle.can_transition(AssetStatus.REFURB, AssetStatus.RENTED)      # second-life stock is its own compartment, never skipped
     assert lifecycle.can_transition(AssetStatus.SELLABLE, AssetStatus.SOLD)
     assert not lifecycle.can_transition(AssetStatus.RENTED, AssetStatus.SOLD)          # a rented device is not sold from the customer
     assert not lifecycle.can_transition(AssetStatus.RETURNED, AssetStatus.RENTED)      # no re-rental without wipe and grading
@@ -99,7 +101,7 @@ def test_api_fleet_endpoints(client, db_session):
 
 def test_warehouse_statuses_cover_the_stations():
     for st in (AssetStatus.RETURNED, AssetStatus.MDM_RELEASE, AssetStatus.WIPE_GRADING, AssetStatus.REPAIR, AssetStatus.REFURB,
-               AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER, AssetStatus.IN_STORAGE, AssetStatus.RECEIVED):
+               AssetStatus.READY_SECOND, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER, AssetStatus.IN_STORAGE, AssetStatus.RECEIVED):
         assert st in WAREHOUSE_STATUSES
     assert AssetStatus.RENTED not in WAREHOUSE_STATUSES and AssetStatus.SOLD not in WAREHOUSE_STATUSES
 
@@ -120,6 +122,10 @@ def test_daas_seed_small_scale(db_session, monkeypatch):
     assets = db_session.query(Asset).all()
     assert sum(1 for a in assets if a.status == AssetStatus.RENTED) == 300
     assert sum(1 for a in assets if a.status in WAREHOUSE_STATUSES) == 100
+    second = [a for a in assets if a.status == AssetStatus.READY_SECOND]
+    assert len(second) == round(100 * seed_daas.WAREHOUSE_MIX[AssetStatus.READY_SECOND]), "the second-life compartment is seeded, out of the 100"
+    assert all(a.grade in ("A", "B") and a.cycle_no == 1 and a.current_location_id for a in second)
+    assert {loc.code for loc in db_session.query(Location).all()} >= {c.code for c in warehouse.COMPARTMENTS}
     assert all(a.source_order_item_id for a in assets), "every serial traces to an order line"
     assert all(a.received_date and a.received_date >= date(2020, 1, 1) for a in assets)
     contracts = db_session.query(RentalContract).all()

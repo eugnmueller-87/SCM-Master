@@ -113,7 +113,7 @@ def test_api_read_and_guarded_write(client, db_session):
 def test_a_kpi_is_measured_once_a_day_and_the_reason_travels_with_it(db_session, monkeypatch):
     """The tab reuses the day's measurement; only Measure again takes a new one.
 
-    Thirty-one reads over a 400,000-device fleet are not a page-load job, and repeating
+    Thirty-two reads over a 400,000-device fleet are not a page-load job, and repeating
     them would not change a number: every KPI is defined over a day. What must not get
     lost in the reuse is WHY a KPI has no value.
     """

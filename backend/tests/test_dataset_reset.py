@@ -97,3 +97,28 @@ def test_reset_refuses_in_production(db_session, monkeypatch):
     with pytest.raises(ProductionSafetyError):
         reset_operational_data(db_session)
     assert db_session.query(Asset).count() == 3, "production data is forge-locked"
+
+
+def test_a_fleet_from_before_a_new_compartment_counts_as_stale(db_session):
+    """Right kind of dataset, wrong generation: the boot has to notice and rebuild.
+
+    A demo whose data predates a compartment shows that compartment correct and empty,
+    which reads as a broken feature rather than as old data.
+    """
+    from app.models.flow import Location, LocationType
+    from app.seed_reset import dataset_is_stale
+    from app.services import warehouse
+
+    _daas(db_session)
+    reason = dataset_is_stale(db_session)
+    assert reason and "ST-" in reason, "a fleet with no compartments at all is stale"
+
+    for c in warehouse.COMPARTMENTS:
+        db_session.add(Location(code=c.code, name=c.name, location_type=LocationType.WAREHOUSE, capacity=100))
+    db_session.flush()
+    assert dataset_is_stale(db_session) is None, "every compartment present means the data is current"
+
+    gone = db_session.query(Location).filter(Location.code == "ST-SECOND").one()
+    db_session.delete(gone)
+    db_session.flush()
+    assert "ST-SECOND" in (dataset_is_stale(db_session) or ""), "a missing compartment names itself"

@@ -46,13 +46,14 @@ const STATUS = {
   WIPE_GRADING:   { label: "Wipe & grading", tone: "info" },
   REPAIR:         { label: "Repair",         tone: "warning" },
   REFURB:         { label: "Refurbishment",  tone: "info" },
+  READY_SECOND:   { label: "Second-life stock", tone: "positive" },
   SELLABLE:       { label: "Sellable",       tone: "gold" },
   SWAP_BUFFER:    { label: "Swap buffer",    tone: "neutral" },
   SOLD:           { label: "Sold",           tone: "mute" },
   RECYCLED:       { label: "Recycled",       tone: "negative" },
 };
 const STEP_SHORT = ["Recv", "Store", "Deploy", "Maint", "Decom", "Disp"];
-const LIFECYCLE_DAAS = ["IN_STORAGE", "RENTED", "RETURNED", "MDM_RELEASE", "WIPE_GRADING", "REPAIR", "REFURB", "SELLABLE", "SWAP_BUFFER", "SOLD", "RECYCLED"];
+const LIFECYCLE_DAAS = ["IN_STORAGE", "RENTED", "RETURNED", "MDM_RELEASE", "WIPE_GRADING", "REPAIR", "REFURB", "READY_SECOND", "SELLABLE", "SWAP_BUFFER", "SOLD", "RECYCLED"];
 // The scenario the database holds. Set at boot from /fleet/summary; a fleet with rented devices is DaaS.
 window.FLEET = null;
 const isDaas = () => !!(window.FLEET && window.FLEET.scenario === "daas");
@@ -85,7 +86,7 @@ const NAV_DAAS = [
   { id: "kpis",         label: "KPIs",         icon: "target" },
   { id: "assets",       label: "Fleet",        icon: "box",   countKey: "assets" },
   { id: "returns",      label: "Returns",      icon: "return", countKey: "returns30" },
-  { id: "capacity",     label: "Warehouse",    icon: "layers" },
+  { id: "warehouse",    label: "Warehouse",    icon: "layers" },
   { id: "inventory",    label: "Inventory",    icon: "stock" },
   { id: "requisitions", label: "Requisitions", icon: "cart",  countKey: "staged" },
   { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },
@@ -271,7 +272,7 @@ function renderNav() {
 }
 
 const CRUMBS = { overview: "Overview", assets: "Assets", inbound: "Inbound", capacity: "Capacity", spend: "Spend" };
-const crumbLabel = (name) => (isDaas() && name === "assets") ? "Fleet" : (isDaas() && name === "capacity") ? "Warehouse" : (CRUMBS[name] || name);
+const crumbLabel = (name) => (isDaas() && name === "assets") ? "Fleet" : (CRUMBS[name] || name);
 const RENDER = {};
 function tabFromHash() {
   const want = (location.hash || "").replace(/^#/, "");
@@ -807,13 +808,13 @@ async function renderDaasOverview() {
       tone: "warning", ic: "layers",
       title: `The fleet grew ${G.growth_12m_pct}% in twelve months, ${overCap.length} station${overCap.length > 1 ? "s are" : " is"} over capacity`,
       sub: `${n(G.added_12m)} more devices at customers than a year ago (${n(G.rented_12m_ago)} then, ${n(G.rented_now)} now). Intake capacity has not followed. Decide: add space, add shifts, or slow the ramp.`,
-      go: "capacity" });
+      go: "warehouse" });
     if (F.returns_overdue) attn.push({ tone: "negative", ic: "clock", title: `${n(F.returns_overdue)} devices past their planned return`, sub: "The contract ended, the device is still out. Chase the return or extend the contract.", go: "returns" });
     if (mdm.over_sla) attn.push({ tone: "warning", ic: "alert", title: `${n(mdm.over_sla)} returned devices waiting over 21 days for the old customer's MDM release`, sub: "Nothing can be wiped or graded until the release comes. Escalate with the account owner.", go: "assets" });
     if (sell.over_90_days) attn.push({ tone: "warning", ic: "euro", title: `${n(sell.over_90_days)} sellable devices older than 90 days`, sub: `Sellable stock is ${n(sell.count)} devices, median ${Math.round(sell.median_days || 0)} days. Every month costs capital and residual value; open a channel or take the buy-back offer.`, go: "assets" });
     if (F.returns_due_30d) attn.push({ tone: "info", ic: "return", title: `${n(F.returns_due_30d)} returns due in the next 30 days`, sub: `${n(F.returns_due_90d)} in 90 days. Plan intake, MDM releases and refurbishment capacity now.`, go: "returns" });
     overdue.forEach((r) => attn.push({ tone: "negative", ic: "clock", title: `${r.order_number} is overdue — ${r.outstanding}× ${(PRODUCTS[r.product_id] || {}).name || "units"} outstanding`, sub: `ETA ${fmtDate(r.estimated_delivery_date)} has passed. Chase the supplier or re-source the line.`, go: "tracking" }));
-    overCap.forEach((r) => attn.push({ tone: "negative", ic: "alert", title: `${r.name} is over capacity`, sub: `${n(r.used)} devices in a ${n(r.capacity)}-device station. Move stock or add space.`, go: "capacity" }));
+    overCap.forEach((r) => attn.push({ tone: "negative", ic: "alert", title: `${r.name} is over capacity`, sub: `${n(r.used)} devices in a ${n(r.capacity)}-device station. Move stock or add space.`, go: "warehouse" }));
 
     const stat = (label, ic, val, hint, hintCls = "", valCls = "") =>
       `<div class="stat"><div class="stat__label">${icon(ic, 14)} ${label}</div><div class="stat__val ${valCls}">${val}</div>${hint ? `<div class="stat__hint ${hintCls}">${hint}</div>` : ""}</div>`;
@@ -861,7 +862,7 @@ async function renderDaasOverview() {
       </div>
       ${growthSection(G, n)}
       <div class="section">
-        <div class="section__head"><span class="section__title">The fleet</span><span class="section__count">${n(total)} devices</span><span class="section__hint">new stock → rented → returned → MDM release → wipe & grading → repair / refurb → rented again or sellable</span></div>
+        <div class="section__head"><span class="section__title">The fleet</span><span class="section__count">${n(total)} devices</span><span class="section__hint">new stock → rented → returned → MDM release → wipe & grading → repair / refurb → second-life stock → rented again or sellable</span></div>
         <div class="dist">${distBar}</div>
         <div class="dist-legend">${legend}</div>
       </div>

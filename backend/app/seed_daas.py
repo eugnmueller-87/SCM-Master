@@ -58,6 +58,7 @@ from app.models.catalog import Product
 from app.models.flow import Asset, AssetStatus, LocationType
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.models.rental import ContractStatus, RentalContract
+from app.services import warehouse
 from app.services.auth import ensure_user
 from app.services.catalog import organization_service, product_service, product_supplier_service
 from app.services.flow import location_service
@@ -103,18 +104,31 @@ RENT_SHARE_PER_MONTH = {"Smartphone": 0.042, "Tablet": 0.040, "Laptop": 0.038}
 TERM_RATE_FACTOR = {12: 1.5, 24: 1.0, 36: 0.85, 48: 0.75}
 DISCOUNT = {"Apple": (0.05, 0.12), "Samsung": (0.12, 0.25), "Google": (0.10, 0.22), "Fairphone": (0.03, 0.08), "Lenovo": (0.15, 0.30), "HP": (0.15, 0.28)}
 # warehouse composition: shares from the fleet simulation of 21.09.2026 (flow x dwell, plus the owner's top-up)
+#
+# Second-life stock (READY_SECOND, added 23.09.2026) is taken out of new stock, not added on top:
+# the warehouse holds exactly N_WAREHOUSE devices by the owner's instruction, and refurbished
+# devices waiting for their second customer were counted as new stock before, which is the
+# mixing the owner named. Derivation, the same flow x dwell as the other stations: the seeded
+# fleet returns about 8,900 devices a month over the next twelve months, 4,900 of them headed
+# for a second rental after the grade rule; at the wait of new stock (7 to 30 days, mean 18.5)
+# that flow holds about 3,000 devices, the rest is refurbished stock waiting for a customer
+# that takes a used device, the second-life analogue of the sale backlog. [placeholder, Head of Recommerce]
 WAREHOUSE_MIX = {
     AssetStatus.RETURNED: 0.045, AssetStatus.MDM_RELEASE: 0.040, AssetStatus.WIPE_GRADING: 0.008, AssetStatus.REPAIR: 0.014,
-    AssetStatus.REFURB: 0.011, AssetStatus.SELLABLE: 0.368, AssetStatus.SWAP_BUFFER: 0.060, AssetStatus.IN_STORAGE: 0.454,
+    AssetStatus.REFURB: 0.011, AssetStatus.READY_SECOND: 0.100, AssetStatus.SELLABLE: 0.368, AssetStatus.SWAP_BUFFER: 0.060,
+    AssetStatus.IN_STORAGE: 0.354,
 }
 # Station capacity was sized for last year's fleet, not for the wave arriving now. A factor
 # below 1.0 means the station is already over its capacity — the scale-up on the floor.
 STATION_CAPACITY_FACTOR = {
     AssetStatus.RETURNED: 0.85, AssetStatus.MDM_RELEASE: 0.80, AssetStatus.WIPE_GRADING: 1.60, AssetStatus.REPAIR: 1.60,
-    AssetStatus.REFURB: 1.60, AssetStatus.SELLABLE: 1.25, AssetStatus.SWAP_BUFFER: 1.50, AssetStatus.IN_STORAGE: 1.45,
+    AssetStatus.REFURB: 1.60, AssetStatus.READY_SECOND: 1.20, AssetStatus.SELLABLE: 1.25, AssetStatus.SWAP_BUFFER: 1.50,
+    AssetStatus.IN_STORAGE: 1.45,
 }
 DWELL_MAX_DAYS = {AssetStatus.RETURNED: 15, AssetStatus.MDM_RELEASE: 21, AssetStatus.WIPE_GRADING: 3, AssetStatus.REPAIR: 20,
-                  AssetStatus.REFURB: 12, AssetStatus.SELLABLE: 60, AssetStatus.SWAP_BUFFER: 120, AssetStatus.IN_STORAGE: 30}
+                  AssetStatus.REFURB: 12, AssetStatus.READY_SECOND: 45, AssetStatus.SELLABLE: 60, AssetStatus.SWAP_BUFFER: 120,
+                  AssetStatus.IN_STORAGE: 30}
+SECOND_LIFE_WAITING_SHARE = 0.5           # second-life stock refurbished ahead of its demand, waits longer [placeholder, Head of Recommerce]
 SLOW_MOVER_SHARE = 0.04
 CHANNEL_MIX = {"marketplace": 0.55, "b2b_wholesale": 0.30, "employee_buyout": 0.10, "as_is": 0.05}
 CHANNEL_FEE = {"marketplace": 0.12, "b2b_wholesale": 0.20, "employee_buyout": 0.00, "as_is": 0.25}
@@ -227,7 +241,7 @@ class _Sink:
 
 def seed_daas() -> None:
     assert_seeding_allowed("DaaS demo dataset")
-    rng = random.Random(42)
+    rng = random.Random(42)  # nosec B311 - a fixed seed, not a secret: the dataset must be reproducible
     today = date.today()
     db = SessionLocal()
     try:
@@ -324,22 +338,18 @@ def seed_daas() -> None:
                     preference_rank=2, supplier_product_code=f"{reseller_a.code}-{code}", contract_status="ACTIVE",
                     term_start=today - timedelta(days=200), term_end=today + timedelta(days=500)))
 
-        # --- the warehouse: eight stations of one flow ------------------------
-        # No parent location. Capacity is the sum of the stations, which is what the
-        # capacity screen and the order guard read; two stations are short on purpose.
+        # --- the warehouse: nine compartments of one flow ---------------------
+        # One station location per compartment, code and name from the warehouse service,
+        # so the seed and the read cannot drift apart. No parent location. Capacity is the
+        # sum of the stations, which is what the capacity screen and the order guard read;
+        # two stations are short on purpose.
         stations = {}
-        for st, code, name in (
-            (AssetStatus.IN_STORAGE, "ST-NEW", "New stock, before first rental"),
-            (AssetStatus.RETURNED, "ST-RETURNS", "Returns intake and lock"),
-            (AssetStatus.MDM_RELEASE, "ST-MDM", "MDM release hold"),
-            (AssetStatus.WIPE_GRADING, "ST-WIPE", "Wipe and grading"),
-            (AssetStatus.REPAIR, "ST-REPAIR", "Repair partner"),
-            (AssetStatus.REFURB, "ST-REFURB", "Refurbishment"),
-            (AssetStatus.SELLABLE, "ST-SELL", "Sellable stock"),
-            (AssetStatus.SWAP_BUFFER, "ST-SWAP", "Swap buffer"),
-        ):
-            cap = max(10, int(N_WAREHOUSE * WAREHOUSE_MIX[st] * STATION_CAPACITY_FACTOR[st]))
-            stations[st] = location_service.create(db, dict(code=code, name=name, location_type=LocationType.WAREHOUSE, capacity=cap))
+        for comp in warehouse.COMPARTMENTS:
+            primary = comp.statuses[0]
+            cap = max(10, int(N_WAREHOUSE * WAREHOUSE_MIX[primary] * STATION_CAPACITY_FACTOR[primary]))
+            loc = location_service.create(db, dict(code=comp.code, name=comp.name, location_type=LocationType.WAREHOUSE, capacity=cap))
+            for st in comp.statuses:
+                stations[st] = loc
         db.flush()
         intake = stations[AssetStatus.IN_STORAGE]
 
@@ -463,6 +473,8 @@ def seed_daas() -> None:
                     since_days = rng.randint(90, 400)
                 if st == AssetStatus.IN_STORAGE and rng.random() < 0.6:
                     since_days = rng.randint(0, 120)         # stock bought ahead of the next customer ramp
+                if st == AssetStatus.READY_SECOND and rng.random() < SECOND_LIFE_WAITING_SHARE:
+                    since_days = rng.randint(30, 150)        # refurbished ahead of second-life demand: waits for a customer that takes a used device
                 status_since = today - timedelta(days=since_days)
                 if st == AssetStatus.IN_STORAGE:
                     purchase = status_since - timedelta(days=rng.randint(0, 10))
@@ -479,7 +491,7 @@ def seed_daas() -> None:
                 early = rng.random() < EARLY_TERMINATION
                 defect = st == AssetStatus.REPAIR and rng.random() < 0.6
                 back = {AssetStatus.RETURNED: 0, AssetStatus.MDM_RELEASE: 10, AssetStatus.WIPE_GRADING: 22, AssetStatus.REPAIR: 24,
-                        AssetStatus.REFURB: 30, AssetStatus.SELLABLE: 30, AssetStatus.SWAP_BUFFER: 40}[st]
+                        AssetStatus.REFURB: 30, AssetStatus.READY_SECOND: 42, AssetStatus.SELLABLE: 30, AssetStatus.SWAP_BUFFER: 40}[st]
                 return_date = status_since - timedelta(days=back)
                 used1 = rng.uniform(3, t1) if early else t1
                 used2 = rng.uniform(3, t2) if early else t2
@@ -507,6 +519,9 @@ def seed_daas() -> None:
                     grade = "C"
                 if st == AssetStatus.SWAP_BUFFER:
                     grade = "A" if rng.random() < 0.6 else "B"
+                if st == AssetStatus.READY_SECOND:
+                    # refurbished for a second life: grade A or B only, in their share of the grade mix
+                    grade = "A" if rng.random() < GRADE_MIX["A"] / (GRADE_MIX["A"] + GRADE_MIX["B"]) else "B"
                 if st in (AssetStatus.RETURNED, AssetStatus.MDM_RELEASE):
                     grade = None                         # not graded yet
                 aid = add_asset(code, purchase, status=st, cycle_no=cycle_done, current_location_id=stations[st].id,

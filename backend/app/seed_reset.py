@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import Base, SessionLocal
 from app.core.safety import assert_destructive_allowed
-from app.models.flow import Asset, AssetStatus
+from app.models.flow import Asset, AssetStatus, Location, LocationType
 
 # Tables a reset never touches: the login accounts and Alembic's own bookkeeping.
 KEEP_TABLES = {"app_user", "alembic_version"}
@@ -49,6 +49,31 @@ def current_dataset(db: Session) -> Optional[str]:
         return None
     rented = db.scalar(select(func.count(Asset.id)).where(Asset.status == AssetStatus.RENTED)) or 0
     return "daas" if rented > 0 else "datacenter"
+
+
+def dataset_is_stale(db: Session) -> Optional[str]:
+    """Does the fleet in this database still match the shape this build generates?
+
+    The scenario alone is not enough. On 23.09.2026 the warehouse gained a compartment
+    for second-life stock, and a demo whose data predates it keeps every device in the
+    old compartments: the new screen comes up correct and empty, which reads as a broken
+    feature rather than as old data. The database holds the right *kind* of dataset and
+    the wrong *generation* of it.
+
+    So the check is the same one the rest of this module makes, asked of the warehouse:
+    a fleet whose compartments are not the compartments this build defines is stale.
+    That generalises past this one change, because the compartment registry is the one
+    place a new station is ever added. Returns the reason, or None when it is current.
+    """
+    from app.services import warehouse
+
+    want = {c.code for c in warehouse.COMPARTMENTS}
+    have = {code for (code,) in db.execute(
+        select(Location.code).where(Location.location_type == LocationType.WAREHOUSE)).all()}
+    missing = sorted(want - have)
+    if missing:
+        return f"the warehouse has no {', '.join(missing)}, a compartment this build defines"
+    return None
 
 
 def wanted_dataset() -> str:
@@ -86,14 +111,20 @@ def ensure_dataset() -> str:
     db = SessionLocal()
     try:
         have = current_dataset(db)
-        if have == want and not force:
+        stale = dataset_is_stale(db) if (have == want == "daas") else None
+        if have == want and not force and stale is None:
             print(f"Dataset is already '{have}' - keeping it.")
             db.close()
             ensure_measured()
             return "kept"
         action = "seeded"
         if have is not None:
-            why = "forced by SCM_RESET=1" if have == want else f"database holds '{have}', this service shows '{want}'"
+            if force:
+                why = "forced by SCM_RESET=1"
+            elif stale is not None:
+                why = f"the data predates this build: {stale}"
+            else:
+                why = f"database holds '{have}', this service shows '{want}'"
             print(f"Replacing the demo dataset ({why})...")
             removed = reset_operational_data(db)
             total = sum(removed.values())
@@ -117,7 +148,7 @@ def ensure_measured() -> int:
     """Take today's KPI measurement at boot, if it has not been taken yet.
 
     A KPI is measured once a day by design. Doing it here rather than on the first page
-    load means nobody opens the KPIs tab and waits for 31 reads over a 400,000-device
+    load means nobody opens the KPIs tab and waits for 32 reads over a 400,000-device
     fleet; the tab is complete the moment the service answers. Returns how many KPIs
     were measured now.
     """

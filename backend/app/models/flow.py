@@ -92,7 +92,8 @@ class AssetStatus(str, enum.Enum):
     MDM_RELEASE = "MDM_RELEASE"  # waiting for the old customer to release the device from its MDM
     WIPE_GRADING = "WIPE_GRADING"  # certified wipe, function test, grade A to D
     REPAIR = "REPAIR"            # grade C or a defect: at the repair partner
-    REFURB = "REFURB"            # refurbishment for the next rental
+    REFURB = "REFURB"            # refurbishment for the next rental: the process, not the stock
+    READY_SECOND = "READY_SECOND"  # refurbished, grade A or B, waiting for its second customer: the second-life stock
     SELLABLE = "SELLABLE"        # graded and cleared for resale, waiting for a channel
     SWAP_BUFFER = "SWAP_BUFFER"  # replacement device held ready for a customer defect
     SOLD = "SOLD"                # resold; terminal
@@ -102,13 +103,15 @@ class AssetStatus(str, enum.Enum):
 # The warehouse in the DaaS scenario: every status that means "the device is physically with us".
 WAREHOUSE_STATUSES = frozenset({
     AssetStatus.RECEIVED, AssetStatus.IN_STORAGE, AssetStatus.RETURNED, AssetStatus.MDM_RELEASE,
-    AssetStatus.WIPE_GRADING, AssetStatus.REPAIR, AssetStatus.REFURB, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER,
+    AssetStatus.WIPE_GRADING, AssetStatus.REPAIR, AssetStatus.REFURB, AssetStatus.READY_SECOND, AssetStatus.SELLABLE,
+    AssetStatus.SWAP_BUFFER,
 })
 # At a customer: the rack in the datacenter scenario, the rental in the DaaS scenario.
 IN_USE_STATUSES = frozenset({AssetStatus.DEPLOYED, AssetStatus.RENTED, AssetStatus.MAINTENANCE})
 # Stock that can go out next: new units, and refurbished units cleared for the next rental.
-# Sellable stock and the swap buffer are reserved for something else and do not count.
-DEPLOYABLE_STATUSES = frozenset({AssetStatus.RECEIVED, AssetStatus.IN_STORAGE, AssetStatus.REFURB})
+# A unit still in refurbishment cannot go out next, and sellable stock and the swap buffer
+# are reserved for something else, so none of those count.
+DEPLOYABLE_STATUSES = frozenset({AssetStatus.RECEIVED, AssetStatus.IN_STORAGE, AssetStatus.READY_SECOND})
 GONE_STATUSES = frozenset({AssetStatus.DECOMMISSIONED, AssetStatus.DISPOSED, AssetStatus.SOLD, AssetStatus.RECYCLED})
 
 

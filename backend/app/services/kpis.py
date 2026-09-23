@@ -399,6 +399,19 @@ def k_swap_buffer_months(db, today):
     return round(buffer / (defects_90 / 3.0), 1), None
 
 
+def k_second_life_reach_months(db, today):
+    """Months the refurbished second-life stock lasts at the pace second rentals started in the last 90 days."""
+    if not _daas(db):
+        return None, "no rental fleet in this database"
+    stock = db.scalar(select(func.count(Asset.id)).where(Asset.status == AssetStatus.READY_SECOND)) or 0
+    started_90 = db.scalar(select(func.count()).select_from(RentalContract)
+                           .where(RentalContract.cycle_no >= 2, RentalContract.start_date >= today - timedelta(days=90),
+                                  RentalContract.start_date <= today)) or 0
+    if started_90 == 0:
+        return None, "no second rental started in the last 90 days"
+    return round(stock / (started_90 / 3.0), 1), None
+
+
 def k_resale_share_of_purchase_pct(db, today):
     """What resale brought back, as a share of what those devices cost. Purchase price from the order line each serial came from."""
     if not _daas(db):
@@ -448,6 +461,8 @@ KPIS: list[KpiDef] = [
            "Months the sellable stock lasts at the sales pace of the last 90 days. Long reach is capital and aging.", "Recommerce · sales", k_sellable_reach_months),
     KpiDef("swap_buffer_months", "fleet", "Swap buffer reach, months", "count", "higher",
            "Months the swap buffer covers at the defect pace of the last 90 days.", "Warehouse · swap buffer", k_swap_buffer_months),
+    KpiDef("second_life_reach_months", "fleet", "Second-life stock reach, months", "count", "lower",
+           "Months the refurbished second-life stock lasts at the pace second rentals started in the last 90 days. Long reach is refurbished capital not earning rent.", "Warehouse · second-life stock", k_second_life_reach_months),
     KpiDef("resale_share_of_purchase_pct", "fleet", "Resale proceeds as share of purchase price", "pct", "higher",
            "Net sale proceeds of the last twelve months over what those devices cost to buy, serial by serial.", "Recommerce · sales and provenance", k_resale_share_of_purchase_pct),
     KpiDef("recycling_share_pct", "fleet", "Recycling share of fleet exits", "pct", "lower",
@@ -619,7 +634,7 @@ def _status(kpi: KpiDef, current: Optional[float], t: KpiTarget, first: Optional
 def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = True, refresh: bool = False) -> list[dict]:
     """Every KPI with its value, targets, status and trend.
 
-    A KPI is measured **once a day**. Thirty-one measurements over a fleet of 400,000
+    A KPI is measured **once a day**. Thirty-two measurements over a fleet of 400,000
     devices are a minute of database work; re-running them on every page load would make
     the tab unusable and would not change a single number, because each one is defined
     over a day. So a measurement already taken today is reused, and ``refresh=True``

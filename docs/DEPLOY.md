@@ -70,7 +70,7 @@ reseeded on an ordinary redeploy, so the data survives — that is the point of 
 Postgres. `DAAS_SCALE=0.1` gives the same shape at a tenth of the size if a fast boot
 matters more than the real number.
 
-**KPIs are measured once a day.** Thirty-one reads over a 400,000-device fleet take about
+**KPIs are measured once a day.** Thirty-two reads over a 400,000-device fleet take about
 40 seconds; running them on every page load would make the tab unusable and would not
 change a number, because each KPI is defined over a day. The boot takes the day's
 measurement, the tab serves it, and **Measure again** on the tab forces a new one.

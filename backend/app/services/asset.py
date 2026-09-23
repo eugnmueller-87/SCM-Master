@@ -142,6 +142,7 @@ class AssetService(CRUDService[Asset]):
                     current_location_id=location.id,
                     source_order_item_id=order_item.id,
                     received_date=receipt.receipt_date,
+                    status_since=receipt.receipt_date,   # the dwell clock of the warehouse compartments starts here
                 )
                 db.add(asset)
                 self._log(db, asset, AssetEventType.RECEIVED,
@@ -208,6 +209,8 @@ class AssetService(CRUDService[Asset]):
 
         when = effective_date or date.today()
         asset.status = target
+        # Dwell per compartment is read from this stamp, so every status change restarts it.
+        asset.status_since = when
         if target == AssetStatus.DEPLOYED and asset.deployed_date is None:
             asset.deployed_date = when
         if target == AssetStatus.DECOMMISSIONED and asset.decommissioned_date is None:

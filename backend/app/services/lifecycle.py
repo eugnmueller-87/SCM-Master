@@ -12,8 +12,13 @@ asset is born there at receipt); DISPOSED is terminal.
 The device-as-a-service scenario adds the rental cycle on the same machine:
 
     IN_STORAGE -> RENTED -> RETURNED -> MDM_RELEASE -> WIPE_GRADING
-                                   -> REPAIR / REFURB -> RENTED (second rental)
+                                   -> REPAIR / REFURB -> READY_SECOND -> RENTED (second rental)
                                    -> SELLABLE -> SOLD          -> RECYCLED
+
+A refurbished device goes into the second-life stock (READY_SECOND) and is rented
+from there, never straight off the bench: the compartment is what lets first-life
+and second-life stock be counted apart, so the machine does not allow a shortcut
+around it. Second-life stock that finds no customer is cleared for sale.
 
 SOLD and RECYCLED are terminal too.
 
@@ -47,7 +52,8 @@ _ALLOWED: dict[AssetStatus, frozenset[AssetStatus]] = {
     AssetStatus.MDM_RELEASE: frozenset({AssetStatus.WIPE_GRADING}),
     AssetStatus.WIPE_GRADING: frozenset({AssetStatus.REPAIR, AssetStatus.REFURB, AssetStatus.SELLABLE, AssetStatus.RECYCLED}),
     AssetStatus.REPAIR: frozenset({AssetStatus.REFURB, AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER, AssetStatus.RECYCLED}),
-    AssetStatus.REFURB: frozenset({AssetStatus.RENTED, AssetStatus.SWAP_BUFFER, AssetStatus.SELLABLE}),
+    AssetStatus.REFURB: frozenset({AssetStatus.READY_SECOND, AssetStatus.SWAP_BUFFER, AssetStatus.SELLABLE}),
+    AssetStatus.READY_SECOND: frozenset({AssetStatus.RENTED, AssetStatus.SWAP_BUFFER, AssetStatus.SELLABLE}),
     AssetStatus.SELLABLE: frozenset({AssetStatus.SOLD, AssetStatus.RENTED, AssetStatus.RECYCLED}),
     AssetStatus.SWAP_BUFFER: frozenset({AssetStatus.RENTED, AssetStatus.SELLABLE}),
     AssetStatus.SOLD: frozenset(),      # terminal

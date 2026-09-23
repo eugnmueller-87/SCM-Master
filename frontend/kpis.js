@@ -163,10 +163,10 @@ function kpiGroupHtml(g) {
 
 RENDER.kpis = async function (opts) {
   const screen = $("#screen");
-  // A KPI is measured once a day (31 reads over 400,000 devices is not a page-load
+  // A KPI is measured once a day (32 reads over 400,000 devices is not a page-load
   // job). The tab shows that measurement; "Measure again" takes a new one.
   const refresh = !!(opts && opts.refresh);
-  if (refresh) screen.innerHTML = `<div class="state"><div class="state__title">Measuring</div><div class="state__sub">Reading 31 KPIs over the whole fleet. This takes a moment.</div></div>`;
+  if (refresh) screen.innerHTML = `<div class="state"><div class="state__title">Measuring</div><div class="state__sub">Reading 32 KPIs over the whole fleet. This takes a moment.</div></div>`;
   KPI_ROWS = await api("/kpis" + (refresh ? "?refresh=true" : ""));
   const n = (s) => KPI_ROWS.filter((r) => r.status === s).length;
   const asOf = KPI_ROWS.length ? fmtDate(KPI_ROWS[0].as_of) : "—";
