@@ -15,6 +15,8 @@ from app.api.v1.fleet import router as fleet_router
 from app.api.v1.flow import router as flow_router
 from app.api.v1.integrations import router as integrations_router
 from app.api.v1.kpis import router as kpis_router
+from app.api.v1.movements import router as movements_router
+from app.api.v1.order_mask import router as order_mask_router
 from app.api.v1.planning import router as planning_router
 from app.api.v1.procurement import router as procurement_router
 from app.api.v1.requisitions import router as requisitions_router
@@ -44,3 +46,5 @@ api_router.include_router(fleet_router)
 api_router.include_router(warehouse_router)
 api_router.include_router(capacity_plan_router)
 api_router.include_router(simulation_router)
+api_router.include_router(order_mask_router)
+api_router.include_router(movements_router)

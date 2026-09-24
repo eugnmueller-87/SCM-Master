@@ -1374,3 +1374,52 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .sim-log__entry:hover .attn__title { color: var(--ts-brand-gold-deep); }
 .sim-log__entry--sel .attn__title { color: var(--ts-brand-gold-deep); }
 @media (max-width: 1180px) { .sim-grid { grid-template-columns: repeat(2, 1fr); } .sim-hold__grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* ── Ordering mask ──────────────────────────────────────────────────── */
+.om-panel { padding: 14px 18px; margin-bottom: 18px; }
+.om-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.om-form .field { margin: 0; flex: 1 1 180px; min-width: 160px; }
+.om-form .field__label { font-size: 11px; color: var(--ts-ink-mute); margin-bottom: 4px; }
+.om-form .input { padding: 7px 9px; font-size: 13px; }
+.om-form__qty { flex: 0 1 140px !important; min-width: 120px !important; }
+.om-form .btn { height: 34px; flex-shrink: 0; }
+.om-examples { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.om-examples::before { content: "the owner's examples"; font-size: 11px; color: var(--ts-ink-faint); margin-right: 4px; }
+.om-factors tbody td { padding: 7px 10px; vertical-align: top; }
+.om-factors .om-sign { width: 24px; font-family: var(--ts-font-mono); font-size: 15px; color: var(--ts-ink-mute); text-align: center; }
+.om-factors .om-val { width: 110px; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; color: var(--ts-ink); white-space: nowrap; }
+.om-factors .om-sum td { border-top: 2px solid var(--ts-line-strong); background: var(--ts-paper-deep); }
+.om-factors .om-sum--rec td { background: var(--ts-brand-gold-wash); }
+.om-factors .om-sum--rec .om-val { color: var(--ts-brand-gold-deep); font-size: 17px; }
+.om-cross { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--ts-line); }
+.om-measured { border-style: solid; color: var(--ts-positive); border-color: var(--ts-positive); }
+.om-tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.om-tier { padding: 12px 14px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-surface); min-width: 0; }
+.om-tier--counted { border-color: var(--ts-positive); }
+.om-tier__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.om-tier__name { font-size: 12.5px; font-weight: 600; color: var(--ts-ink); }
+.om-tier__n { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ts-ink); margin-top: 6px; line-height: 1.2; }
+.om-tier__n small { font-size: 11.5px; font-weight: 500; color: var(--ts-ink-mute); margin-left: 6px; letter-spacing: 0; }
+.om-strip { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 12px; }
+.om-strip .wh-cnt__tile-val { font-size: 18px; }
+.om-strip .cap-bar { margin: 6px 0 4px; }
+.om-verdict { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: var(--ts-radius-md); font-size: 13px; line-height: 1.45; }
+.om-verdict__icon { display: flex; flex-shrink: 0; margin-top: 1px; }
+.om-room { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ts-line); }
+.om-room__grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 6px; }
+.om-lever { padding: 10px 12px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-paper-deep); min-width: 0; }
+.om-lever__n { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ts-ink); }
+.om-rail .rail { min-width: 0; }
+.om-lines tbody td, .om-chain tbody td, .om-split tbody td { padding: 6px 8px; }
+.om-lines thead th, .om-chain thead th, .om-split thead th { padding: 6px 8px; }
+.om-products tbody td, .om-products thead th { padding: 7px 10px; white-space: nowrap; }
+
+/* ── Movements ──────────────────────────────────────────────────────── */
+.mv-pair { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ts-ink); }
+.mv-pair__from, .mv-pair__to { font-weight: 600; }
+.mv-pairs tbody td, .mv-comp tbody td { vertical-align: top; }
+.mv-form { display: flex; gap: 8px; align-items: center; max-width: 480px; }
+.mv-form .input { flex: 1; padding: 7px 9px; font-size: 13px; }
+.mv-path__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.mv-path__now { text-align: right; }
+

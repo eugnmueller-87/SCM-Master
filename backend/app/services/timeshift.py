@@ -20,7 +20,9 @@ received, deployed, warranty, decommissioned, sold and dwell dates; the contract
 planned and actual end; the invoices' event dates; the orders' dates and the lines'
 delivery dates; the receipts; the supplier terms and onboarding dates; the commodity
 prices; the cost layers; the control tower's order and delivery dates; the owner's fleet
-milestones (a milestone 98 days out is 68 days out once 30 days have passed). Every date
+milestones (a milestone 98 days out is 68 days out once 30 days have passed); the
+movement log's day of the move and the dwell start it ended (its day count is their
+difference and needs no move). Every date
 has to move together or the dataset becomes incoherent: a contract whose planned end
 moved while the device's dwell did not would be a device that came back before it left.
 

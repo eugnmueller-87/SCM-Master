@@ -529,6 +529,12 @@ def _compute_bundles(db: Session, period_days: int,
 
     bundles: dict[str, list[dict]] = defaultdict(list)
     orphans: list[dict] = []
+    # The lines that want the copilot's narration. They are collected and asked for
+    # together after the loop (see copilot.recommend_sourcing_many): one model reply
+    # takes about 22 seconds, and asking per line, one after the other, held the weekly
+    # run's request for 93 seconds over four lines. The line dicts are already in their
+    # bundles by then; the answers are written into them in place.
+    pending: list[tuple[str, int, dict, dict, object]] = []
     for pid, info in net_needs.items():
         ranked = sourcing.suggest_sources(db, pid)
         if not ranked:
@@ -599,18 +605,8 @@ def _compute_bundles(db: Session, period_days: int,
             # The LLM may still narrate and offer an ADVISORY decision/rationale,
             # but it does NOT set confidence (recorded only, for comparison). The
             # deterministic score above gates; the model adds qualitative colour.
-            try:
-                rec = copilot.recommend_sourcing(db, pid, qty)
-                line["agent_decision"] = rec.decision
-                line["agent_rationale"] = rec.rationale
-                line["llm_confidence_advisory"] = rec.confidence
-            except copilot.AgentError as exc:
-                # LLM unavailable: fall back to the deterministic decision (below),
-                # do NOT zero the (grounded) confidence — the evidence still stands.
-                line["agent_decision"] = _decision_from_confidence(cscore.score)
-                line["agent_rationale"] = (
-                    f"{info['type'].replace('_', ' ').title()} — {cscore.as_dict()['headline']} "
-                    f"(copilot narration unavailable: {exc}).")
+            # Asked for after the loop, all lines at once.
+            pending.append((pid, qty, line, info, cscore))
         else:
             # Deterministic path (seed-on-boot, and any caller that must not incur
             # a per-line LLM call): no recommend_sourcing. The decision follows the
@@ -621,6 +617,21 @@ def _compute_bundles(db: Session, period_days: int,
                 f"{info['type'].replace('_', ' ').title()} — qty {qty} from the "
                 f"inventory-position model. {cscore.as_dict()['headline']}")
         bundles[src["supplier_id"]].append(line)
+
+    if pending:
+        recs = copilot.recommend_sourcing_many(db, [(pid, qty) for pid, qty, *_ in pending])
+        for (pid, qty, line, info, cscore), rec in zip(pending, recs):
+            if isinstance(rec, copilot.AgentError):
+                # LLM unavailable: fall back to the deterministic decision,
+                # do NOT zero the (grounded) confidence — the evidence still stands.
+                line["agent_decision"] = _decision_from_confidence(cscore.score)
+                line["agent_rationale"] = (
+                    f"{info['type'].replace('_', ' ').title()} — {cscore.as_dict()['headline']} "
+                    f"(copilot narration unavailable: {rec}).")
+            else:
+                line["agent_decision"] = rec.decision
+                line["agent_rationale"] = rec.rationale
+                line["llm_confidence_advisory"] = rec.confidence
 
     return bundles, orphans
 

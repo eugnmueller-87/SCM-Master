@@ -454,7 +454,9 @@ def test_advance_moves_every_date_together_and_leaves_the_audit_trail(db_session
     assert set(walked["asset"][0]) == {"received_date", "deployed_date", "warranty_end_date", "decommissioned_date", "status_since", "sold_date"}
     assert set(walked["rental_contract"][0]) == {"start_date", "planned_end", "actual_end"} and walked["service_event"][0] == ["event_date"]
     assert walked["kpi_snapshot"] == (["as_of"], True) and walked["fleet_milestone"] == (["milestone_date"], True)
-    assert "date_created" not in walked["asset"][0] and "app_user" not in walked and "asset_event" not in walked, "wall-clock stamps stay"
+    assert "date_created" not in walked["asset"][0] and "app_user" not in walked, "wall-clock stamps stay"
+    # the movement log's two dates are the fleet's calendar and move with it; its day count is a difference and stays
+    assert walked["asset_event"] == (["effective_date", "from_since"], False) and "date_created" not in walked["asset_event"][0]
 
     world = timeshift.advance(db_session, 1, action="test")
     assert world["days_advanced"] == 1 and world["last_action"] == "test" and world["last_days"] == 1 and world["advanced_at"] is not None

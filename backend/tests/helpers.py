@@ -46,3 +46,20 @@ def build_scenario(client):
         "order_id": order["id"],
         "order_item_id": order["items"][0]["id"],
     }
+
+
+def stub_sourcing(monkeypatch, fake):
+    """Install a per-line copilot stub of the shape ``fake(db, product_id, desired_qty=None)``.
+
+    The purchasing run asks the copilot for its lines together (``copilot.recommend_sourcing_many``:
+    signals gathered on the session, the model asked once per line side by side), so the seam a
+    test stubs is ``judge_sourcing``, which sees the gathered signals and no session. This adapter
+    keeps the tests' fakes as they were written: the product id and the quantity are read back out
+    of the signals the real gatherer produced.
+    """
+    from app.agent import copilot
+
+    def by_signal(sig):
+        ctx = sig.get("source_context", {})
+        return fake(None, ctx.get("product_id"), ctx.get("desired_qty"))
+    monkeypatch.setattr(copilot, "judge_sourcing", by_signal)

@@ -34,6 +34,11 @@ class AssetEventRead(ReadBase):
     to_location_id: Optional[str]
     actor: Optional[str]
     note: Optional[str]
+    # The movement log's time (empty on rows written before it existed): the day of the
+    # move on the fleet's calendar, and the stay in the compartment it left.
+    effective_date: Optional[date] = None
+    from_since: Optional[date] = None
+    dwell_days: Optional[int] = None
 
 
 # --- Receiving ------------------------------------------------------------

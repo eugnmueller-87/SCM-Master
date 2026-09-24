@@ -13,10 +13,11 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
-from app.agent import copilot, purchasing
+from app.agent import purchasing
 from app.agent.schemas import SourcingRecommendation
 from app.models.flow import Asset, AssetStatus
 from app.models.procurement import PurchaseOrder
+from tests.helpers import stub_sourcing
 
 B = "/api/v1"
 
@@ -47,7 +48,7 @@ def _mock_copilot(monkeypatch, *, decision="act", confidence=0.9):
             recommended_qty=desired_qty or 1,
             rationale="mock rationale", signals={}, assumptions=[], uncertainties=[],
             confidence=confidence, decision=decision)
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
 
 def _decommission_assets(db_session, product_id, n, *, days_ago=1):
@@ -254,7 +255,7 @@ def test_bundle_escalates_if_any_line_escalates(client, db_session, monkeypatch)
             product_id=product_id, recommended_source_id="x",
             recommended_qty=desired_qty or 1, rationale="m", signals={},
             assumptions=[], uncertainties=[], confidence=conf, decision=dec)
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
     res = purchasing.run_weekly_purchasing(db_session, dry_run=True, period_days=7)
     tiers = {d.tier for d in res.decisions}

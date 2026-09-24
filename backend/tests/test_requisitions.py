@@ -16,7 +16,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import select
 
-from app.agent import copilot, purchasing
+from app.agent import purchasing
 from app.agent.schemas import SourcingRecommendation
 from app.models.auth import Role
 from app.models.flow import Asset, AssetStatus
@@ -29,6 +29,7 @@ from app.models.requisition import (
 from app.services import calibration
 from app.services.exceptions import ValidationError
 from app.services.requisition import requisition_service
+from tests.helpers import stub_sourcing
 
 B = "/api/v1"
 
@@ -67,7 +68,7 @@ def _mock_copilot(monkeypatch, *, decision="act", confidence=0.9):
             product_id=product_id, recommended_source_id="x",
             recommended_qty=desired_qty or 1, rationale="mock", signals={},
             assumptions=[], uncertainties=[], confidence=confidence, decision=decision)
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
 
 def _decommission(db, product_id, n, *, days_ago=1):

@@ -12,6 +12,7 @@ from app.models.catalog import Organization, Product, ProductSupplier
 from app.models.flow import Asset, AssetStatus, Location, LocationType
 from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.services import planning
+from tests.helpers import stub_sourcing
 
 
 def _save(db, obj):
@@ -120,7 +121,7 @@ def test_storage_headroom_none_when_no_warehouse_capacity(db_session):
 
 def test_order_capped_at_storage_headroom(db_session, monkeypatch):
     """A buy is reduced to fit the warehouse, never exceeding storable space."""
-    from app.agent import copilot, purchasing
+    from app.agent import purchasing
     from app.agent.schemas import SourcingRecommendation
 
     def fake(db, pid, q=None):
@@ -128,7 +129,7 @@ def test_order_capped_at_storage_headroom(db_session, monkeypatch):
             product_id=pid, recommended_source_id="x", recommended_qty=q or 1,
             rationale="m", signals={}, assumptions=[], uncertainties=[],
             confidence=0.5, decision="recommend")
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
     org = _save(db_session, Organization(name="S", code="S", is_supplier=True))
     prod = _save(db_session, Product(product_code="P", name="P"))
@@ -150,7 +151,7 @@ def test_order_capped_at_storage_headroom(db_session, monkeypatch):
 def test_weekly_run_also_respects_storage_cap(db_session, monkeypatch):
     """Regression: the weekly run (not just the requisition cycle) must honour the
     storage cap. Both flow through _compute_bundles, so neither can over-order."""
-    from app.agent import copilot, purchasing
+    from app.agent import purchasing
     from app.agent.schemas import SourcingRecommendation
 
     def fake(db, pid, q=None):
@@ -158,7 +159,7 @@ def test_weekly_run_also_respects_storage_cap(db_session, monkeypatch):
             product_id=pid, recommended_source_id="x", recommended_qty=q or 1,
             rationale="m", signals={}, assumptions=[], uncertainties=[],
             confidence=0.95, decision="act")
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
     org = _save(db_session, Organization(name="S", code="S", is_supplier=True))
     prod = _save(db_session, Product(product_code="P", name="P"))

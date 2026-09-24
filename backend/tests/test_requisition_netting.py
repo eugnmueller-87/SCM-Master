@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import func, select
 
-from app.agent import copilot, purchasing
+from app.agent import purchasing
 from app.agent.schemas import SourcingRecommendation
 from app.models.flow import Asset, AssetStatus
 from app.models.procurement import OrderItem
@@ -24,6 +24,7 @@ from app.models.requisition import (
     RequisitionStatus,
 )
 from app.services.requisition import requisition_service
+from tests.helpers import stub_sourcing
 
 B = "/api/v1"
 
@@ -35,7 +36,7 @@ def _mock_copilot(monkeypatch, *, decision="recommend", confidence=0.5):
             recommended_qty=desired_qty or 1, rationale="mock",
             signals={}, assumptions=[], uncertainties=[],
             confidence=confidence, decision=decision)
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
 
 def _scenario(client, db_session):
@@ -161,7 +162,7 @@ def test_seed_path_stages_without_llm(client, db_session, monkeypatch):
     boot, zero token cost). If it ever calls the LLM, this fails."""
     def boom(*a, **k):
         raise AssertionError("recommend_sourcing must NOT be called when use_llm=False")
-    monkeypatch.setattr(copilot, "recommend_sourcing", boom)
+    stub_sourcing(monkeypatch, boom)
     _scenario(client, db_session)
     res = purchasing.run_requisition_cycle(db_session, period_days=7, use_llm=False)
     assert res["staged"] >= 1   # it still staged, just deterministically

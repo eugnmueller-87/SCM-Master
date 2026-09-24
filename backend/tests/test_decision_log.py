@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.agent import copilot
 from app.agent.schemas import SourcingRecommendation
 from app.models.auth import Role
 from app.models.decision import DecisionLog
 from app.models.flow import Asset, AssetStatus
+from tests.helpers import stub_sourcing
 
 B = "/api/v1"
 
@@ -26,7 +26,7 @@ def _mock_copilot(monkeypatch, *, decision="act", confidence=0.95):
             recommended_qty=desired_qty or 1, rationale="mock",
             signals={}, assumptions=[], uncertainties=[],
             confidence=confidence, decision=decision)
-    monkeypatch.setattr(copilot, "recommend_sourcing", fake)
+    stub_sourcing(monkeypatch, fake)
 
 
 def _scenario(client, db_session):

@@ -147,7 +147,8 @@ class AssetService(CRUDService[Asset]):
                 db.add(asset)
                 self._log(db, asset, AssetEventType.RECEIVED,
                           to_status=AssetStatus.RECEIVED, to_location_id=location.id,
-                          actor=actor, note=f"Received against {order.order_number}")
+                          actor=actor, note=f"Received against {order.order_number}",
+                          effective_date=receipt.receipt_date)
 
         db.flush()
         self._refresh_order_status(db, order)
@@ -201,6 +202,10 @@ class AssetService(CRUDService[Asset]):
 
         from_status = asset.status
         from_location_id = asset.current_location_id
+        # The stay this move ends: the device entered its current compartment on this day.
+        # Read before the stamp below overwrites it; it is what makes the event a movement
+        # log entry and not only a status change.
+        from_since = asset.status_since
 
         if location_id is not None:
             if db.get(Location, location_id) is None:
@@ -217,10 +222,17 @@ class AssetService(CRUDService[Asset]):
             asset.decommissioned_date = when
 
         db.flush()
+        # The stay is measured here, once, from the two stamps: a seeded device whose
+        # dwell start is unknown ends a stay of unknown length, never of zero days. The
+        # location it left is logged whether or not it moves to a new one: where a device
+        # came from is a fact of the move, not of the destination.
+        dwell = (when - from_since).days if from_since is not None else None
         self._log(db, asset, AssetEventType.STATUS_CHANGED,
                   from_status=from_status, to_status=target,
-                  from_location_id=from_location_id if location_id else None,
-                  to_location_id=location_id, actor=actor, note=note)
+                  from_location_id=from_location_id,
+                  to_location_id=location_id, actor=actor, note=note,
+                  effective_date=when, from_since=from_since,
+                  dwell_days=(max(0, dwell) if dwell is not None else None))
         return asset
 
     def move(self, db: Session, asset_id: str, location_id: str, *,
@@ -236,9 +248,11 @@ class AssetService(CRUDService[Asset]):
         from_location_id = asset.current_location_id
         asset.current_location_id = location_id
         db.flush()
+        # A pure move does not end a stay: the device is still in its compartment (its
+        # status), so the dwell clock keeps running and only the day is logged.
         self._log(db, asset, AssetEventType.MOVED,
                   from_location_id=from_location_id, to_location_id=location_id,
-                  actor=actor, note=note)
+                  actor=actor, note=note, effective_date=date.today())
         return asset
 
     # --- internal ---------------------------------------------------------
@@ -248,12 +262,15 @@ class AssetService(CRUDService[Asset]):
              to_status: Optional[AssetStatus] = None,
              from_location_id: Optional[str] = None,
              to_location_id: Optional[str] = None,
-             actor: Optional[str] = None, note: Optional[str] = None) -> None:
+             actor: Optional[str] = None, note: Optional[str] = None,
+             effective_date: Optional[date] = None, from_since: Optional[date] = None,
+             dwell_days: Optional[int] = None) -> None:
         db.add(AssetEvent(
             asset_id=asset.id, event_type=event_type,
             from_status=from_status, to_status=to_status,
             from_location_id=from_location_id, to_location_id=to_location_id,
             actor=actor, note=note,
+            effective_date=effective_date, from_since=from_since, dwell_days=dwell_days,
         ))
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -161,9 +162,13 @@ def _raw_is_error(raw: str) -> bool:
     return raw.startswith("[agent-error]")
 
 
-def recommend_sourcing(db: Session, product_id: str,
-                       desired_qty: Optional[int] = None) -> SourcingRecommendation:
-    sig = gather_sourcing_signals(db, product_id, desired_qty)
+def judge_sourcing(sig: dict) -> SourcingRecommendation:
+    """The model's part of a sourcing recommendation, over signals already gathered.
+
+    No session and no database: the signals are plain data, so several of these can run
+    at once (see ``recommend_sourcing_many``). Retries once on unparseable output, then
+    raises AgentError. This is the one place the sourcing prompt is sent.
+    """
     user = json.dumps({"signals": sig}, default=str)
 
     for attempt in range(2):
@@ -181,6 +186,46 @@ def recommend_sourcing(db: Session, product_id: str,
                 continue
             raise AgentError(f"could not parse sourcing recommendation: {exc}") from exc
     raise AgentError("sourcing recommendation failed")  # unreachable
+
+
+def recommend_sourcing(db: Session, product_id: str,
+                       desired_qty: Optional[int] = None) -> SourcingRecommendation:
+    return judge_sourcing(gather_sourcing_signals(db, product_id, desired_qty))
+
+
+# How many sourcing judgements the purchasing run asks the model for at once. Four is the
+# size of a typical weekly run; a bigger run is served in waves of four.
+SOURCING_WORKERS = 4
+
+
+def recommend_sourcing_many(db: Session, items: list[tuple[str, Optional[int]]],
+                            *, workers: int = SOURCING_WORKERS) -> list:
+    """One recommendation per ``(product_id, desired_qty)``, the model asked for all of them at once.
+
+    Why this exists: the purchasing run asked the model once per line, one after the other,
+    inside the request thread. Measured against the full fleet on 24.09.2026, one reply took
+    about 22 seconds, so a dry run with four lines held the request for 93 seconds. The
+    lines' signals are independent (each is its own product's sources, inbound and demand)
+    and the reply is advisory (the deterministic score gates; the advisory decision can only
+    make a tier more cautious), so the calls do not need each other and can overlap. The
+    signals are gathered one after another on the session, which is not thread-safe; only
+    the model calls run side by side.
+
+    Returns one entry per item in the same order: a SourcingRecommendation, or the
+    AgentError that line raised, so one failed line never cancels the others.
+    """
+    sigs = [gather_sourcing_signals(db, pid, qty) for pid, qty in items]
+    if not sigs:
+        return []
+
+    def _one(sig: dict):
+        try:
+            return judge_sourcing(sig)
+        except AgentError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(sigs)))) as pool:
+        return list(pool.map(_one, sigs))
 
 
 def generate_insights(db: Session, min_count: int = 5) -> list[AgentInsight]:

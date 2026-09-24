@@ -208,9 +208,33 @@ class AssetEvent(IdMixin, TimestampMixin, Base):
     each capturing the from/to values and an optional actor. Nothing here is
     ever updated or deleted in normal operation: it is the audit spine that
     makes an asset's whole life reconstructable.
+
+    It is also the movement log of the warehouse (since 24.09.2026). A compartment is
+    defined by the statuses it holds, so ``from_status -> to_status`` already says which
+    compartment a device left and which it entered. What the row lacked was time: the
+    audit stamp ``date_created`` is the real wall clock, which the demo's calendar
+    (``timeshift``) never moves, so a stay could not be measured from two rows once the
+    simulation had let days pass. Three columns close that gap, all written by the asset
+    service at the moment of the move and never derived afterwards:
+
+      effective_date  the day the move happened on the fleet's own calendar (the same
+                      stamp that restarts the device's dwell clock, ``status_since``);
+      from_since      the ``status_since`` the device carried in the compartment it left,
+                      so the finished stay is on the row that ended it;
+      dwell_days      ``effective_date - from_since``: the measured stay, whole days.
+
+    The two dates are ``Date`` columns and move with the calendar like every other; the
+    day count is their difference and does not need to. A row written before these
+    columns existed carries none of the three, and the movement reads say so.
     """
 
     __tablename__ = "asset_event"
+    __table_args__ = (
+        # The window read of the movement log: moves in a period, by pair, with the stay
+        # they ended. Every column it groups on is in the index, so a month of movements
+        # is answered from the index however many rows the log has grown to.
+        Index("ix_asset_event_window", "effective_date", "from_status", "to_status", "dwell_days"),
+    )
 
     asset_id: Mapped[str] = mapped_column(ForeignKey("asset.id"), index=True)
     event_type: Mapped[AssetEventType] = mapped_column(SAEnum(AssetEventType))
@@ -226,6 +250,11 @@ class AssetEvent(IdMixin, TimestampMixin, Base):
     # Who triggered it (free text for now; becomes a user FK with auth in Phase 5).
     actor: Mapped[Optional[str]] = mapped_column(String(128))
     note: Mapped[Optional[str]] = mapped_column(Text)
+
+    # The movement log's time: when on the fleet's calendar, and the stay this move ended.
+    effective_date: Mapped[Optional[date]] = mapped_column(Date)
+    from_since: Mapped[Optional[date]] = mapped_column(Date)
+    dwell_days: Mapped[Optional[int]] = mapped_column(Integer)
 
     asset: Mapped["Asset"] = relationship(back_populates="events")
     from_location = relationship("Location", foreign_keys=[from_location_id])
