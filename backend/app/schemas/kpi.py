@@ -1,7 +1,7 @@
 """KPIs tab: read model per KPI, write model for its targets."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -24,6 +24,9 @@ class KpiRead(BaseModel):
     current: Optional[float]
     reason: Optional[str]        # why current is None, when it is
     as_of: date
+    measured_at: Optional[datetime]   # when this value was actually measured; a reused day's measurement keeps its time
+    measured_on: date                 # the world-day the value describes; before a simulated move it is earlier than as_of
+    stale_days: int                   # how many simulated days ago it was measured; 0 for today's measurement
     target_y1: Optional[float]
     target_y2: Optional[float]
     target_y3: Optional[float]

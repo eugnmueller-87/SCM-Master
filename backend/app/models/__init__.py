@@ -63,6 +63,9 @@ from app.models.requisition import (  # noqa: F401
     RequisitionLine,
     RequisitionStatus,
 )
+from app.models.simulation import (  # noqa: F401
+    WorldClock,
+)
 from app.models.tco import (  # noqa: F401
     DeploymentCost,
     DeploymentTask,
@@ -134,4 +137,5 @@ __all__ = [
     "DepreciationMethod",
     "ServiceEvent",
     "ServiceKind",
+    "WorldClock",
 ]

@@ -272,5 +272,14 @@ RENDER.plan = async function () {
     CP = await api("/capacity-plan");
     CP_EDIT = null;
     cpDraw(screen);
+    // Live: the plan follows the warehouse, and a fleet event on the Simulation tab can move a
+    // breach. One read every 20 seconds (a third of a second on the full fleet), a redraw only
+    // when a count or a breach changed, and never while a form is open.
+    livePoll("plan", async () => {
+      if (CP_EDIT) return;
+      const P2 = await api("/capacity-plan");
+      if (cpSig(P2) !== cpSig(CP)) { CP = P2; cpDraw(screen); }
+    }, 20000);
   } catch (e) { screen.innerHTML = errState(e.message); }
 };
+const cpSig = (P) => ((P && P.compartments) || []).map((c) => `${c.code}:${c.on_hand}:${c.breach_state}:${c.breach_month}`).join("|") + "|" + (P ? P.fleet_now : "");

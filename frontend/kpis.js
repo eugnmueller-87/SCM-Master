@@ -91,9 +91,12 @@ function kpiStatusCell(r) {
 
 function kpiRowHtml(r) {
   const editing = KPI_EDITING === r.id;
+  // A value measured before the simulation moved the calendar says so in its own row, in plain words,
+  // so nobody reads a forecast from before the last simulated days as today's.
+  const stale = r.stale_days > 0 ? `<div class="kpi-stale">measured ${r.stale_days} simulated day${r.stale_days === 1 ? "" : "s"} ago</div>` : "";
   const cur = r.current == null
-    ? `<div class="kpi-val kpi-val--na">n/a</div><div class="kpi-reason">${esc(r.reason || "")}</div>`
-    : `<div class="kpi-val">${kpiFmt(r.current, r.unit)}</div><div class="kpi-dir">${r.direction === "lower" ? "lower is better" : "higher is better"}</div>`;
+    ? `<div class="kpi-val kpi-val--na">n/a</div><div class="kpi-reason">${esc(r.reason || "")}</div>${stale}`
+    : `<div class="kpi-val">${kpiFmt(r.current, r.unit)}</div><div class="kpi-dir">${r.direction === "lower" ? "lower is better" : "higher is better"}</div>${stale}`;
   const targets = `
     <div class="kpi-targets">
       ${kpiTargetChip(r.target_y1, r.unit, r.placeholder, true, r.updated_by)}
@@ -168,9 +171,12 @@ RENDER.kpis = async function (opts) {
   const refresh = !!(opts && opts.refresh);
   if (refresh) screen.innerHTML = `<div class="state"><div class="state__title">Measuring</div><div class="state__sub">Reading 32 KPIs over the whole fleet. This takes a moment.</div></div>`;
   KPI_ROWS = await api("/kpis" + (refresh ? "?refresh=true" : ""));
+  // Has the simulation let days pass? One cheap row; the trend then holds one point per simulated day.
+  const world = isDaas() ? await api("/simulation/status").then((s) => s.world).catch(() => null) : null;
   const n = (s) => KPI_ROWS.filter((r) => r.status === s).length;
   const asOf = KPI_ROWS.length ? fmtDate(KPI_ROWS[0].as_of) : "—";
   const placeholders = KPI_ROWS.filter((r) => r.placeholder).length;
+  const staleN = KPI_ROWS.filter((r) => r.stale_days > 0).length;
   const stat = (label, val, hint, cls = "") =>
     `<div class="stat"><div class="stat__label">${label}</div><div class="stat__val ${cls}">${val}</div><div class="stat__hint">${hint}</div></div>`;
   screen.innerHTML = `
@@ -182,9 +188,11 @@ RENDER.kpis = async function (opts) {
       ${stat("Not measurable", n("not_measurable"), "the data is missing, the reason is on the row")}
     </div>
     <div class="kpi-meta">
-      <span>Measured ${asOf}</span>
+      <span id="kpi-measured">Measured ${asOf}${kpiLastMeasured()}</span>
+      ${world && world.days_advanced ? `<span>·</span><span title="The simulation moved every date in the dataset back by this many days; the trend holds one point per simulated day, each measured on the state of that day.">The dataset stands ${num(world.days_advanced)} day${world.days_advanced === 1 ? "" : "s"} later than its seed (simulation)</span>` : ""}
       <span>·</span>
       <span>${KPI_ROWS.length} KPIs, ${placeholders} with placeholder targets</span>
+      ${staleN ? `<span>·</span><span class="kpi-stale">${staleN} measured before the last simulated days; Measure again brings them current</span>` : ""}
       ${kpiCanEdit() ? "" : `<span>·</span><span>Read-only: PROCUREMENT or ADMIN sets targets</span>`}
       <span>·</span>
       <button class="btn btn--ghost btn--sm" id="kpi-refresh" title="A KPI is measured once a day. This measures again now.">Measure again</button>
@@ -215,7 +223,25 @@ RENDER.kpis = async function (opts) {
       toast("Could not save: " + ((err && err.message) || "error"), "err");
     }
   }));
+
+  // Live: a fleet event on the Simulation tab measures the KPIs it moved again, and this
+  // tab picks the new measurement up while it stays open. One cheap read every 15 seconds
+  // (the day's snapshot, nothing is measured), a redraw only when a measurement changed,
+  // and never while a target form is open.
+  livePoll("kpis", async () => {
+    if (KPI_EDITING) return;
+    const rows = await api("/kpis");
+    if (kpiSig(rows) !== kpiSig(KPI_ROWS)) RENDER.kpis();
+  }, 15000);
 };
+
+/* when the latest measurement was taken; every row carries its own time */
+function kpiLastMeasured() {
+  const ts = KPI_ROWS.map((r) => r.measured_at).filter(Boolean).sort();
+  if (!ts.length) return "";
+  return ` · last measurement ${new Date(ts[ts.length - 1]).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · refreshed while this tab is open`;
+}
+const kpiSig = (rows) => (rows || []).map((r) => `${r.id}:${r.measured_at}:${r.current}`).join("|");
 
 /* re-draw without re-fetching (after an edit toggle or a save) */
 RENDER.kpis.rerender = function () {

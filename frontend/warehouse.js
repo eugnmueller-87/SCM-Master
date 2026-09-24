@@ -26,6 +26,7 @@ const WH_VERDICT = {
 const WH_STAGE = { "first life": "First life", "return chain": "Return chain", "second life": "Second life", "exit": "Exit", "reserve": "Reserve" };
 
 const whDays = (v) => v == null ? "—" : Math.round(v).toLocaleString("de-DE") + " d";
+const whSig = (W) => ((W && W.compartments) || []).map((c) => `${c.code}:${c.on_hand}:${c.verdict}:${c.median_days}`).join("|");
 const whPct = (v) => v == null ? "—" : Math.round(v * 100) + " %";
 const whRental = (c) => c === 0 ? "new" : c === 1 ? "1 rental" : `${c} rentals`;
 
@@ -116,7 +117,7 @@ RENDER.warehouse = async function () {
         <div class="panel wh-chain">${chain}</div>
       </div>
       <div class="section" style="margin-bottom:0">
-        <div class="section__head"><span class="section__title">Compartments</span><span class="section__count">${C.length}</span><span class="section__hint">targets are placeholders until the named owner sets them · open a row for the worst offenders</span></div>
+        <div class="section__head"><span class="section__title">Compartments</span><span class="section__count">${C.length}</span><span class="section__hint">targets are placeholders until the named owner sets them · open a row for the worst offenders · read ${new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}, refreshed while this tab is open</span></div>
         <div class="panel"><table class="tbl wh-tbl">
           <thead><tr><th>Compartment</th><th>Stage</th><th class="num" style="width:220px">How full</th><th>How fast · dwell</th><th class="num">Flow, derived</th><th>How well</th></tr></thead>
           <tbody>${C.map(whRow).join("") || `<tr><td colspan="6"><div class="state"><div class="state__sub">${esc(W.reason || "No compartments.")}</div></div></td></tr>`}</tbody>
@@ -137,5 +138,12 @@ RENDER.warehouse = async function () {
       const row = $(`#screen .wh-row[data-code="${s.dataset.code}"]`);
       if (row) { row.scrollIntoView({ behavior: "smooth", block: "center" }); if ($(`#screen [data-detail="${s.dataset.code}"]`).classList.contains("hidden")) open(s.dataset.code); }
     }));
+    // Live: a fleet event on the Simulation tab moves stock between compartments; this tab
+    // redraws when a count, a verdict or a dwell changed. One grouped read every 15 seconds,
+    // the same read as the page itself, a quarter of a second on the full fleet.
+    livePoll("warehouse", async () => {
+      const W2 = await api("/warehouse/compartments");
+      if (whSig(W2) !== whSig(W)) RENDER.warehouse();
+    }, 15000);
   } catch (e) { screen.innerHTML = errState(e.message); }
 };

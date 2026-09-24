@@ -147,6 +147,12 @@ class Asset(IdMixin, TimestampMixin, Base):
         # order line index-only, sale price included: 100,000 rows on hand answered from the index.
         Index("ix_asset_status_id_product", "status", "id", "product_id"),
         Index("ix_asset_status_line_since_sale", "status", "source_order_item_id", "status_since", "sale_price"),
+        # The forecast backtest's own read (migration e3f5a7b9c1d2): deployments per product in service
+        # since a date, nineteen times a run. Without an index that carries all three columns the
+        # planner picks between two ``status`` indexes on a tie, and the losing one walks the rows in
+        # date order: the same statements took 3.2 s or 19.5 s on the full fleet depending on which
+        # won. With this one the plan is the same whatever the order of the others.
+        Index("ix_asset_status_deployed_product", "status", "deployed_date", "product_id"),
     )
 
     serial_number: Mapped[str] = mapped_column(String(128), unique=True, index=True)

@@ -29,13 +29,18 @@ re-roll the numbers after changing ``DAAS_SCALE``.
 from __future__ import annotations
 
 import os
+import subprocess  # nosec B404 - runs this interpreter on a fixed module name, see rebuild_in_background
+import sys
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import Base, SessionLocal
-from app.core.safety import assert_destructive_allowed
+from app.core.safety import ProductionSafetyError, assert_destructive_allowed, should_seed_demo
 from app.models.flow import Asset, AssetStatus, Location, LocationType
 
 # Tables a reset never touches: the login accounts and Alembic's own bookkeeping.
@@ -172,7 +177,7 @@ def ensure_measured() -> int:
     db = SessionLocal()
     try:
         today = date.today()
-        have = len(kpis._today_snapshots(db, today))
+        have = len(kpis._current_snapshots(db, today))
         if have >= len(kpis.KPIS):
             print(f"KPIs for {today} are already measured ({have}) - nothing to do.")
             return 0
@@ -188,9 +193,71 @@ def ensure_measured() -> int:
         db.close()
 
 
-if __name__ == "__main__":
-    from app.core.safety import should_seed_demo
+# ---------------------------------------------------------------------------
+# the way back: the same rebuild the boot does, started from the simulation tab
 
+_REBUILD_LOCK = threading.Lock()
+_REBUILD: dict = {"running": False, "started_at": None, "finished_at": None, "ok": None, "detail": None}
+_REBUILD_STEPS = (("app.seed_reset", "rebuild the dataset"), ("app.seed_kpis", "measure the KPIs"))
+
+
+def rebuild_state() -> dict:
+    """Whether a rebuild is running, and how the last one ended."""
+    with _REBUILD_LOCK:
+        return dict(_REBUILD)
+
+
+def _rebuild_worker() -> None:
+    """Run the boot's own two steps, each in a process of its own, and record how it went.
+
+    The steps are the ones ``railway.json`` runs at boot, in the same order: rebuild,
+    then measure. Each is a separate process for the reason ``ensure_measured`` gives:
+    seeding and measuring each peak well above 100 MB and a Python process keeps the
+    memory it has grown, so run inside the web worker the rebuild would leave the worker
+    permanently that much heavier, and the worker was killed for less on 23.09.2026. A
+    child process gives it all back when it exits. The argv is fixed (this interpreter,
+    a module name); nothing a caller sends reaches the command line.
+    """
+    env = dict(os.environ, SCM_RESET="1")
+    cwd = Path(__file__).resolve().parents[1]
+    ok, detail = True, []
+    try:
+        for module, what in _REBUILD_STEPS:
+            res = subprocess.run([sys.executable, "-m", module], cwd=str(cwd), env=env,  # nosec B603 - fixed argv, no shell
+                                 capture_output=True, text=True, timeout=3600)
+            tail = (res.stdout or "").strip().splitlines()[-2:]
+            detail.append(f"{what}: exit {res.returncode}" + (" - " + " | ".join(tail) if tail else ""))
+            if res.returncode != 0:
+                ok = False
+                err = (res.stderr or "").strip().splitlines()[-1:]
+                if err:
+                    detail.append(err[0][:300])
+                break
+    except Exception as e:  # noqa: BLE001 - the state must record a failure, never lose it
+        ok, detail = False, detail + [f"{type(e).__name__}: {e}"]
+    with _REBUILD_LOCK:
+        _REBUILD.update(running=False, finished_at=datetime.now(timezone.utc), ok=ok, detail="; ".join(detail))
+
+
+def rebuild_in_background() -> dict:
+    """Rebuild the demo dataset from scratch, in the background. Returns the state at once.
+
+    The guards are the boot's: never in production, never when the operator set
+    ``SEED_DEMO=0``. A rebuild already running is not started twice.
+    """
+    assert_destructive_allowed("rebuild the demo dataset")
+    if not should_seed_demo():
+        raise ProductionSafetyError("Refusing to rebuild the dataset: SEED_DEMO=0, the operator asked for it to be left alone.")
+    with _REBUILD_LOCK:
+        if _REBUILD["running"]:
+            return dict(_REBUILD)
+        _REBUILD.update(running=True, started_at=datetime.now(timezone.utc), finished_at=None, ok=None, detail=None)
+        state = dict(_REBUILD)
+    threading.Thread(target=_rebuild_worker, name="dataset-rebuild", daemon=True).start()
+    return state
+
+
+if __name__ == "__main__":
     if should_seed_demo():
         ensure_dataset()
     else:

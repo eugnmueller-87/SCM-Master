@@ -94,6 +94,7 @@ const NAV_DAAS = [
   { id: "contracts",    label: "Contracts",    icon: "contract" },
   { id: "spend",        label: "Spend",        icon: "euro" },
   { id: "tco",          label: "Device TCO",   icon: "tco" },
+  { id: "simulation",   label: "Simulation",   icon: "play" },
 ];
 let NAV = NAV_DC;
 
@@ -281,9 +282,28 @@ function tabFromHash() {
   return NAV.some((n) => n.id === want) ? want : "overview";
 }
 
+/* ── Live refresh ──────────────────────────────────────────────────
+   A screen that shows numbers another tab (the simulation) just changed picks
+   them up while it stays open: one cheap read on a timer, stopped the moment
+   the tab changes or the window is hidden. Nothing expensive runs in a loop;
+   each screen decides what one poll costs and what counts as a change. */
+let LIVE = null;
+function livePoll(tab, fn, ms) {
+  stopLive();
+  const timer = setInterval(async () => {
+    if (currentTab !== tab || document.hidden) return;
+    try { await fn(); } catch (e) { /* a failed poll stays silent; the next one tries again */ }
+  }, ms);
+  LIVE = { tab, timer };
+}
+function stopLive() {
+  if (LIVE) { clearInterval(LIVE.timer); LIVE = null; }
+}
+
 function showTab(name) {
   currentTab = name;
   openAssetId = null;
+  stopLive();
   if (tabFromHash() !== name) location.hash = name;
   renderNav();
   // A tab's label + renderer live in its own feature script (e.g. inventory.js

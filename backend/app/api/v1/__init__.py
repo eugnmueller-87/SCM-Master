@@ -18,6 +18,7 @@ from app.api.v1.kpis import router as kpis_router
 from app.api.v1.planning import router as planning_router
 from app.api.v1.procurement import router as procurement_router
 from app.api.v1.requisitions import router as requisitions_router
+from app.api.v1.simulation import router as simulation_router
 from app.api.v1.sourcing import router as sourcing_router
 from app.api.v1.tco import router as tco_router
 from app.api.v1.tracking import router as tracking_router
@@ -42,3 +43,4 @@ api_router.include_router(kpis_router)
 api_router.include_router(fleet_router)
 api_router.include_router(warehouse_router)
 api_router.include_router(capacity_plan_router)
+api_router.include_router(simulation_router)

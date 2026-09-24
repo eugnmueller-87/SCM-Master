@@ -20,7 +20,7 @@ The registry below is the single list. Adding a KPI means adding one entry with 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from statistics import median
 from typing import Callable, Optional
 
@@ -33,7 +33,7 @@ from app.models.kpi import KpiSnapshot, KpiTarget
 from app.models.procurement import OrderItem, PurchaseOrder
 from app.models.rental import ContractStatus, RentalContract
 from app.models.requisition import PurchaseRequisition, RequisitionStatus
-from app.services import accuracy, analytics, contracts, costing_service, planning, tracking
+from app.services import accuracy, analytics, contracts, costing_service, planning, timeshift, tracking
 from app.services import fleet as fleet_svc
 
 # -----------------------------------------------------------------------------
@@ -113,15 +113,34 @@ def _median_from_histogram(hist: dict[int, int]) -> Optional[float]:
 
 # ---- warehouse: the five the business owner names (availability, capital, cover, aging, write-down) plus flow
 
+def _once(db: Session, key: tuple, read: Callable[[], object]):
+    """One planning read per measurement. Two KPIs read the capacity flow and two the inventory
+    position; each read is about a second on the full fleet, so ``compute_all`` clears this memo
+    when it starts and the second KPI of a pair reuses the first one's read. Kept on the session,
+    so a measurement never sees a read taken before its own writes."""
+    memo = db.info.setdefault("kpis_memo", {})
+    if key not in memo:
+        memo[key] = read()
+    return memo[key]
+
+
+def _capacity_flow(db, today):
+    return _once(db, ("capacity_flow", today), lambda: planning.capacity_flow(db, today=today))
+
+
+def _inventory_position(db, today):
+    return _once(db, ("inventory_position", today), lambda: planning.inventory_position(db, today=today))
+
+
 def k_capacity_committed_pct(db, today):
-    f = planning.capacity_flow(db, today=today)
+    f = _capacity_flow(db, today)
     if f["committed_pct"] is None:
         return None, "no warehouse capacity defined"
     return round(f["committed_pct"] * 100, 1), None
 
 
 def k_weeks_of_cover(db, today):
-    f = planning.capacity_flow(db, today=today)
+    f = _capacity_flow(db, today)
     if f["weeks_of_cover"] is None:
         return None, "no deployments in the trailing window, burn rate unknown"
     return round(float(f["weeks_of_cover"]), 1), None
@@ -133,14 +152,14 @@ def _pos(row, key, default=None):
 
 
 def k_items_at_risk(db, today):
-    rows = planning.inventory_position(db, today=today)
+    rows = _inventory_position(db, today)
     if not rows:
         return None, "no products in the plan"
     return float(sum(1 for r in rows if _pos(r, "at_risk"))), None
 
 
 def k_safety_stock_coverage_pct(db, today):
-    rows = [r for r in planning.inventory_position(db, today=today) if (_pos(r, "safety_stock") or 0) > 0]
+    rows = [r for r in _inventory_position(db, today) if (_pos(r, "safety_stock") or 0) > 0]
     if not rows:
         return None, "no product carries a safety stock yet"
     ok = sum(1 for r in rows if (_pos(r, "on_hand") or 0) >= _pos(r, "safety_stock"))
@@ -579,19 +598,54 @@ def set_target(db: Session, kpi_id: str, *, y1: Optional[float], y2: Optional[fl
 # snapshots and status
 
 
-def _snapshot(db: Session, kpi_id: str, today: date, value: Optional[float], reason: Optional[str] = None) -> None:
+def _snapshot(db: Session, kpi_id: str, today: date, value: Optional[float], reason: Optional[str] = None,
+              measured_at: Optional[datetime] = None) -> None:
+    """Write the day's measurement. The row's audit stamp is set to the measurement's own instant, so a
+    measurement reused later reports exactly the time it was taken, not the time the row was flushed."""
     row = db.execute(select(KpiSnapshot).where(KpiSnapshot.kpi_id == kpi_id, KpiSnapshot.as_of == today)).scalar_one_or_none()
     if row is None:
-        db.add(KpiSnapshot(kpi_id=kpi_id, as_of=today, value=value, reason=reason))
+        row = KpiSnapshot(kpi_id=kpi_id, as_of=today, value=value, reason=reason)
+        db.add(row)
     else:
         row.value, row.reason = value, reason
+    if measured_at is not None:
+        row.last_updated = measured_at
     db.flush()
 
 
-def _today_snapshots(db: Session, today: date) -> dict[str, tuple[Optional[float], Optional[str]]]:
-    """What was already measured today, per KPI."""
-    rows = db.execute(select(KpiSnapshot.kpi_id, KpiSnapshot.value, KpiSnapshot.reason).where(KpiSnapshot.as_of == today)).all()
-    return {k: (float(v) if v is not None else None, r) for k, v, r in rows}
+def _utc(t: Optional[datetime]) -> Optional[datetime]:
+    """The audit columns store UTC without a zone; say so, or a browser reads the time as local."""
+    if t is None:
+        return None
+    return t if t.tzinfo is not None else t.replace(tzinfo=timezone.utc)
+
+
+def _latest_snapshots(db: Session) -> dict[str, tuple[Optional[float], Optional[str], Optional[datetime], Optional[date]]]:
+    """The most recent measurement of each KPI: (value, reason, real time it was taken, the world-day it describes)."""
+    latest = select(KpiSnapshot.kpi_id, func.max(KpiSnapshot.as_of).label("as_of")).group_by(KpiSnapshot.kpi_id).subquery()
+    rows = db.execute(
+        select(KpiSnapshot.kpi_id, KpiSnapshot.value, KpiSnapshot.reason, KpiSnapshot.last_updated, KpiSnapshot.as_of)
+        .join(latest, (latest.c.kpi_id == KpiSnapshot.kpi_id) & (latest.c.as_of == KpiSnapshot.as_of))).all()
+    return {k: (float(v) if v is not None else None, r, _utc(t), _as_date(d)) for k, v, r, t, d in rows}
+
+
+def _current_snapshots(db: Session, today: date) -> dict[str, tuple[Optional[float], Optional[str], Optional[datetime], Optional[date]]]:
+    """The measurement that still stands for each KPI, if one does.
+
+    "Once a day" is a day of the world's calendar. A measurement describes the world-day
+    it was taken on (``as_of``). When the simulation moves the world by N days, that day
+    moves back by N with every other date, and the measurement still stands: nothing real
+    happened in between, it is simply N simulated days old, and the row says so. The
+    moment the gap between today and the world-day is larger than what the calendar moved
+    since the measurement, a real day has passed, and the KPI is measured anew. No
+    wall-clock comparison anywhere: the calendar's own log answers the question.
+    """
+    log = timeshift.moves(db)
+    out = {}
+    for k, (v, r, t, d) in _latest_snapshots(db).items():
+        if d is not None and (today - d).days == timeshift.advanced_since(log, t):
+            out[k] = (v, r, t, d)
+    return out
 
 
 def history(db: Session, kpi_id: str, *, days: int = 365) -> list[dict]:
@@ -631,29 +685,42 @@ def _status(kpi: KpiDef, current: Optional[float], t: KpiTarget, first: Optional
     return ("on_track" if progress >= 50.0 else "behind"), round(progress, 1)
 
 
-def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = True, refresh: bool = False) -> list[dict]:
+def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = True, refresh: bool = False,
+                only: Optional[set[str]] = None) -> list[dict]:
     """Every KPI with its value, targets, status and trend.
 
     A KPI is measured **once a day**. Thirty-two measurements over a fleet of 400,000
-    devices are a minute of database work; re-running them on every page load would make
-    the tab unusable and would not change a single number, because each one is defined
-    over a day. So a measurement already taken today is reused, and ``refresh=True``
-    (the tab's Refresh button) forces a new one. The seed takes the first measurement,
-    so the tab is complete the moment the demo comes up.
+    devices are a quarter of a minute of database work; re-running them on every page
+    load would make the tab unusable and would not change a single number, because each
+    one is defined over a day. So a measurement that still stands is reused (see
+    ``_current_snapshots`` for what "still stands" means once the simulation moves the
+    calendar), and ``refresh=True`` (the tab's Measure again) forces a new one. The seed
+    takes the first measurement, so the tab is complete the moment the demo comes up.
+
+    ``only`` narrows a refresh to the KPIs named. The simulation tab measures again the
+    KPIs a fleet event can move and leaves the rest on their standing measurement, instead
+    of paying for a forecast backtest that no rental touches. Every row says when it was
+    measured (``measured_at``, real time), which world-day it describes (``measured_on``)
+    and how many simulated days ago that was (``stale_days``, zero for today's), so a
+    figure measured before the calendar moved never looks like today's.
     """
     today = today or date.today()
-    done = {} if refresh else _today_snapshots(db, today)
+    db.info.pop("kpis_memo", None)      # every measurement reads afresh; see _once
+    done = _current_snapshots(db, today)
+    if refresh:
+        done = {} if only is None else {k: v for k, v in done.items() if k not in only}
     out = []
     for kpi in KPIS:
         if kpi.id in done:
-            current, reason = done[kpi.id]
+            current, reason, measured_at, measured_on = done[kpi.id]
         else:
             try:
                 current, reason = kpi.compute(db, today)
             except Exception as e:  # a broken upstream read must not take the tab down; say so instead
                 current, reason = None, f"could not compute: {type(e).__name__}"
+            measured_at, measured_on = datetime.now(timezone.utc), today
             if snapshot:
-                _snapshot(db, kpi.id, today, current, reason)
+                _snapshot(db, kpi.id, today, current, reason, measured_at)
         t = get_or_seed_target(db, kpi, current)
         hist = history(db, kpi.id)
         measured = [h["value"] for h in hist if h["value"] is not None]
@@ -663,7 +730,8 @@ def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = T
         out.append({
             "id": kpi.id, "group": kpi.group, "group_label": GROUP_LABEL[kpi.group], "name": kpi.name, "unit": kpi.unit,
             "direction": kpi.direction, "definition": kpi.definition, "source": kpi.source,
-            "current": current, "reason": reason, "as_of": today,
+            "current": current, "reason": reason, "as_of": today, "measured_at": measured_at,
+            "measured_on": measured_on, "stale_days": max(0, (today - measured_on).days),
             "target_y1": t.target_y1, "target_y2": t.target_y2, "target_y3": t.target_y3,
             "owner": t.owner, "note": t.note, "placeholder": t.placeholder, "updated_by": t.updated_by,
             "status": status, "progress_pct": progress, "gap_to_y1": gap,

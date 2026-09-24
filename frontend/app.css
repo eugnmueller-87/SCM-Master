@@ -481,6 +481,8 @@ button { font-family: inherit; }
   transition: background var(--ts-dur-fast) var(--ts-ease), border-color var(--ts-dur-fast) var(--ts-ease), color var(--ts-dur-fast) var(--ts-ease);
 }
 .btn:focus-visible { outline: 2px solid var(--ts-brand-gold); outline-offset: 2px; }
+/* A button a role may not press stays visible and says so: the guest sees the simulation's events, not a way to fire them. */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn--primary { background: var(--ts-brand-gold); color: #FFFEFB; }
 .btn--primary:hover { background: var(--ts-brand-gold-deep); }
 .btn--ink { background: var(--ts-ink-night); color: var(--ts-paper); }
@@ -1180,6 +1182,7 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .kpi-val { font-variant-numeric: tabular-nums lining-nums; font-size: 22px; font-weight: 600; color: var(--ts-ink); letter-spacing: -0.02em; line-height: 1.1; white-space: nowrap; }
 .kpi-val--na { color: var(--ts-ink-faint); font-weight: 500; }
 .kpi-dir, .kpi-reason { font-size: 11px; color: var(--ts-ink-mute); margin-top: 5px; }
+.kpi-stale { font-size: 11px; color: var(--ts-warning); margin-top: 4px; }
 .kpi-reason { max-width: 22ch; line-height: 1.4; text-align: right; margin-left: auto; }
 .kpi-spark { display: block; margin-left: auto; overflow: visible; }
 .kpi-spark__none { font-size: 11px; color: var(--ts-ink-faint); white-space: nowrap; }
@@ -1284,3 +1287,51 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .cp-lever--hot { color: var(--ts-negative); }
 .cp-lever--ok { color: var(--ts-positive); }
 .cp-lever--none { color: var(--ts-ink-faint); font-weight: 500; }
+
+/* ─── Simulation (simulation.js) ──────────────────────────────────────── */
+/* The warning is part of the screen, not a dismissable toast: the tab writes to the database. */
+.sim-warn { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; margin-bottom: 18px; font-size: 12.5px; line-height: 1.45; color: var(--ts-ink-soft); background: var(--ts-warning-wash); border: 1px solid var(--ts-warning-soft); border-radius: var(--ts-radius-md); }
+.sim-warn__icon { color: var(--ts-warning); display: flex; flex-shrink: 0; margin-top: 1px; }
+.sim-warn__world { margin-top: 6px; color: var(--ts-ink); }
+.sim-world { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; padding: 2px 8px; border-radius: var(--ts-radius-pill); background: var(--ts-info-wash); color: var(--ts-info); font-size: 11.5px; font-weight: 500; vertical-align: middle; }
+.sim-warn__actions { margin-left: auto; display: flex; align-items: center; gap: 10px; white-space: nowrap; flex-shrink: 0; }
+/* The events: small forms with defaults, one card per thing that happens in the business. */
+.sim-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.sim-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-surface); }
+.sim-card--key { border-color: var(--ts-brand-gold-soft); background: var(--ts-brand-gold-wash); }
+.sim-card__name { font-size: 13.5px; font-weight: 600; color: var(--ts-ink); letter-spacing: -0.005em; }
+.sim-card__desc { font-size: 12px; color: var(--ts-ink-mute); line-height: 1.4; flex: 1; }
+.sim-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.sim-form .field { margin: 0; flex: 1 1 96px; min-width: 96px; }
+.sim-form .field__label { font-size: 11px; color: var(--ts-ink-mute); margin-bottom: 4px; }
+.sim-form .input { padding: 6px 8px; font-size: 13px; }
+.sim-form .btn { flex-shrink: 0; height: 32px; }
+.sim-form__hint { font-size: 11px; color: var(--ts-ink-faint); line-height: 1.35; }
+/* The answer: what moved, what was refused, the hold, the compartments, the KPIs. */
+.sim-effect { padding: 18px 22px; }
+.sim-effect__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.sim-effect__title { font-size: 16px; font-weight: 600; color: var(--ts-ink); letter-spacing: -0.01em; }
+.sim-effect__timing { font-family: var(--ts-font-mono); font-size: 11px; color: var(--ts-ink-faint); white-space: nowrap; text-align: right; }
+.sim-effect__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.sim-moves { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; font-size: 13px; color: var(--ts-ink); }
+.sim-moves b { font-variant-numeric: tabular-nums; text-align: right; }
+.sim-refused { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--ts-ink-soft); margin-bottom: 6px; line-height: 1.4; }
+.sim-notes { margin: 12px 0 0; padding-left: 18px; font-size: 12px; color: var(--ts-ink-mute); line-height: 1.5; }
+.sim-hold { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--ts-line-strong); border-radius: var(--ts-radius-md); }
+.sim-hold__title { font-size: 12.5px; font-weight: 600; color: var(--ts-ink); margin-bottom: 8px; }
+.sim-hold__grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.sim-mini__label { font-size: 11px; color: var(--ts-ink-mute); }
+.sim-mini__val { font-size: 18px; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; color: var(--ts-ink); margin-top: 2px; }
+.sim-tbl { margin: 0 -22px; width: calc(100% + 44px); }
+.sim-tbl tbody td { vertical-align: top; }
+.sim-kpi--flat td { color: var(--ts-ink-mute); }
+.sim-kpi--flat .kpi-name { color: var(--ts-ink-mute); font-weight: 500; }
+.sim-delta--better { color: var(--ts-positive); font-weight: 600; }
+.sim-delta--worse { color: var(--ts-negative); font-weight: 600; }
+.sim-delta--flat { color: var(--ts-ink-faint); }
+.sim-delta--up { color: var(--ts-ink-soft); font-weight: 600; }
+.sim-delta--down { color: var(--ts-ink-soft); font-weight: 600; }
+.sim-log__entry { cursor: pointer; border-radius: var(--ts-radius-sm); }
+.sim-log__entry:hover .attn__title { color: var(--ts-brand-gold-deep); }
+.sim-log__entry--sel .attn__title { color: var(--ts-brand-gold-deep); }
+@media (max-width: 1180px) { .sim-grid { grid-template-columns: repeat(2, 1fr); } .sim-hold__grid { grid-template-columns: repeat(2, 1fr); } }

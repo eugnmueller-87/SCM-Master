@@ -58,3 +58,19 @@ def assert_destructive_allowed(what: str) -> None:
             f"Refusing destructive operation {what!r}: SCM_ENV=prod. Production "
             "data is forge-locked; destructive helpers are disabled."
         )
+
+
+def assert_demo_write_allowed(what: str) -> None:
+    """Refuse a demo-only write when SCM_ENV=prod.
+
+    The simulation tab fires business events at the running system through the
+    same services the console uses. Every one of them is a legal write, which is
+    exactly why this guard exists: a legal write of invented events into real
+    data is still invented data. Same rule as the seeders, checked at the door of
+    every simulated event and of the rebuild it offers as the way back.
+    """
+    if is_production():
+        raise ProductionSafetyError(
+            f"Refusing {what}: SCM_ENV=prod. Production is forge-locked; simulated "
+            "events and dataset rebuilds are demo-only."
+        )
