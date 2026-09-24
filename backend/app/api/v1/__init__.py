@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.api.v1.agent import router as agent_router
 from app.api.v1.asset import router as asset_router
 from app.api.v1.auth import router as auth_router
+from app.api.v1.capacity_plan import router as capacity_plan_router
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.costing import router as costing_router
 from app.api.v1.exports import router as exports_router
@@ -40,3 +41,4 @@ api_router.include_router(tco_router)
 api_router.include_router(kpis_router)
 api_router.include_router(fleet_router)
 api_router.include_router(warehouse_router)
+api_router.include_router(capacity_plan_router)

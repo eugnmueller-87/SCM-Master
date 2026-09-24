@@ -40,6 +40,7 @@ from app.models.flow import (  # noqa: F401
     ReceiptItem,
 )
 from app.models.kpi import (  # noqa: F401
+    FleetMilestone,
     KpiSnapshot,
     KpiTarget,
 )
@@ -90,6 +91,7 @@ __all__ = [
     "ContractDocument",
     "KpiTarget",
     "KpiSnapshot",
+    "FleetMilestone",
     "RentalContract",
     "ContractStatus",
     "WAREHOUSE_STATUSES",

@@ -1244,3 +1244,43 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .tco-part__label { padding-left: 38px !important; }
 .tco-measured { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ts-positive); }
 .tco-placeholder { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: #8C6510; border: 1px dashed var(--ts-warning); border-radius: 3px; padding: 0 5px; cursor: help; white-space: nowrap; }
+
+/* ─── Capacity plan (plan.js) ────────────────────────────────────────── */
+/* The path: today and one card per milestone, the active one carries the table below. */
+.cp-path { display: flex; align-items: stretch; gap: 6px; padding: 14px 16px; overflow-x: auto; }
+.cp-ms { flex: 1 1 0; min-width: 210px; padding: 12px 14px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-surface); cursor: pointer; transition: background var(--ts-dur-fast) var(--ts-ease); }
+.cp-ms:hover { background: var(--ts-brand-gold-wash); }
+.cp-ms--active { border-color: var(--ts-brand-gold); background: var(--ts-brand-gold-wash); }
+.cp-ms--today { cursor: default; }
+.cp-ms--today:hover { background: var(--ts-surface); }
+.cp-ms__date { font-size: 10px; letter-spacing: var(--ts-track-eyebrow); text-transform: uppercase; color: var(--ts-ink-faint); white-space: nowrap; }
+.cp-ms__n { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ts-ink); margin-top: 4px; }
+.cp-ms__owner { font-size: 11.5px; color: var(--ts-ink-mute); margin-top: 2px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 22px; }
+.cp-ms__rows { margin-top: 8px; }
+.cp-ms__row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-top: 1px solid var(--ts-line-soft); }
+.cp-ms__row b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cp-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ts-line); }
+.cp-form .field { margin: 0; }
+.cp-form__wide { grid-column: 1 / -1; }
+.cp-form__actions { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cp-capform { display: flex; align-items: center; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+/* When it breaks: one track per compartment from today to the last milestone. */
+.cp-timeline { padding: 6px 22px 14px; }
+.cp-axis { display: grid; grid-template-columns: 200px 1fr 150px; gap: 12px; font-size: 10.5px; color: var(--ts-ink-faint); text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 0 6px; }
+.cp-axis__ticks { position: relative; height: 14px; }
+.cp-axis__tick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.cp-axis__tick:first-child { transform: none; }
+.cp-tl { display: grid; grid-template-columns: 200px 1fr 150px; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--ts-line-soft); font-size: 12.5px; }
+.cp-tl:last-child { border-bottom: none; }
+.cp-tl__name { font-weight: 600; color: var(--ts-ink); }
+.cp-tl__when { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cp-track { position: relative; height: 10px; border-radius: 99px; background: var(--ts-paper-deep); border: 1px solid var(--ts-line); }
+.cp-track__fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; }
+.cp-track__mark { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ts-line-strong); }
+/* The compartment table: the two levers read as numbers, never as a recommendation. */
+.cp-tbl tbody td { vertical-align: top; }
+.cp-tbl .cell-prod__cat { max-width: 30ch; white-space: normal; line-height: 1.35; }
+.cp-lever { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.01em; color: var(--ts-ink); white-space: nowrap; }
+.cp-lever--hot { color: var(--ts-negative); }
+.cp-lever--ok { color: var(--ts-positive); }
+.cp-lever--none { color: var(--ts-ink-faint); font-weight: 500; }

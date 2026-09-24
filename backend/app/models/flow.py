@@ -44,6 +44,10 @@ class Location(IdMixin, TimestampMixin, Base):
     parent_id: Mapped[Optional[str]] = mapped_column(ForeignKey("location.id"))
     # Tunable, unknown-today capacity knob (e.g. rack slots, warehouse floor units).
     capacity: Mapped[Optional[int]] = mapped_column(Integer)
+    # Who decided the capacity. Empty means the number is still the design parameter the
+    # seed wrote, and the capacity plan shows it as assumed; a name means a person set it.
+    # "How much room do we assume" is the owner's question, so the answer has to say which.
+    capacity_set_by: Mapped[Optional[str]] = mapped_column(String(128))
 
     parent = relationship("Location", remote_side="Location.id")
 

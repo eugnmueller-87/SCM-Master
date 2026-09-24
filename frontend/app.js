@@ -87,6 +87,7 @@ const NAV_DAAS = [
   { id: "assets",       label: "Fleet",        icon: "box",   countKey: "assets" },
   { id: "returns",      label: "Returns",      icon: "return", countKey: "returns30" },
   { id: "warehouse",    label: "Warehouse",    icon: "layers" },
+  { id: "plan",         label: "Capacity plan", icon: "trend" },
   { id: "inventory",    label: "Inventory",    icon: "stock" },
   { id: "requisitions", label: "Requisitions", icon: "cart",  countKey: "staged" },
   { id: "tracking",     label: "Orders",       icon: "track", countKey: "inbound" },

@@ -41,6 +41,11 @@ class RentalContract(IdMixin, TimestampMixin, Base):
         # nothing this does not); the rest is what the device TCO sums when it joins the
         # 31,200 finished devices to their contracts.
         Index("ix_rental_asset_life", "asset_id", "cycle_no", "start_date", "actual_end", "end_reason"),
+        # The capacity plan's mean rental term, by cycle, from the index alone. The status
+        # index gave the running contracts' ids and reading the term behind each of the
+        # 300,000 took 3.4 seconds cold on the full fleet; this makes it six rows.
+        # Mirrored by migration d2e4f6a8b0c1.
+        Index("ix_rental_status_cycle_term", "status", "cycle_no", "term_months"),
     )
 
     asset_id: Mapped[str] = mapped_column(ForeignKey("asset.id"))
