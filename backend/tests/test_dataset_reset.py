@@ -125,6 +125,34 @@ def test_a_fleet_from_before_a_new_compartment_counts_as_stale(db_session):
     assert "ST-SECOND" in (dataset_is_stale(db_session) or ""), "a missing compartment names itself"
 
 
+def test_a_fleet_seeded_from_a_smaller_catalogue_counts_as_stale(db_session):
+    """The catalogue is the one place a model is added; a fleet seeded before a model was in it never shows it.
+
+    Judged only for a fleet that is this seed's, one whose product codes are all catalogue codes. A
+    hand-built fleet with codes of its own is not this seed's data, and a wrong "stale" would delete it.
+    """
+    from app.models.flow import Location, LocationType
+    from app.seed_daas import CATALOGUE
+    from app.seed_reset import dataset_is_stale
+    from app.services import warehouse
+
+    prod = _daas(db_session)
+    for c in warehouse.COMPARTMENTS:
+        db_session.add(Location(code=c.code, name=c.name, location_type=LocationType.WAREHOUSE, capacity=100))
+    db_session.flush()
+    assert dataset_is_stale(db_session) is None, "PH-1 is no catalogue code: not this seed's fleet, so not judged"
+
+    prod.product_code = CATALOGUE[0][0]
+    db_session.flush()
+    reason = dataset_is_stale(db_session) or ""
+    assert "catalogue" in reason and "more" in reason, "one catalogue model of many: seeded from an older catalogue"
+
+    for code, name, family, *_rest in CATALOGUE[1:]:
+        db_session.add(Product(product_code=code, name=name, category=family))
+    db_session.flush()
+    assert dataset_is_stale(db_session) is None, "every catalogue model present means the data is current"
+
+
 def test_seeding_does_not_also_measure(monkeypatch):
     """Seeding and measuring are separate boot steps, and have to stay that way.
 

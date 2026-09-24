@@ -75,7 +75,6 @@ class ProductRow(BaseModel):
     unit_price: Optional[float]
     order_by: Optional[date]
     forecast_recommended: int
-    position_model_net: int
     demand_reason: Optional[str]
     buffer_reason: Optional[str]
     source_reason: Optional[str]
@@ -94,7 +93,6 @@ class Recommendation(BaseModel):
     gap: int
     recommended: int
     forecast_recommended: int
-    position_model_net: int
     rate_per_day: float
     lead_time_days: int
     order_by: Optional[date]
@@ -102,7 +100,6 @@ class Recommendation(BaseModel):
     factors: List[Factor]
     gap_basis: str
     recommended_basis: str
-    position_model_basis: str
     guard: Dict[str, Any]
     guard_for: str
     orderable_now: int

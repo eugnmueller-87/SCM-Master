@@ -19,7 +19,7 @@ folded in so lifecycle/reorder needs on products with no usage history still net
 | **On order** (`on_order`) | sum of outstanding open-PO line qty | `inbound_pipeline(db).outstanding` (OrderItem − received, PO status PENDING/APPROVED/PLACED/PARTIALLY_RECEIVED) |
 | **Position** | `on_hand + on_order` | derived |
 | **Safety** (`safety_stock`) | service-level `z(SL) × σ(demand over lead)` | `inventory_plan.safety_stock` → `forecasting.safety_stock` |
-| **Missing** (`net_requirement`) | `max(0, gross_demand − position − safety_stock)` | derived |
+| **Missing** (`net_requirement`) | `max(0, gross_demand + safety_stock − position)` (the buffer is demand: a floor to be left in stock, so it raises the requirement; corrected 24.09.2026, it was subtracted before) | derived |
 | **Staged now** (`staged_planned`) | open STAGED requisition qty (included lines, current qty) | `_staged_planned_by_product` (RequisitionLine.qty, PR.status=STAGED) |
 | `new_proposal` | `max(0, net_requirement − staged_planned)` | derived |
 | **Proposing** | `min(new_proposal, capacity_avail)` | derived (greedy global headroom drawdown, highest net_req first) |

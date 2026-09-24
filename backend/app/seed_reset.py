@@ -71,8 +71,10 @@ def dataset_is_stale(db: Session) -> Optional[str]:
     place a new station is ever added. The second check is the same idea for the device
     TCO, which reads repairs and refurbishments from service events the seed writes with
     the fleet: a fleet with devices on a second rental and not one service event was seeded
-    before the events existed, and its cost tab would come up correct and empty. Returns
-    the reason, or None when it is current.
+    before the events existed, and its cost tab would come up correct and empty. The third
+    is the catalogue: a fleet seeded before a model was in it never shows that model, and
+    the catalogue is the one place a model is added. Returns the reason, or None when it
+    is current.
     """
     from app.models.tco import ServiceEvent
     from app.services import warehouse
@@ -86,6 +88,23 @@ def dataset_is_stale(db: Session) -> Optional[str]:
     if (db.scalar(select(ServiceEvent.id).limit(1)) is None
             and db.scalar(select(Asset.id).where(Asset.cycle_no >= 2).limit(1)) is not None):
         return "the fleet has devices on a second rental and no service event, the repair layer this build reads"
+
+    # Third, the catalogue. It is the one place a model is ever added (seed_daas.CATALOGUE),
+    # and a fleet seeded from a smaller catalogue keeps every purchase on the models it had:
+    # the new ones never appear, and the years before that catalogue began stay on the one
+    # model the old fallback put them on (24.09.2026: 17 per cent of the fleet on one
+    # Fairphone 5). Only a fleet that is this seed's is judged, one whose product codes are
+    # all catalogue codes; a fleet carrying other codes is somebody's hand-built data and is
+    # left alone, because a wrong "stale" here deletes a database.
+    from app.models.catalog import Product
+    from app.seed_daas import CATALOGUE
+
+    have_codes = {code for (code,) in db.execute(select(Product.product_code)).all() if code}
+    want_codes = {row[0] for row in CATALOGUE}
+    if have_codes and have_codes <= want_codes and want_codes - have_codes:
+        missing = sorted(want_codes - have_codes)
+        shown = ", ".join(missing[:3]) + (f" and {len(missing) - 3} more" if len(missing) > 3 else "")
+        return f"the catalogue has no {shown}, a model this build defines"
     return None
 
 

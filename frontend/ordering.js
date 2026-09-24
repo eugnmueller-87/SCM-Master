@@ -76,7 +76,7 @@ function omFactorsHtml(r, d) {
       <tr class="om-sum om-sum--rec"><td class="om-sign">→</td><td class="num om-val">${num(r.recommended)}</td><td><div class="cell-prod__name">Recommended to order</div><div class="wh-note">${esc(r.recommended_basis)}${r.order_by ? ` · order by ${fmtDate(r.order_by)} to cover the horizon at a lead time of ${num(d.lead_time_days)} days` : ""}</div></td></tr>
     </tbody></table>
     <div class="wh-note" style="margin-top:8px">${room}. ${esc(r.guard_for === "what_if" ? "The guard above was asked about the what-if quantity; this line is the recommendation against the same free places." : "The guard was asked about this recommendation.")}</div>
-    <div class="wh-note om-cross">Cross-check · the forecast alone, without the buffer, says <b>${num(r.forecast_recommended)}</b>; the purchasing agent's position model says <b>${num(r.position_model_net)}</b> (${esc(r.position_model_basis)}).</div>`;
+    <div class="wh-note om-cross">Cross-check · the forecast alone, without the buffer, says <b>${num(r.forecast_recommended)}</b>. The purchasing agent stages from the same factors netted the same way (planning.inventory_position), so its figure is the gap above.</div>`;
 }
 
 /* ── the tiers: what we already own that could serve this demand ──── */

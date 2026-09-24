@@ -184,7 +184,7 @@ function posDrill(r) {
     <div class="ipos-dl"><span>On order (committed POs)</span><b>${r.on_order}</b></div>
     <div class="ipos-dl"><span>Staged (planned)</span><b>${r.staged_planned}</b></div>
     <div class="ipos-dl"><span>Safety stock</span><b>${r.safety_stock}</b></div>`;
-  const pos2 = `<div class="ipos-eq">Need ${r.gross_demand} − Position ${r.position} − Safety ${r.safety_stock} = <b>Missing ${r.net_requirement}</b>` +
+  const pos2 = `<div class="ipos-eq">Need ${r.gross_demand} + Safety ${r.safety_stock} − Position ${r.position} = <b>Missing ${r.net_requirement}</b>` +
     (r.staged_planned ? ` · less ${r.staged_planned} staged → propose ${r.new_proposal}` : "") +
     (r.deferred ? ` · ${r.proposing} fit / ${r.deferred} deferred (capacity)` : "") + `</div>`;
   const pos3 = (r.po_lines && r.po_lines.length)

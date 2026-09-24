@@ -134,7 +134,7 @@ SECOND_LIFE_WAITING_SHARE = 0.5           # second-life stock refurbished ahead 
 SLOW_MOVER_SHARE = 0.04
 CHANNEL_MIX = {"marketplace": 0.55, "b2b_wholesale": 0.30, "employee_buyout": 0.10, "as_is": 0.05}
 CHANNEL_FEE = {"marketplace": 0.12, "b2b_wholesale": 0.20, "employee_buyout": 0.00, "as_is": 0.25}
-GRADE_FACTOR = {"A": 1.09, "B": 1.00, "C": 0.86, "D": 0.73}       # marketplace grade offsets, simplified from the public curves
+GRADE_FACTOR = {"A": 1.09, "B": 1.00, "C": 0.86, "D": 0.73}       # exp of the grade offsets of the pooled marketplace fit (A +0.0915, C -0.1451, D -0.3102), same file as RESIDUAL_CURVE
 # Repair and refurbishment invoices, EUR net per event, whole euros, per device class. The
 # fleet records where a device is, not what was done to it, so the events a device's state
 # proves are written with it: a device on or past its second rental was refurbished once
@@ -147,7 +147,14 @@ GRADE_FACTOR = {"A": 1.09, "B": 1.00, "C": 0.86, "D": 0.73}       # marketplace 
 REPAIR_COST = {"Smartphone": (60, 140), "Tablet": (70, 150), "Laptop": (90, 220)}
 REFURB_COST = {"Smartphone": (22, 38), "Tablet": (25, 40), "Laptop": (35, 60)}
 
-# The catalogue: public launch RRPs, gross EUR, Germany. Source URL on every row.
+# The catalogue: public launch RRPs, gross EUR, Germany. Source URL on every row; where the
+# price and the launch day come from two pages, the row names both. Business laptops carry
+# no manufacturer RRP in Germany: their price is the list price of a named configuration as
+# the trade press printed it, and their launch is the month the maker or the press named,
+# entered on its first day, the way the laptops already here were entered.
+# The rows launched 2021 to 2023 were added on 24.09.2026, every source fetched that day: a
+# fleet with terms up to 48 months and second rentals buys years before the models of 2024,
+# and until then the generator put every such purchase on the earliest model it knew.
 # (code, name, family, oem, launch, rrp_gross, source)
 CATALOGUE = [
     ("APL-IP16-128", "iPhone 16 · 128 GB", "Smartphone", "Apple", date(2024, 9, 20), 949, "https://www.apple.com/de/newsroom/2024/09/apple-introduces-iphone-16-and-iphone-16-plus/"),
@@ -163,17 +170,114 @@ CATALOGUE = [
     ("APL-MBA13-M3", "MacBook Air 13 (M3) · 8 GB / 256 GB", "Laptop", "Apple", date(2024, 3, 8), 1299, "https://www.apple.com/de/newsroom/2024/03/apple-unveils-the-new-13-and-15-inch-macbook-air-with-the-powerful-m3-chip/"),
     ("LEN-T14G5", "ThinkPad T14 Gen 5 · Core Ultra 7 / 16 GB / 512 GB", "Laptop", "Lenovo", date(2024, 5, 1), 1719, "https://www.notebookcheck.com/Test-Lenovo-ThinkPad-T14-Gen-5-Intel.851254.0.html"),
     ("HP-EB840G10", "EliteBook 840 G10 · Core i7 / 16 GB / 512 GB", "Laptop", "HP", date(2023, 5, 1), 1300, "https://www.notebookcheck.com/HP-Elitebook-840-G10.770372.0.html"),
+    # launched 2021 to 2023, added 24.09.2026
+    ("APL-IP14-128", "iPhone 14 · 128 GB", "Smartphone", "Apple", date(2022, 9, 16), 999, "https://www.apple.com/de/newsroom/2022/09/apple-introduces-iphone-14-and-iphone-14-plus/"),
+    ("APL-IP13-128", "iPhone 13 · 128 GB", "Smartphone", "Apple", date(2021, 9, 24), 899, "https://www.apple.com/de/newsroom/2021/09/apple-introduces-iphone-13-and-iphone-13-mini/"),
+    ("SAM-S23-128", "Galaxy S23 · 128 GB", "Smartphone", "Samsung", date(2023, 2, 17), 949, "https://news.samsung.com/de/die-neue-samsung-galaxy-s23-serie-entwickelt-fur-ein-premium-erlebnis-heute-und-in-der-zukunft"),
+    ("SAM-S22-128", "Galaxy S22 · 128 GB", "Smartphone", "Samsung", date(2022, 2, 25), 849, "https://news.samsung.com/de/samsung-gibt-nach-rekordvorbestellungen-weltweiten-verkaufsstart-der-neuen-galaxy-s22-serie-und-tab-s8-serie-bekannt"),
+    ("SAM-A54-128", "Galaxy A54 5G · 128 GB", "Smartphone", "Samsung", date(2023, 3, 24), 489, "https://news.samsung.com/de/zuwachs-fur-die-galaxy-a-serie-das-samsung-galaxy-a34-5g-und-galaxy-a54-5g-erweitern-die-galaxy-familie (price; the day from https://www.teltarif.de/smartphone/samsung/galaxy-a54-5g/)"),
+    ("SAM-A53-128", "Galaxy A53 5G · 128 GB", "Smartphone", "Samsung", date(2022, 4, 1), 449, "https://news.samsung.com/de/samsung-stellt-das-galaxy-a53-5g-und-a33-5g-vor"),
+    ("GOO-PX8-128", "Pixel 8 · 128 GB", "Smartphone", "Google", date(2023, 10, 12), 799, "https://www.googlewatchblog.de/2023/10/pixel8-pro-pixel-watch2-preise-und-aktionen/ (price; the day from https://www.googlewatchblog.de/2023/10/pixel8-pro-ab-verkauf/)"),
+    ("GOO-PX7A-128", "Pixel 7a · 128 GB", "Smartphone", "Google", date(2023, 5, 10), 509, "https://blog.google/intl/de-de/produkte/hardware/io-2023-pixel-7a/"),
+    ("GOO-PX7-128", "Pixel 7 · 128 GB", "Smartphone", "Google", date(2022, 10, 13), 649, "https://blog.google/intl/de-de/produkte/hardware/pixel-7-pixel-7-pro-ankuendigung/"),
+    ("GOO-PX6A-128", "Pixel 6a · 128 GB", "Smartphone", "Google", date(2022, 7, 28), 459, "https://blog.google/intl/de-de/produkte/hardware/io-2022-pixel-6a/"),
+    ("FPH-FP4-128", "Fairphone 4 · 6 GB / 128 GB", "Smartphone", "Fairphone", date(2021, 10, 25), 579, "https://www.teltarif.de/fairphone-4-neuvorstellung-preis-verfuegbarkeit/news/85884.html"),
+    ("APL-IPADAIR5-64", "iPad Air (5th gen, M1) · 64 GB Wi-Fi", "Tablet", "Apple", date(2022, 3, 18), 679, "https://www.apple.com/de/newsroom/2022/03/apple-introduces-the-most-powerful-and-versatile-ipad-air-ever/"),
+    ("APL-IPAD9-64", "iPad (9th gen) · 64 GB Wi-Fi", "Tablet", "Apple", date(2021, 9, 24), 379, "https://www.apple.com/de/newsroom/2021/09/apples-most-popular-ipad-delivers-even-more-performance-and-advanced-features/"),
+    ("SAM-TABS9-128", "Galaxy Tab S9 · 128 GB Wi-Fi", "Tablet", "Samsung", date(2023, 8, 11), 899, "https://news.samsung.com/de/mit-der-samsung-galaxy-tab-s9-serie-kreative-ideen-zum-leben-erwecken (price; the day from https://news.samsung.com/de/samsung-verkundet-verkaufsstart-der-galaxy-z-flip5-galaxy-z-fold5-galaxy-watch6-serie-und-galaxy-tab-s9-serie-an)"),
+    ("SAM-TABS8-128", "Galaxy Tab S8 · 128 GB Wi-Fi", "Tablet", "Samsung", date(2022, 2, 25), 749, "https://news.samsung.com/de/samsung-stellt-mit-galaxy-tab-s8-serie-neue-begleiter-fur-multitasker-und-kreative-vor"),
+    ("APL-MBA15-M2", "MacBook Air 15 (M2) · 8 GB / 256 GB", "Laptop", "Apple", date(2023, 6, 13), 1599, "https://www.apple.com/de/newsroom/2023/06/apple-introduces-the-15-inch-macbook-air/"),
+    ("APL-MBA13-M2", "MacBook Air 13 (M2) · 8 GB / 256 GB", "Laptop", "Apple", date(2022, 7, 15), 1499, "https://www.apple.com/de/newsroom/2022/06/apple-unveils-all-new-macbook-air-supercharged-by-the-new-m2-chip/ (price; the day from https://www.apple.com/newsroom/2022/07/all-new-macbook-air-with-m2-available-to-order-starting-friday-july-8/)"),
+    ("LEN-T14G4", "ThinkPad T14 Gen 4 · Core i5-1335U / 16 GB / 512 GB", "Laptop", "Lenovo", date(2023, 7, 1), 1640, "https://www.notebookcheck.com/Test-Lenovo-ThinkPad-T14-G4-Intel-Laptop-Raptor-Lake-Update-fuer-die-T-Serie.729357.0.html (price of 21HD0043GE; the month from https://news.lenovo.com/pressroom/press-releases/accelerate-transformation-hybrid-world-pc-solutions-mwc/)"),
+    ("LEN-T14G3", "ThinkPad T14 Gen 3 · Ryzen 7 Pro 6850U / 16 GB / 512 GB", "Laptop", "Lenovo", date(2022, 6, 1), 1859, "https://www.notebookcheck.com/Lenovo-ThinkPad-T14-G3-im-Test-Business-Laptop-ist-besser-mit-AMD-Ryzen-Pro.654697.0.html (UVP of 21CF004NGE; the month from https://thinkwiki.de/T14_Gen_3_(AMD))"),
+    ("HP-EB840G9", "EliteBook 840 G9 · Core i7-1255U / 16 GB / 512 GB", "Laptop", "HP", date(2022, 3, 1), 1550, "https://www.notebookcheck.com/HP-EliteBook-840-G9.721655.0.html (list price in the datasheet; the month from https://www.hp.com/us-en/newsroom/press-releases/2022/hp-ces-2022-hybrid-experiences.html)"),
 ]
 
 
+# Realisation curves, ln(share) = a + b * age_months, one per device class: the marketplace
+# curves the Restwert Engine fitted by ordinary least squares on public refurbished-marketplace
+# asking prices in Germany, grade B the reference (restwert/market/curves.py over
+# data/anchors/used_prices.csv, researched 2026-09-13; the rows "family / <class> / marketplace"
+# of outputs/market_curves.csv, read 24.09.2026). The share is the gross ask over the gross
+# launch RRP, so applied to the net RRP below it is the ask net of VAT. Each row carries the
+# number of anchors and the youngest and oldest age they span, because the line is evidence
+# only between them: BELOW the youngest anchor it is not extrapolated and holds the youngest
+# fitted value. The laptop line (121 anchors, 30 to 70 months) falls 2.3 per cent a month, and
+# run back to a new device it said 149 per cent of the launch price and gave a ThinkPad 97 per
+# cent of its purchase price back at resale (found 24.09.2026); a fleet sells nothing that
+# young, but it sells plenty at 13 to 30 months, where the anchors carry no data. Above the
+# oldest anchor the line continues down to RESIDUAL_AGE_CAP_MONTHS, a downward extrapolation
+# that errs on the conservative side. Tablets had been given the smartphone line; the tablet
+# fit exists (66 anchors) and is used.
+RESIDUAL_CURVE = {          # class: (intercept, slope per month, anchors, youngest age, oldest age)
+    "Smartphone": (-0.4612, -0.00959, 168, 17.5, 60.9),
+    "Tablet": (-0.2957, -0.00601, 66, 18.0, 59.6),
+    "Laptop": (0.4022, -0.02304, 121, 30.2, 70.0),
+}
+RESIDUAL_AGE_CAP_MONTHS = 84.0
+
+
 def _residual_share(family: str, age_months: float, grade: str) -> float:
-    """Share of the net launch price a used device fetches — simplified from the fitted
-    public curves of the Restwert Engine (marketplace, 2026-09): log-linear in age."""
-    if family == "Laptop":
-        base = math.exp(0.40 - 0.0230 * max(6.0, min(age_months, 84.0)))
+    """Share of the net launch price a used device fetches: the class's fitted curve (RESIDUAL_CURVE),
+    held at its youngest anchor below that age and capped at RESIDUAL_AGE_CAP_MONTHS above, times the
+    grade factor; never above 0.95 and never below 0.03."""
+    a, b, _n, youngest, _oldest = RESIDUAL_CURVE.get(family, RESIDUAL_CURVE["Smartphone"])
+    age = max(youngest, min(float(age_months), RESIDUAL_AGE_CAP_MONTHS))
+    return max(0.03, min(0.95, math.exp(a + b * age) * GRADE_FACTOR.get(grade, 1.0)))
+
+
+# The fleet buys before the catalogue begins: a 48-month first rental followed by a second one
+# reaches back seven years, the catalogue about five. A purchase dated before any model of its
+# class was on sale is put on the class's FIRST GENERATION, the models launched within
+# FIRST_GENERATION_MONTHS of the class's earliest launch, in equal shares; the purchase then
+# moves to that model's launch, as every purchase does (the generator compresses the history it
+# has no catalogue for). Until 24.09.2026 the fallback was the single earliest model of the
+# class, which put 72,485 of the 76,492 smartphones bought in 2023 on one Fairphone 5, 17 per
+# cent of the whole fleet, and coloured every screen that reads the stock by model. The check
+# refuses a catalogue whose first generation has fewer than FIRST_GENERATION_MIN models in any
+# class the fleet buys, so the fallback cannot collapse onto one model again without the seed
+# refusing to run.
+FIRST_GENERATION_MONTHS = 12
+FIRST_GENERATION_MIN = 2
+
+
+def first_generation(catalogue=None) -> dict[str, list[str]]:
+    """Per class, the codes launched within FIRST_GENERATION_MONTHS of the class's first launch, earliest first."""
+    rows: dict[str, list[tuple[date, str]]] = {}
+    for code, _name, family, _oem, launch, _rrp, _url in (CATALOGUE if catalogue is None else catalogue):
+        rows.setdefault(family, []).append((launch, code))
+    out: dict[str, list[str]] = {}
+    for family, lst in rows.items():
+        lst.sort()
+        cutoff = lst[0][0] + timedelta(days=round(FIRST_GENERATION_MONTHS * DAYS_PER_MONTH))
+        out[family] = [c for d, c in lst if d <= cutoff]
+    return out
+
+
+def check_catalogue(catalogue=None) -> dict[str, list[str]]:
+    """The first generation per class, or a ValueError naming the class whose opening is too thin to spread a fleet over."""
+    gen = first_generation(catalogue)
+    missing = sorted(set(FAMILY_MIX) - set(gen))
+    if missing:
+        raise ValueError(f"the catalogue has no model of a class the fleet buys: {', '.join(missing)}")
+    thin = {f: codes for f, codes in gen.items() if f in FAMILY_MIX and len(codes) < FIRST_GENERATION_MIN}
+    if thin:
+        raise ValueError("the catalogue opens with too few models to spread the fleet's oldest purchases over: "
+                         + "; ".join(f"{f}: {', '.join(c)}" for f, c in sorted(thin.items()))
+                         + f" (fewer than {FIRST_GENERATION_MIN} within {FIRST_GENERATION_MONTHS} months of the class's first launch)")
+    return gen
+
+
+def _choose_product(rng: random.Random, family: str, purchase: date, launch: dict[str, date],
+                    by_family: dict[str, list[str]], first_gen: dict[str, list[str]]) -> str:
+    """The model a purchase lands on: one on sale two weeks before the purchase, the newer the likelier (a fleet
+    buys the current generation); before any was on sale, the class's first generation in equal shares."""
+    pool = [c for c in by_family[family] if launch[c] <= purchase - timedelta(days=14)]
+    if pool:
+        weights = [math.exp(-max(0, (purchase - launch[c]).days) / 365.0 * 1.2) for c in pool]
     else:
-        base = math.exp(-0.46 - 0.0096 * max(6.0, min(age_months, 84.0)))
-    return max(0.03, min(0.95, base * GRADE_FACTOR.get(grade, 1.0)))
+        pool, weights = first_gen[family], [1.0] * len(first_gen[family])
+    return rng.choices(pool, weights=weights, k=1)[0]
 
 
 def _pick(rng: random.Random, mix: dict):
@@ -263,6 +367,7 @@ class _Sink:
 
 def seed_daas() -> None:
     assert_seeding_allowed("DaaS demo dataset")
+    first_gen = check_catalogue()       # refuses before anything is written: see FIRST_GENERATION_MONTHS
     rng = random.Random(42)  # nosec B311 - a fixed seed, not a secret: the dataset must be reproducible
     today = date.today()
     db = SessionLocal()
@@ -403,13 +508,10 @@ def seed_daas() -> None:
         serial_no = [0]
         codes = list(products.keys())
         by_family = {f: [c for c in codes if products[c][1] == f] for f in FAMILY_MIX}
+        launches = {c: products[c][3] for c in codes}
 
         def choose_product(family: str, purchase: date) -> str:
-            pool = [c for c in by_family[family] if products[c][3] <= purchase - timedelta(days=14)]
-            if not pool:
-                pool = sorted(by_family[family], key=lambda c: products[c][3])[:1]
-            weights = [math.exp(-max(0, (purchase - products[c][3]).days) / 365.0 * 1.2) for c in pool]
-            return rng.choices(pool, weights=weights, k=1)[0]
+            return _choose_product(rng, family, purchase, launches, by_family, first_gen)
 
         def rent_for(code: str, term: int, cycle: int) -> float:
             _, family, _, _, _, price, _ = products[code]

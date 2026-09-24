@@ -744,11 +744,20 @@ def inventory_plan(db: Session, *, today: Optional[date] = None) -> list[dict]:
 # numbers the planner sees are structurally incapable of disagreeing. The MRP
 # decomposition is explicit (no pre-subtracting on_hand anywhere):
 #   position        = on_hand + on_order            (committed supply)
-#   net_requirement = max(0, gross_demand - position - safety_stock)   "Missing"
+#   net_requirement = max(0, gross_demand + safety_stock - position)   "Missing"
 #   staged_planned  = open STAGED requisition qty   (planned, not committed)
 #   new_proposal    = max(0, net_requirement - staged_planned)         (not yet queued)
 #   proposing       = min(new_proposal, capacity_avail)                (orderable now)
 #   deferred        = new_proposal - proposing                         (capacity-blocked)
+#
+# The safety stock sits on the DEMAND side. It is the floor the planner wants left
+# in stock once the horizon's demand has gone out, so the more buffer is wanted,
+# the more has to be bought: it is the same floor inventory_plan protects with its
+# reorder point (lead-time demand + safety) and the same buffer the ordering mask
+# adds to the need. Until 24.09.2026 it was subtracted together with the position,
+# which made asking for a bigger buffer order LESS, and put this model twice the
+# buffer below the mask wherever there was a gap. The subtraction was a sign error,
+# not a second model; nothing else about the netting changed.
 
 @dataclass(frozen=True)
 class PositionRow:
@@ -760,7 +769,7 @@ class PositionRow:
     on_order: int
     position: int            # on_hand + on_order
     safety_stock: int
-    net_requirement: int     # max(0, gross_demand - position - safety_stock) -> "Missing"
+    net_requirement: int     # max(0, gross_demand + safety_stock - position) -> "Missing"
     staged_planned: int      # open STAGED requisition qty (planned orders)
     capacity_avail: int      # GLOBAL storable headroom available to this line (shared)
     product_capacity: int    # this product's OWN capacity proxy (per-product cap)
@@ -862,15 +871,18 @@ def inventory_position(db: Session, *, period_days: int = 7,
         forecast_gross = int(math.ceil(fc.get("projected_demand", 0) or 0))
         # A lifecycle/reorder trigger expresses a one-time net need (e.g. replace 3
         # decommissioned). Put it on the demand scale as on_hand + extra — NOT
-        # position + extra — so that once the replacement is ON ORDER the need is
-        # satisfied (net_req = gross - position - safety -> 0) and it converges.
+        # position + extra — so that once the replacement (plus the buffer, which
+        # is demand too) is ON ORDER the need is satisfied
+        # (net_req = gross + safety - position -> 0) and it converges.
         # Using position here would re-grow the need as orders land and never
         # converge. Take the larger of the two demand views so neither a forecast
         # spike nor a replacement need is lost.
         trigger_gross = on_hand + int(extra_demand.get(pid, 0))
         gross = max(forecast_gross, trigger_gross)
         safety = int(iv.get("safety_stock", 0) or 0)
-        net_req = max(0, gross - position - safety)
+        # The buffer is added to the demand, never subtracted from it: see the block
+        # comment above PositionRow for what the other sign did.
+        net_req = max(0, gross + safety - position)
         staged_planned = int(staged.get(pid, 0))
         new_proposal = max(0, net_req - staged_planned)
         # Coverage from the recovery object already computed by inventory_plan —

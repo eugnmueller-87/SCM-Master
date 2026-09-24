@@ -140,6 +140,48 @@ def test_daas_seed_small_scale(db_session, monkeypatch):
     assert fleet.scenario(db_session) == "daas"
 
 
+def test_a_purchase_before_the_catalogue_lands_on_the_whole_first_generation():
+    """Never on one model: the old fallback put 72,485 of the 76,492 smartphones bought in 2023 on one Fairphone 5
+    (24.09.2026). The catalogue check refuses an opening too thin to spread a fleet over, before anything is written."""
+    import random
+    from collections import Counter
+
+    from app import seed_daas
+
+    gen = seed_daas.check_catalogue()
+    assert set(gen) >= set(seed_daas.FAMILY_MIX) and all(len(gen[f]) >= seed_daas.FIRST_GENERATION_MIN for f in seed_daas.FAMILY_MIX)
+    launch = {row[0]: row[4] for row in seed_daas.CATALOGUE}
+    by_family = {f: [row[0] for row in seed_daas.CATALOGUE if row[2] == f] for f in seed_daas.FAMILY_MIX}
+    rng = random.Random(7)
+    for family in seed_daas.FAMILY_MIX:
+        early = min(launch[c] for c in by_family[family]) - timedelta(days=400)
+        picks = Counter(seed_daas._choose_product(rng, family, early, launch, by_family, gen) for _ in range(600))
+        assert set(picks) == set(gen[family]) and max(picks.values()) < 600 * 0.6, family
+        late = date(2025, 9, 1)
+        picks = Counter(seed_daas._choose_product(rng, family, late, launch, by_family, gen) for _ in range(600))
+        assert all(launch[c] <= late - timedelta(days=14) for c in picks), "once models are on sale, only those on sale are bought"
+    thin = [("A-1", "One", "Smartphone", "Apple", date(2021, 1, 1), 100, "u"), ("A-2", "Two", "Smartphone", "Apple", date(2023, 1, 1), 100, "u"),
+            ("T-1", "Tab", "Tablet", "Apple", date(2021, 1, 1), 100, "u"), ("T-2", "Tab 2", "Tablet", "Apple", date(2021, 6, 1), 100, "u"),
+            ("L-1", "Lap", "Laptop", "Apple", date(2021, 1, 1), 100, "u"), ("L-2", "Lap 2", "Laptop", "Apple", date(2021, 6, 1), 100, "u")]
+    with pytest.raises(ValueError, match="Smartphone"):
+        seed_daas.check_catalogue(thin)
+    with pytest.raises(ValueError, match="Laptop"):
+        seed_daas.check_catalogue([row for row in thin if row[2] != "Laptop"])
+
+
+def test_the_residual_curve_starts_below_one_and_never_rises():
+    """The laptop line, run back to a new device, said 149 per cent of the launch price (24.09.2026)."""
+    from app import seed_daas
+
+    for family, (_a, _b, n, youngest, oldest) in seed_daas.RESIDUAL_CURVE.items():
+        shares = [seed_daas._residual_share(family, m, "B") for m in range(0, 100)]
+        assert shares[0] < 1.0 and all(x >= y for x, y in zip(shares, shares[1:])), family
+        assert seed_daas._residual_share(family, 0, "A") < 1.0 and n >= 6 and youngest < oldest
+    # below the youngest anchor the line holds; on the anchors it is the fit itself (the fit's own q_48 for laptops)
+    assert seed_daas._residual_share("Laptop", 6, "B") == seed_daas._residual_share("Laptop", 30.2, "B")
+    assert seed_daas._residual_share("Laptop", 48, "B") == pytest.approx(0.4947, abs=0.001)
+
+
 def test_growth_is_read_from_the_contracts(db_session):
     """A scaling fleet has to be able to say how much it grew, and against what."""
     _fleet(db_session)

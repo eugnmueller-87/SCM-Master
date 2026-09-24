@@ -45,10 +45,13 @@ in the return chain, late inbound lines, or the places to lease.
 the buffer, less the stock that can go out next, less what is inbound, less what is
 already staged, rounded up to the source's minimum order quantity, then capped by the
 guard. Each factor is a row a person can add up. The purchasing agent's position model
-(``planning.inventory_position``) nets the same ingredients with the buffer subtracted
-from the need instead of added; its figure is carried as a cross-check with that basis,
-so the two numbers a person may meet in this system are explained next to each other
-rather than left to disagree.
+(``planning.inventory_position``) nets the same ingredients the same way, the buffer on the
+demand side, so the quantity the agent stages for a model is this gap, and the mask does
+not carry a second figure for it. Until 24.09.2026 the position model subtracted the
+buffer, and the mask showed its figure as a cross-check that differed by twice the buffer
+wherever there was a gap; that was a sign error in the position model, since corrected,
+not a second opinion worth showing. The remaining cross-check is the forecast's own
+recommendation, which carries no buffer.
 
 **Cost.** About two and a half seconds on the 431,200-serial fleet, most of it the two
 fleet-wide planning reads (the forecast and the inventory plan) and the guard, which
@@ -429,13 +432,12 @@ def _recommend(db: Session, products: list[dict], today: date, per_product_stock
             "lead_time_days": lead, "unit_price": price,
             "order_by": ((f["order_by"] if f and f["recommended_order_qty"] else None) if f else None),
             "forecast_recommended": (int(f["recommended_order_qty"]) if f else 0),
-            "position_model_net": max(0, gross - (new + second + inbound) - buffer),
             "demand_reason": (None if f else "no usage, no stock and no inbound in the forecast window: the forecast carries no row for this model"),
             "buffer_reason": (None if i else "no stock and no inbound: the inventory plan carries no row for this model"),
             "source_reason": (None if src else "no active source: no price, lead time or minimum order quantity"),
         })
     S = {k: sum(r[k] for r in rows) for k in ("usage", "eol", "gross", "buffer", "new", "second_life", "inbound", "staged", "need", "gap",
-                                              "recommended", "forecast_recommended", "position_model_net", "rate_per_day")}
+                                              "recommended", "forecast_recommended", "rate_per_day")}
     S["usage"], S["rate_per_day"] = round(S["usage"], 1), round(S["rate_per_day"], 3)
     S["lead_time_days"] = max((r["lead_time_days"] for r in rows), default=0)
     order_bys = [r["order_by"] for r in rows if r["order_by"]]
@@ -460,8 +462,6 @@ def _recommend(db: Session, products: list[dict], today: date, per_product_stock
     ]
     S["gap_basis"] = "the sum of the factors, floored at zero"
     S["recommended_basis"] = "the gap rounded up to the preferred source's minimum order quantity, per model"
-    S["position_model_basis"] = ("planning.inventory_position, the model the purchasing agent stages from: the same ingredients with the buffer "
-                                 "subtracted from the need instead of added; the two differ by twice the buffer wherever there is a gap")
     return rows, S
 
 
@@ -644,9 +644,8 @@ def mask(db: Session, *, product_code: Optional[str] = None, manufacturer: Optio
     t4 = time.perf_counter()
     rec = {
         **{k: S[k] for k in ("gross", "usage", "eol", "buffer", "new", "second_life", "inbound", "staged", "need", "gap", "recommended",
-                             "forecast_recommended", "position_model_net", "rate_per_day", "lead_time_days", "order_by", "horizon_days")},
+                             "forecast_recommended", "rate_per_day", "lead_time_days", "order_by", "horizon_days")},
         "factors": S["factors"], "gap_basis": S["gap_basis"], "recommended_basis": S["recommended_basis"],
-        "position_model_basis": S["position_model_basis"],
         "guard": guard, "guard_for": ("what_if" if quantity else "recommendation"),
         # against the warehouse's free-to-order places, whatever quantity the guard was asked about
         "orderable_now": (min(S["recommended"], int(guard["free_to_order"])) if guard["free_to_order"] is not None else S["recommended"]),

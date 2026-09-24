@@ -206,8 +206,13 @@ def test_the_factors_add_up_to_the_gap_and_the_moq_makes_the_recommendation(db_s
     signed = sum((f["value"] if f["sign"] == "+" else -f["value"]) for f in r["factors"])
     assert r["gap"] == max(0, math.ceil(signed)) and r["gap"] == d["gross"] + r["buffer"] - 3
     assert r["gap"] > 0 and r["recommended"] == math.ceil(r["gap"] / 50) * 50 == 50, "rounded up to the minimum order quantity of 50"
-    assert r["position_model_net"] == max(0, d["gross"] - 3 - r["buffer"]) and "inventory_position" in r["position_model_basis"]
     assert r["forecast_recommended"] == fc["recommended_order_qty"]
+    # The purchasing agent stages from planning.inventory_position. With the buffer on the demand side in both models
+    # (since 24.09.2026; before, the position model subtracted it and the mask carried the difference as a "cross-check"),
+    # its proposal for this model IS the mask's gap. Read from the other model here, not restated from the mask's own factors.
+    pos = next(x for x in planning.inventory_position(db_session, today=TODAY) if x.product_id == phone.id)
+    assert pos.safety_stock == r["buffer"] and pos.on_hand == 3 and pos.new_proposal == r["gap"]
+    assert "position_model_net" not in r and "position_model_basis" not in r
     # the guard was asked about the recommendation itself, and it fits: 500 places, 16 used, 20 inbound
     assert r["guard_for"] == "recommendation" and r["guard"] == planning.check_order_capacity(db_session, 50, today=TODAY)
     assert r["guard"]["verdict"] == "ok" and r["guard"]["free_to_order"] == 500 - 16 - 20 == 464
