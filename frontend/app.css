@@ -1205,6 +1205,22 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .kpi-form__hint { font-size: 12px; color: var(--ts-ink-mute); }
 @media (max-width: 1100px) { .kpi-form { grid-template-columns: repeat(3, 1fr); } .kpi-form__wide { grid-column: span 3; } }
 .kpi-gap { font-size: 11px; color: var(--ts-ink-mute); margin-top: 6px; font-variant-numeric: tabular-nums; }
+/* a row opens to say where its number comes from; the words are the backend's (services/kpis.py), not this file's */
+.kpi-tbl tbody tr.clickable td { cursor: pointer; }
+.kpi-explainrow td { background: var(--ts-paper-deep); padding-top: 14px !important; padding-bottom: 16px !important; cursor: default; }
+.kpi-explain__head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 12px; color: var(--ts-ink-mute); margin-bottom: 12px; }
+.kpi-explain__head .kpi-stale { margin-top: 0; }
+.kpi-explain__ph { color: #8C6510; }
+.kpi-basis { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; cursor: help; white-space: nowrap; }
+.kpi-basis--measured { color: var(--ts-positive); }
+.kpi-basis--derived { color: var(--ts-info); border-style: dashed; }
+.kpi-basis--placeholder { color: #8C6510; border-color: var(--ts-warning); border-style: dashed; }
+.kpi-explain__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; }
+.kpi-explain__label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ts-ink-faint); margin-bottom: 3px; }
+.kpi-explain__text { font-size: 12.5px; line-height: 1.5; color: var(--ts-ink); max-width: 76ch; }
+.kpi-explain__reads .kpi-explain__text { font-family: var(--ts-font-mono); font-size: 11.5px; color: var(--ts-ink-soft); }
+.kpi-explain__block--na { border-left: 3px solid var(--ts-warning); padding-left: 10px; }
+@media (max-width: 1100px) { .kpi-explain__grid { grid-template-columns: 1fr; } }
 
 /* ── Warehouse compartments (device-as-a-service) ───────────────────── */
 .wh-chain { display: flex; align-items: stretch; gap: 6px; padding: 14px 16px; overflow-x: auto; }
@@ -1225,10 +1241,33 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .wh-tbl .cell-prod__cat { max-width: 34ch; white-space: normal; line-height: 1.35; }
 .wh-detail td { background: var(--ts-paper-deep); padding: 0 22px 16px !important; }
 .wh-detail__inner { padding: 12px 14px; border-left: 2px solid var(--ts-brand-gold); }
-.wh-detail__grid { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 24px; }
 .wh-detail__head { font-size: 11.5px; font-weight: 600; color: var(--ts-ink-mute); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
 .wh-oldest tbody td { padding: 6px 10px; }
 .wh-foot { font-size: 12px; color: var(--ts-ink-mute); line-height: 1.5; margin-top: 12px; }
+/* what is inside one compartment: the opened row */
+.wh-cnt { display: grid; gap: 16px; }
+.wh-cnt__strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.wh-cnt__tile { padding: 10px 12px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-surface); min-width: 0; }
+.wh-cnt__tile-label { font-size: 10.5px; letter-spacing: var(--ts-track-eyebrow); text-transform: uppercase; color: var(--ts-ink-faint); white-space: nowrap; }
+.wh-cnt__tile-val { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ts-ink); margin-top: 3px; line-height: 1.2; }
+.wh-cnt__tile-val small { font-size: 12px; font-weight: 500; color: var(--ts-ink-mute); margin-left: 5px; letter-spacing: 0; }
+.wh-cnt__grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.wh-cnt__col { display: grid; gap: 16px; align-content: start; min-width: 0; }
+.wh-cnt__block { padding: 12px 14px; border: 1px solid var(--ts-line); border-radius: var(--ts-radius-md); background: var(--ts-surface); min-width: 0; }
+.wh-cnt__block .tbl thead th { padding: 6px 10px; }
+.wh-cnt__block .tbl tbody td { padding: 6px 10px; }
+.wh-cnt__block .tbl td.num, .wh-cnt__block .tbl td.nowrap { white-space: nowrap; }
+.wh-cnt__block .tbl td.wide { width: 40%; }
+.wh-mix { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--ts-paper-deep); border: 1px solid var(--ts-line); margin: 4px 0 8px; }
+.wh-mix__seg { height: 100%; }
+.wh-mix__row { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 12.5px; border-bottom: 1px solid var(--ts-line-soft); }
+.wh-mix__row:last-child { border-bottom: none; }
+.wh-mix__dot { width: 8px; height: 8px; border-radius: 99px; flex: 0 0 auto; position: relative; top: -1px; }
+.wh-mix__k { color: var(--ts-ink-soft); flex: 1 1 auto; min-width: 0; }
+.wh-mix__v { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ts-ink); }
+.wh-mix__s { color: var(--ts-ink-mute); font-variant-numeric: tabular-nums; min-width: 4.5ch; text-align: right; }
+.wh-share { display: inline-block; width: 56px; height: 6px; border-radius: 99px; background: var(--ts-paper-deep); overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.wh-share__fill { height: 100%; background: var(--ts-brand-gold); }
 
 /* ─── Device TCO (tco.js) ────────────────────────────────────────────── */
 .tco-toolbar { display: flex; align-items: center; gap: 14px; margin-bottom: var(--section-gap); flex-wrap: wrap; }

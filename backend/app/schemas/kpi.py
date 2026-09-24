@@ -21,6 +21,14 @@ class KpiRead(BaseModel):
     direction: str
     definition: str
     source: str
+    # The explanation, from the same registry entry as the value (services/kpis.py, the
+    # @explained block above each compute function). A screen renders it; none writes its own.
+    basis: str                   # measured | derived | placeholder: how far the number is a fact of the tables
+    calculation: str             # the arithmetic in words: what over what, which window, counted how
+    reads: str                   # the tables and columns actually read
+    caveats: str                 # what it excludes or assumes, where that changes the reading
+    why: str                     # one sentence: what a bad number means
+    needs: str                   # what data the measurement needs; for a not-measurable KPI, what would make it so
     current: Optional[float]
     reason: Optional[str]        # why current is None, when it is
     as_of: date

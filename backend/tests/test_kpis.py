@@ -126,8 +126,10 @@ def test_a_kpi_is_measured_once_a_day_and_the_reason_travels_with_it(db_session,
     def unmeasurable(db, today):
         return None, "no shipment has been tracked yet"
 
-    probe = kpis.KpiDef("probe", "warehouse", "Probe", "count", "higher", "A counted read.", "test", counted)
-    silent = kpis.KpiDef("silent", "warehouse", "Silent", "count", "higher", "A read with nothing to measure.", "test", unmeasurable)
+    # A KPI cannot enter the registry without its explanation; a test double carries one too.
+    ex = kpis.KpiExplain(basis="measured", calculation="counted", reads="test", caveats="none", why="a probe", needs="nothing")
+    probe = kpis.KpiDef("probe", "warehouse", "Probe", "count", "higher", "A counted read.", "test", counted, explain=ex)
+    silent = kpis.KpiDef("silent", "warehouse", "Silent", "count", "higher", "A read with nothing to measure.", "test", unmeasurable, explain=ex)
     monkeypatch.setattr(kpis, "KPIS", [probe, silent])
     monkeypatch.setattr(kpis, "KPI_BY_ID", {k.id: k for k in (probe, silent)})
     today = date(2026, 9, 22)
@@ -144,3 +146,77 @@ def test_a_kpi_is_measured_once_a_day_and_the_reason_travels_with_it(db_session,
     rows = {r["id"]: r for r in kpis.compute_all(db_session, today=today)}
     for row in rows.values():
         assert row["current"] is not None or row["reason"], "a KPI without a value always says why"
+
+
+# --- the explanation travels with the value ----------------------------------------
+#
+# The contract, not the sentences: every KPI explains itself in every field, the row the
+# API serves carries exactly the registry's words, a KPI the data cannot measure says what
+# would make it measurable, and the registry refuses a KPI that explains nothing.
+
+EXPLAIN_FIELDS = ("basis", "calculation", "reads", "caveats", "why", "needs")
+
+
+def test_every_kpi_explains_itself_in_every_field(db_session, client):
+    for k in svc.KPIS:
+        for f in EXPLAIN_FIELDS:
+            assert str(getattr(k.explain, f)).strip(), f"{k.id}: {f} is empty"
+        assert k.explain.basis in svc.BASES, f"{k.id}: basis {k.explain.basis!r} is not one of {svc.BASES}"
+    # the served row carries the registry's words, unchanged, whether the KPI measured or not
+    _stock(db_session)
+    rows = {r["id"]: r for r in svc.compute_all(db_session, today=TODAY)}
+    for k in svc.KPIS:
+        for f in EXPLAIN_FIELDS:
+            assert rows[k.id][f] == getattr(k.explain, f)
+    api_rows = {r["id"]: r for r in client.get("/api/v1/kpis").json()}
+    for k in svc.KPIS:
+        for f in EXPLAIN_FIELDS:
+            assert api_rows[k.id][f] == getattr(k.explain, f)
+
+
+def test_a_not_measurable_kpi_says_what_would_make_it_measurable(db_session):
+    rows = {r["id"]: r for r in svc.compute_all(db_session, today=TODAY)}
+    silent = [r for r in rows.values() if r["current"] is None]
+    assert silent, "an empty database leaves something unmeasurable"
+    for r in silent:
+        assert r["reason"], f"{r['id']}: no value and no reason"
+        assert r["needs"].strip(), f"{r['id']}: no value and nothing said about what would give one"
+        assert r["needs"] != r["reason"], f"{r['id']}: 'needs' only repeats the reason"
+    # the four the demo cannot measure today: no bill of materials, no requisition decided
+    for kid in ("negotiation_gap_eur", "products_above_target_pct", "auto_placed_pct", "requisition_cycle_hours"):
+        assert rows[kid]["current"] is None and rows[kid]["needs"]
+
+
+def test_registry_refuses_a_kpi_without_an_explanation():
+    import pytest
+
+    def bare(db, today):
+        return 1.0, None
+
+    with pytest.raises(ValueError):
+        svc.KpiDef("bare", "warehouse", "Bare", "count", "higher", "no words", "test", bare)
+    with pytest.raises(ValueError):
+        svc.explained(basis="guess", calculation="x", reads="x", caveats="x", why="x", needs="x")
+    with pytest.raises(ValueError):
+        svc.explained(basis="measured", calculation="x", reads="x", caveats=" ", why="x", needs="x")
+
+
+def test_requisition_decision_hours_count_only_a_person(db_session):
+    """The gate writes decided_at in the same run that stages a requisition. Counted, those
+    zero-hour rows would pull 'hours to a person deciding' toward nothing; the KPI's own
+    definition says a person, so the compute has to say so too."""
+    from datetime import datetime, timezone
+
+    from app.models.requisition import PurchaseRequisition, RequisitionStatus
+
+    sup = _save(db_session, Organization(code="SUP-R", name="Sup R", is_supplier=True))
+    t0 = datetime(2026, 9, 20, 8, 0, tzinfo=timezone.utc)
+    db_session.add(PurchaseRequisition(supplier_id=sup.id, status=RequisitionStatus.PLACED, auto_placed=True,
+                                       date_created=t0, decided_at=t0, decided_by="agent"))
+    db_session.add(PurchaseRequisition(supplier_id=sup.id, status=RequisitionStatus.PLACED, auto_placed=False,
+                                       date_created=t0, decided_at=t0 + timedelta(hours=10), decided_by="buyer"))
+    db_session.add(PurchaseRequisition(supplier_id=sup.id, status=RequisitionStatus.STAGED))
+    db_session.flush()
+    by = {r["id"]: r for r in svc.compute_all(db_session, today=TODAY, snapshot=False)}
+    assert by["requisition_cycle_hours"]["current"] == 10.0     # the person's 10 h, not the median of (0, 10)
+    assert by["auto_placed_pct"]["current"] == 50.0             # one of two decided; the staged one is not decided

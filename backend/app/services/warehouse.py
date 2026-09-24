@@ -31,6 +31,20 @@ existence probe, not a count. Against 431,200 serials the whole read answers in 
 a quarter of a second.
 
 **No fake zeros.** A measure the data cannot support is ``None`` with a ``reason``.
+
+**Opening one compartment** (``contents``, 24.09.2026). The owner, looking at the bar
+chart: "we need to be able to click on each individually and know what is inside, which
+items and how many." A bar that says 83 % committed does not say what is in there. The
+read answers the questions a person opening a compartment asks, in this order: which
+devices and how many (by model, rolled up by device class), how old against the target
+dwell (within it, past it, far past it), what condition (the grade mix, first life
+against second life, battery where read), a handful of the oldest serials so the
+abstraction can be checked against real devices, and, for a station that receives
+deliveries, what is on its way in: the open order lines destined here, by model, with
+their ETA and which are late. That last part is what the "inbound reserved" band on
+the cockpit's bar is made of. Every breakdown is a grouped query; no compartment's rows
+are loaded into Python, and the read sits behind its own endpoint so the overview stays
+as fast as it is.
 """
 from __future__ import annotations
 
@@ -39,12 +53,13 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import Product
-from app.models.flow import WAREHOUSE_STATUSES, Asset, AssetStatus, Location
-from app.services import fleet
+from app.models.flow import WAREHOUSE_STATUSES, Asset, AssetStatus, Location, ReceiptItem
+from app.models.procurement import OrderItem, PurchaseOrder
+from app.services import fleet, planning
 from app.services.exceptions import NotFoundError
 
 # ---------------------------------------------------------------------------
@@ -98,6 +113,23 @@ STATION_OF_STATUS = {st: c for c in COMPARTMENTS for st in c.statuses}
 SLOW_MOVING_SHARE = 0.25       # slow moving: more than this share of the stock is past the target dwell
 STALLED_MEDIAN_FACTOR = 1.5    # stalled: the median dwell is past this multiple of the target, half the stock is well overdue
 OFFENDER_LIMIT = 25
+CONTENTS_OLDEST_LIMIT = 10     # the oldest serials shown when a compartment is opened: a handful, not a list
+FAR_PAST_FACTOR = 2            # far past the target: more than twice the target dwell [placeholder, Head of Operations]
+
+# The age bands, relative to the compartment's target dwell T: within (up to T), past
+# (over T up to 2T), far past (over 2T). "83 % full" and "half of it has been here twice
+# as long as it should" are different problems, and the bands keep them apart.
+AGE_BANDS = (("within_target", "Within target"), ("past_target", "Past target"), ("far_past_target", "Far past target"))
+AGE_BASIS = ("days in the compartment from status_since against the target dwell; shares are of the dated units, "
+             "units without a dwell date are counted separately and never guessed")
+CYCLE_LABEL = {"0": "New, never rented", "1": "After a first rental", "2+": "After a second rental or later"}
+GRADE_BASIS = "grade A to D as recorded at wipe and grading; a unit that has not reached that step carries none"
+INBOUND_BASIS = ("open order lines (pending, approved, placed, partially received) whose order is destined for this "
+                 "compartment's station; outstanding = ordered minus received; late = the estimated delivery date is "
+                 "before today; committed = on hand plus outstanding inbound, against the station's capacity")
+# The same order statuses the inbound pipeline and the over-order guard read, so the band
+# a person sees here and the guard that refuses an order cannot disagree.
+OPEN_ORDER_STATUSES = planning.OPEN_ORDER_STATUSES
 
 THROUGHPUT_BASIS = ("derived, upper bound: on hand over the mean age of the stock still here (Little's law), "
                     "not measured from movements; a measured flow needs the movement log")
@@ -280,18 +312,274 @@ def offenders(db: Session, code: str, *, today: Optional[date] = None, limit: in
         .group_by(Product.name, Product.category)
         .order_by(func.count(Asset.id).desc()).limit(10)
     ).all()
-    oldest = db.execute(
-        select(Asset.id, Asset.serial_number, Product.name, Product.category, Asset.grade, Asset.cycle_no,
-               Asset.status, Asset.status_since)
-        .join(Product, Product.id == Asset.product_id)
-        .where(Asset.status.in_(statuses), Asset.status_since.is_not(None))
-        .order_by(Asset.status_since).limit(max(1, limit))
-    ).all()
     return {
         "code": c.code, "name": c.name, "target_dwell_days": c.target_dwell_days, "as_of": today,
         "past_target_by_product": [{"name": name, "family": fam, "units": int(n)} for name, fam, n in by_product],
-        "oldest": [{"asset_id": aid, "serial_number": sn, "product": name, "family": fam, "grade": grade,
-                    "cycle_no": int(cyc), "status": st.value if hasattr(st, "value") else str(st),
-                    "since": _as_date(since), "days": (today - _as_date(since)).days}
-                   for aid, sn, name, fam, grade, cyc, st, since in oldest],
+        "oldest": _oldest(db, statuses, today, limit),
+    }
+
+
+def _oldest(db: Session, statuses: tuple, today: date, limit: int) -> list[dict]:
+    """The oldest dated units of a status set: an ordered read on the (status, status_since)
+    index that stops after ``limit`` rows, so it costs the same for 36,000 units as for four.
+
+    One read per status, merged here. A compartment that spans two statuses (new stock
+    holds IN_STORAGE and RECEIVED) asked in one ``IN`` cannot be walked in index order:
+    SQLite sorted 35,400 rows to find the ten oldest, 75 ms, where two index walks cost
+    nothing.
+    """
+    limit = max(1, limit)
+    rows = []
+    for st in statuses:
+        rows += db.execute(
+            select(Asset.id, Asset.serial_number, Product.name, Product.category, Asset.grade, Asset.cycle_no,
+                   Asset.status, Asset.status_since)
+            .join(Product, Product.id == Asset.product_id)
+            .where(Asset.status == st, Asset.status_since.is_not(None))
+            .order_by(Asset.status_since).limit(limit)
+        ).all()
+    rows.sort(key=lambda r: (_as_date(r[7]), r[1]))
+    return [{"asset_id": aid, "serial_number": sn, "product": name, "family": fam, "grade": grade,
+             "cycle_no": int(cyc), "status": st.value if hasattr(st, "value") else str(st),
+             "since": _as_date(since), "days": (today - _as_date(since)).days}
+            for aid, sn, name, fam, grade, cyc, st, since in rows[:limit]]
+
+
+def _share(n: int, total: int) -> Optional[float]:
+    return round(n / total, 4) if total else None
+
+
+def _cycle_key(cycle) -> str:
+    n = int(cycle or 0)
+    return "0" if n == 0 else "1" if n == 1 else "2+"
+
+
+def _age(hist: dict[int, int], undated: int, target: int) -> tuple[Optional[dict], Optional[str]]:
+    """The dwell of one compartment in bands against its target, from the {days: count} histogram."""
+    dated = sum(hist.values())
+    if dated == 0:
+        return None, ("no unit in this compartment" if undated == 0
+                      else "no dwell recorded: status_since is empty for every unit here")
+    far_from = FAR_PAST_FACTOR * target
+    counts = {
+        "within_target": sum(n for d, n in hist.items() if d <= target),
+        "past_target": sum(n for d, n in hist.items() if target < d <= far_from),
+        "far_past_target": sum(n for d, n in hist.items() if d > far_from),
+    }
+    edges = {"within_target": (0, target), "past_target": (target + 1, far_from), "far_past_target": (far_from + 1, None)}
+    bands = [{"key": key, "label": label, "from_days": edges[key][0], "to_days": edges[key][1],
+              "units": counts[key], "share": _share(counts[key], dated)} for key, label in AGE_BANDS]
+    past = counts["past_target"] + counts["far_past_target"]
+    return {
+        "target_dwell_days": target, "far_past_from_days": far_from + 1, "basis": AGE_BASIS,
+        "dated_units": dated, "undated_units": undated, "bands": bands,
+        "median_days": _quantile_from_histogram(hist, 0.5), "p90_days": _quantile_from_histogram(hist, 0.9),
+        "mean_days": round(sum(d * n for d, n in hist.items()) / dated, 1), "oldest_days": max(hist),
+        "past_target_units": past, "past_target_share": _share(past, dated),
+        "far_past_units": counts["far_past_target"], "far_past_share": _share(counts["far_past_target"], dated),
+    }, None
+
+
+def _inbound(db: Session, station_id: Optional[str], code: str, today: date, on_hand: int, capacity: Optional[int]) -> dict:
+    """What is on its way into one station: the open order lines destined there.
+
+    Open lines are few by nature (orders, not serials), so the lines come back as
+    rows and are rolled up by model here; the received quantity per line is a
+    correlated sum on the receipt_item index, one per open line, not a scan of every
+    receipt ever written.
+    """
+    view = {
+        "station": (code if station_id else None), "basis": INBOUND_BASIS,
+        "units": None, "lines": [], "by_model": [], "late_units": None, "late_lines": None,
+        "next_eta": None, "last_eta": None, "committed": None, "committed_share": None, "inbound_share": None,
+        "reason": None,
+    }
+    if station_id is None:
+        view["reason"] = f"no station location with code {code}: no order can be destined here"
+        return view
+    received = (select(func.coalesce(func.sum(ReceiptItem.quantity_received), 0))
+                .where(ReceiptItem.order_item_id == OrderItem.id).scalar_subquery())
+    rows = db.execute(
+        select(PurchaseOrder.order_number, PurchaseOrder.status, Product.id, Product.name, Product.category,
+               OrderItem.id, OrderItem.quantity, received, OrderItem.estimated_delivery_date)
+        .join(PurchaseOrder, PurchaseOrder.id == OrderItem.order_id)
+        .join(Product, Product.id == OrderItem.product_id)
+        .where(PurchaseOrder.status.in_(OPEN_ORDER_STATUSES), PurchaseOrder.destination_id == station_id)
+    ).all()
+    lines = []
+    for po, st, pid, name, fam, oid, qty, got, eta in rows:
+        outstanding = int(qty) - int(got or 0)
+        if outstanding <= 0:
+            continue
+        eta = _as_date(eta) if eta is not None else None
+        late = (eta < today) if eta is not None else None
+        lines.append({
+            "order_number": po, "order_status": st.value if hasattr(st, "value") else str(st), "order_item_id": oid,
+            "product_id": pid, "product": name, "family": fam,
+            "ordered": int(qty), "received": int(got or 0), "outstanding": outstanding,
+            "eta": eta, "days_to_eta": ((eta - today).days if eta is not None else None),
+            "late": late, "days_late": ((today - eta).days if late else None),
+            "eta_reason": (None if eta is not None else "no estimated delivery date on the line"),
+        })
+    lines.sort(key=lambda r: (r["eta"] or date.max, r["order_number"]))
+    units = sum(r["outstanding"] for r in lines)
+    by_model: dict[str, dict] = {}
+    for r in lines:
+        m = by_model.setdefault(r["product_id"], {"product_id": r["product_id"], "name": r["product"], "family": r["family"],
+                                                  "units": 0, "share": None, "lines": 0, "late_units": 0, "next_eta": None})
+        m["units"] += r["outstanding"]
+        m["lines"] += 1
+        if r["late"]:
+            m["late_units"] += r["outstanding"]
+        if r["eta"] is not None and (m["next_eta"] is None or r["eta"] < m["next_eta"]):
+            m["next_eta"] = r["eta"]
+    models = sorted(by_model.values(), key=lambda m: (-m["units"], m["name"]))
+    for m in models:
+        m["share"] = _share(m["units"], units)
+    etas = [r["eta"] for r in lines if r["eta"] is not None]
+    view.update(
+        units=units, lines=lines, by_model=models,
+        late_units=sum(r["outstanding"] for r in lines if r["late"]), late_lines=sum(1 for r in lines if r["late"]),
+        next_eta=(min(etas) if etas else None), last_eta=(max(etas) if etas else None),
+        committed=on_hand + units,
+        committed_share=(round((on_hand + units) / capacity, 4) if capacity else None),
+        inbound_share=(round(units / capacity, 4) if capacity else None),
+        reason=(None if lines else f"no open order line is destined for station {code}"),
+    )
+    return view
+
+
+def contents(db: Session, code: str, *, today: Optional[date] = None, oldest_limit: int = CONTENTS_OLDEST_LIMIT) -> dict:
+    """What is inside one compartment. See the module docstring.
+
+    Four grouped reads and one ordered one, none of which loads a unit into Python:
+
+      the station's capacity, one row;
+      the dwell histogram by status_since, index-only, a few hundred rows however large
+        the compartment: the age bands, median, p90, mean, oldest;
+      one aggregate over (model, cycle, grade): count, oldest dwell, units past and far
+        past the target, battery health where read. About a hundred rows for the largest
+        compartment; every roll-up (by model, by class, by grade, by cycle) is summed
+        from it here;
+      the open order lines destined for the station, rolled up by model;
+      the oldest serials, an ordered read on the (status, status_since) index with a limit.
+
+    Every share is of the compartment's on hand unless the block says otherwise (age
+    bands are shares of the dated units, inbound shares are of the outstanding units).
+    """
+    today = today or date.today()
+    c = COMPARTMENT_BY_CODE.get(code)
+    if c is None:
+        raise NotFoundError(f"No warehouse compartment with code {code!r}")
+    statuses = tuple(c.statuses)
+    target = c.target_dwell_days
+    cutoff_past = today - timedelta(days=target)                       # status_since before this: more than T days here
+    cutoff_far = today - timedelta(days=FAR_PAST_FACTOR * target)      # before this: more than 2T days here
+
+    station = db.execute(select(Location.id, Location.capacity).where(Location.code == c.code)).first()
+    station_id, capacity = (station[0], station[1]) if station else (None, None)
+
+    # how old: the histogram, index-only
+    hist: dict[int, int] = {}
+    undated = 0
+    for since, n in db.execute(select(Asset.status_since, func.count(Asset.id))
+                               .where(Asset.status.in_(statuses)).group_by(Asset.status_since)).all():
+        if since is None:
+            undated += int(n)
+            continue
+        days = max(0, (today - _as_date(since)).days)
+        hist[days] = hist.get(days, 0) + int(n)
+    on_hand = sum(hist.values()) + undated
+
+    # which devices, what condition: one aggregate over (model, cycle, grade). The names come
+    # from the catalogue in a read of its own: joining product into the aggregate cost up to
+    # 74 ms on the full fleet for a table of thirteen rows.
+    catalogue = {pid: (name, fam) for pid, name, fam in db.execute(select(Product.id, Product.name, Product.category)).all()}
+    past_expr = func.sum(case((Asset.status_since < cutoff_past, 1), else_=0))
+    far_expr = func.sum(case((Asset.status_since < cutoff_far, 1), else_=0))
+    groups = db.execute(
+        select(Asset.product_id, Asset.cycle_no, Asset.grade,
+               func.count(Asset.id), func.count(Asset.status_since), func.min(Asset.status_since), past_expr, far_expr,
+               func.sum(Asset.battery_health), func.count(Asset.battery_health))
+        .where(Asset.status.in_(statuses))
+        .group_by(Asset.product_id, Asset.cycle_no, Asset.grade)
+    ).all()
+
+    by_model: dict[str, dict] = {}
+    by_class: dict[str, dict] = {}
+    grades: Counter = Counter()
+    cycles: Counter = Counter()
+    battery_sum, battery_n = 0.0, 0
+    for pid, cyc, grade, n, dated_n, oldest_since, past, far, bat_sum, bat_n in groups:
+        name, fam = catalogue.get(pid, (pid, None))
+        n, dated_n, past, far, bat_n = int(n), int(dated_n or 0), int(past or 0), int(far or 0), int(bat_n or 0)
+        m = by_model.setdefault(pid, {"product_id": pid, "name": name, "family": fam, "units": 0, "share": None,
+                                      "past_target_units": 0, "far_past_units": 0, "oldest_days": None, "undated_units": 0})
+        m["units"] += n
+        m["past_target_units"] += past
+        m["far_past_units"] += far
+        m["undated_units"] += n - dated_n
+        if oldest_since is not None:
+            days = (today - _as_date(oldest_since)).days
+            m["oldest_days"] = days if m["oldest_days"] is None else max(m["oldest_days"], days)
+        key = fam or "unclassified"
+        k = by_class.setdefault(key, {"key": key, "label": (fam or "No device class"), "units": 0, "share": None, "models": set()})
+        k["units"] += n
+        k["models"].add(pid)
+        grades[grade] += n
+        cycles[_cycle_key(cyc)] += n
+        if bat_n:
+            battery_sum += float(bat_sum)
+            battery_n += bat_n
+    models = sorted(by_model.values(), key=lambda m: (-m["units"], m["name"]))
+    for m in models:
+        m["share"] = _share(m["units"], on_hand)
+    classes = sorted(by_class.values(), key=lambda k: (-k["units"], k["label"]))
+    for k in classes:
+        k["share"] = _share(k["units"], on_hand)
+        k["models"] = len(k["models"])
+
+    age, age_reason = _age(hist, undated, target)
+
+    condition, condition_reason = None, None
+    if on_hand == 0:
+        condition_reason = "no unit in this compartment"
+    else:
+        graded = sum(n for g, n in grades.items() if g is not None)
+        ungraded = grades.get(None, 0)
+        grade_rows = ([{"grade": g, "label": f"Grade {g}", "units": grades[g], "share": _share(grades[g], on_hand)}
+                       for g in sorted(g for g in grades if g is not None)] if graded else None)
+        condition = {
+            "grades": grade_rows, "graded_units": graded, "ungraded_units": ungraded, "ungraded_share": _share(ungraded, on_hand),
+            "grade_basis": GRADE_BASIS,
+            "grade_reason": (None if graded else "no unit in this compartment carries a grade"),
+            "cycles": [{"cycle": key, "label": CYCLE_LABEL[key], "units": cycles[key], "share": _share(cycles[key], on_hand)}
+                       for key in ("0", "1", "2+") if cycles.get(key)],
+            "battery_health_mean": (round(battery_sum / battery_n, 3) if battery_n else None),
+            "battery_health_units": battery_n,
+            "battery_reason": (None if battery_n else "no battery health read for any unit here"),
+        }
+
+    return {
+        "code": c.code, "name": c.name, "holds": c.holds, "stage": c.stage, "step": COMPARTMENTS.index(c) + 1,
+        "statuses": [s.value for s in statuses], "as_of": today, "unit": "devices",
+        "target_dwell_days": target, "target_placeholder": True, "target_owner": c.target_owner,
+        # how full, the same figures as the overview row, so a second screen needs no other call
+        "on_hand": on_hand, "undated_units": undated, "capacity": capacity,
+        "free": (max(0, capacity - on_hand) if capacity is not None else None),
+        "overflow": (max(0, on_hand - capacity) if capacity is not None else 0),
+        "utilisation": (round(on_hand / capacity, 4) if capacity else None),
+        "over_capacity": bool(capacity is not None and on_hand > capacity),
+        "capacity_reason": (None if capacity is not None
+                            else (f"station {c.code} has no capacity set" if station else f"no station location with code {c.code}")),
+        # which devices
+        "by_class": classes, "by_model": models,
+        # how old
+        "age": age, "age_reason": age_reason,
+        # what condition
+        "condition": condition, "condition_reason": condition_reason,
+        # the real devices behind the abstraction
+        "oldest": _oldest(db, statuses, today, oldest_limit),
+        # what is on its way in
+        "inbound": _inbound(db, station_id, c.code, today, on_hand, capacity),
     }

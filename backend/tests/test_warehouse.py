@@ -12,7 +12,17 @@ from datetime import date, timedelta
 import pytest
 
 from app.models.catalog import Organization, Product
-from app.models.flow import DEPLOYABLE_STATUSES, WAREHOUSE_STATUSES, Asset, AssetStatus, Location, LocationType
+from app.models.flow import (
+    DEPLOYABLE_STATUSES,
+    WAREHOUSE_STATUSES,
+    Asset,
+    AssetStatus,
+    Location,
+    LocationType,
+    Receipt,
+    ReceiptItem,
+)
+from app.models.procurement import OrderItem, OrderStatus, PurchaseOrder
 from app.models.rental import ContractStatus, RentalContract
 from app.services import kpis, lifecycle, planning, warehouse
 from app.services.asset import asset_service
@@ -221,3 +231,165 @@ def test_second_life_reach_kpi_says_why_without_second_rentals(db_session):
     _unit(db_session, prod, "S-9", AssetStatus.READY_SECOND, 10, grade="A")
     by = {r["id"]: r for r in kpis.compute_all(db_session, today=TODAY)}
     assert by["second_life_reach_months"]["current"] is None and "second rental" in by["second_life_reach_months"]["reason"]
+
+
+# ---------------------------------------------------------------------------
+# opening one compartment: what is inside
+
+
+def _inbound(db, prod):
+    """Open order lines destined for the new-stock station, and one each that must not count.
+
+    ST-NEW gets three open lines: 30 phones due three days ago (late), 20 laptops due in ten
+    days of which 5 are already received (15 outstanding), and 10 phones on a pending order
+    with no ETA. A fully received order to the same station and a placed order to ST-SELL
+    are there to be left out. Only the contents tests call this, so the fixture the other
+    tests count on stays as it is.
+    """
+    sup = _save(db, Organization(code="SUP-T", name="Supplier T (role-only)", is_supplier=True))
+    laptop = _save(db, Product(product_code="LT-1", name="Laptop 1", category="Laptop"))
+    new = db.query(Location).filter_by(code="ST-NEW").one()
+    sell = db.query(Location).filter_by(code="ST-SELL").one()
+
+    def po(number, status, dest):
+        return _save(db, PurchaseOrder(order_number=number, status=status, supplier_id=sup.id, destination_id=dest.id,
+                                       date_ordered=TODAY - timedelta(days=20)))
+
+    def line(order, product, qty, eta):
+        return _save(db, OrderItem(order_id=order.id, product_id=product.id, quantity=qty, estimated_delivery_date=eta))
+
+    open1 = po("PO-OPEN-1", OrderStatus.PLACED, new)
+    line(open1, prod, 30, TODAY - timedelta(days=3))
+    partly = line(open1, laptop, 20, TODAY + timedelta(days=10))
+    open2 = po("PO-OPEN-2", OrderStatus.PENDING, new)
+    line(open2, prod, 10, None)
+    done = po("PO-DONE", OrderStatus.RECEIVED, new)
+    line(done, prod, 100, TODAY - timedelta(days=30))
+    elsewhere = po("PO-ELSE", OrderStatus.PLACED, sell)
+    line(elsewhere, laptop, 7, TODAY + timedelta(days=2))
+    rec = _save(db, Receipt(purchase_order_id=open1.id, received_at_id=new.id, receipt_date=TODAY))
+    _save(db, ReceiptItem(receipt_id=rec.id, order_item_id=partly.id, quantity_received=5))
+    db.flush()
+
+
+def _sum(rows, key="share"):
+    return round(sum(r[key] for r in rows), 4)
+
+
+def test_contents_counts_what_it_claims(db_session):
+    """Second-life stock: four Phone 1 after one rental, 10 A, 20 B, 40 A, 100 B days, target 45 d."""
+    _warehouse(db_session)
+    d = warehouse.contents(db_session, "ST-SECOND", today=TODAY)
+    assert d["code"] == "ST-SECOND" and d["step"] == 7 and d["statuses"] == ["READY_SECOND"] and d["unit"] == "devices"
+    assert d["on_hand"] == 4 and d["undated_units"] == 0 and d["capacity"] == 10 and d["utilisation"] == 0.4
+    assert d["by_model"] == [{"product_id": d["by_model"][0]["product_id"], "name": "Phone 1", "family": "Smartphone", "units": 4,
+                              "share": 1.0, "past_target_units": 1, "far_past_units": 1, "oldest_days": 100, "undated_units": 0}]
+    assert d["by_class"] == [{"key": "Smartphone", "label": "Smartphone", "units": 4, "share": 1.0, "models": 1}]
+    a = d["age"]
+    assert a["target_dwell_days"] == 45 and a["far_past_from_days"] == 91 and a["dated_units"] == 4
+    assert [(b["key"], b["from_days"], b["to_days"], b["units"], b["share"]) for b in a["bands"]] == [
+        ("within_target", 0, 45, 3, 0.75), ("past_target", 46, 90, 0, 0.0), ("far_past_target", 91, None, 1, 0.25)]
+    assert a["median_days"] == 20.0 and a["p90_days"] == 100.0 and a["mean_days"] == 42.5 and a["oldest_days"] == 100
+    assert a["past_target_units"] == 1 and a["past_target_share"] == 0.25 and a["far_past_units"] == 1
+    c = d["condition"]
+    assert [(g["grade"], g["label"], g["units"], g["share"]) for g in c["grades"]] == [("A", "Grade A", 2, 0.5), ("B", "Grade B", 2, 0.5)]
+    assert c["graded_units"] == 4 and c["ungraded_units"] == 0 and c["ungraded_share"] == 0.0 and c["grade_reason"] is None
+    assert c["cycles"] == [{"cycle": "1", "label": "After a first rental", "units": 4, "share": 1.0}]
+    assert c["battery_health_mean"] is None and c["battery_health_units"] == 0 and c["battery_reason"]   # nothing read: no fake number
+    assert [u["serial_number"] for u in d["oldest"]] == ["S-3", "S-2", "S-1", "S-0"] and d["oldest"][0]["days"] == 100
+    assert d["inbound"]["units"] == 0 and d["inbound"]["lines"] == [] and "no open order line" in d["inbound"]["reason"]
+    assert d["inbound"]["committed"] == 4 and d["inbound"]["committed_share"] == 0.4
+
+
+def test_contents_shares_add_up_and_undated_units_are_counted_not_dated(db_session):
+    _warehouse(db_session)
+    for comp in warehouse.COMPARTMENTS:
+        d = warehouse.contents(db_session, comp.code, today=TODAY)
+        if d["on_hand"] == 0:
+            continue
+        assert _sum(d["by_model"]) == 1.0 and _sum(d["by_class"]) == 1.0, comp.code
+        assert sum(m["units"] for m in d["by_model"]) == sum(k["units"] for k in d["by_class"]) == d["on_hand"], comp.code
+        c = d["condition"]
+        assert _sum(c["cycles"]) == 1.0 and sum(x["units"] for x in c["cycles"]) == d["on_hand"], comp.code
+        assert c["graded_units"] + c["ungraded_units"] == d["on_hand"], comp.code
+        if c["grades"]:
+            assert sum(g["units"] for g in c["grades"]) == c["graded_units"], comp.code
+        if d["age"]:
+            assert _sum(d["age"]["bands"]) == 1.0, comp.code
+            assert sum(b["units"] for b in d["age"]["bands"]) == d["age"]["dated_units"] == d["on_hand"] - d["undated_units"], comp.code
+    # new stock: two statuses in one compartment, one unit without a dwell date, two without a grade
+    new = warehouse.contents(db_session, "ST-NEW", today=TODAY)
+    assert new["statuses"] == ["IN_STORAGE", "RECEIVED"] and new["on_hand"] == 4 and new["undated_units"] == 1
+    assert new["by_model"][0]["units"] == 4 and new["by_model"][0]["undated_units"] == 1 and new["by_model"][0]["oldest_days"] == 5
+    assert new["age"]["dated_units"] == 3 and new["age"]["undated_units"] == 1 and new["age"]["bands"][0]["units"] == 3
+    assert new["condition"]["grades"] == [{"grade": "A", "label": "Grade A", "units": 2, "share": 0.5}]
+    assert new["condition"]["ungraded_units"] == 2 and new["condition"]["ungraded_share"] == 0.5 and new["condition"]["grade_reason"] is None
+    assert new["condition"]["cycles"] == [{"cycle": "0", "label": "New, never rented", "units": 4, "share": 1.0}]
+
+
+def test_contents_says_why_when_nothing_is_graded_and_does_not_error_when_empty(db_session):
+    _warehouse(db_session)
+    mdm = warehouse.contents(db_session, "ST-MDM", today=TODAY)
+    assert mdm["on_hand"] == 2 and mdm["condition"]["grades"] is None and mdm["condition"]["graded_units"] == 0
+    assert mdm["condition"]["ungraded_units"] == 2 and "carries a grade" in mdm["condition"]["grade_reason"]
+    assert [b["units"] for b in mdm["age"]["bands"]] == [0, 1, 1], "40 and 50 days against a target of 21: past, and far past over 42 d"
+    empty = warehouse.contents(db_session, "ST-REPAIR", today=TODAY)
+    assert empty["on_hand"] == 0 and empty["by_model"] == [] and empty["by_class"] == [] and empty["oldest"] == []
+    assert empty["age"] is None and empty["age_reason"] == "no unit in this compartment"
+    assert empty["condition"] is None and empty["condition_reason"] == "no unit in this compartment"
+    assert empty["inbound"]["units"] == 0 and empty["inbound"]["committed"] == 0 and empty["inbound"]["committed_share"] == 0.0
+    no_station = warehouse.contents(db_session, "ST-WIPE", today=TODAY)
+    assert no_station["on_hand"] == 1 and no_station["capacity"] is None and "ST-WIPE" in no_station["capacity_reason"]
+    assert no_station["inbound"]["units"] is None and no_station["inbound"]["station"] is None
+    assert "no station location" in no_station["inbound"]["reason"]
+    with pytest.raises(NotFoundError):
+        warehouse.contents(db_session, "ST-NOWHERE", today=TODAY)
+
+
+def test_contents_names_the_open_lines_on_their_way_in(db_session):
+    prod = _warehouse(db_session)
+    _inbound(db_session, prod)
+    i = warehouse.contents(db_session, "ST-NEW", today=TODAY)["inbound"]
+    assert i["station"] == "ST-NEW" and i["units"] == 55 and len(i["lines"]) == 3 and i["reason"] is None
+    assert i["late_units"] == 30 and i["late_lines"] == 1
+    assert i["next_eta"] == TODAY - timedelta(days=3) and i["last_eta"] == TODAY + timedelta(days=10)
+    assert i["committed"] == 4 + 55 and i["committed_share"] == 1.18 and i["inbound_share"] == 1.1
+    lines = [(r["order_number"], r["product"], r["ordered"], r["received"], r["outstanding"], r["late"], r["days_late"]) for r in i["lines"]]
+    assert lines == [("PO-OPEN-1", "Phone 1", 30, 0, 30, True, 3),
+                     ("PO-OPEN-1", "Laptop 1", 20, 5, 15, False, None),
+                     ("PO-OPEN-2", "Phone 1", 10, 0, 10, None, None)]
+    assert i["lines"][2]["eta"] is None and i["lines"][2]["eta_reason"] and i["lines"][2]["days_to_eta"] is None
+    assert i["lines"][1]["days_to_eta"] == 10 and i["lines"][1]["order_status"] == "PLACED"
+    assert [(m["name"], m["units"], m["share"], m["lines"], m["late_units"], m["next_eta"]) for m in i["by_model"]] == [
+        ("Phone 1", 40, 0.7273, 2, 30, TODAY - timedelta(days=3)), ("Laptop 1", 15, 0.2727, 1, 0, TODAY + timedelta(days=10))]
+    # the placed order to the sellable station counts there, and only there
+    sell = warehouse.contents(db_session, "ST-SELL", today=TODAY)["inbound"]
+    assert sell["units"] == 7 and sell["late_units"] == 0 and sell["committed"] == 11 and sell["committed_share"] == 1.1
+    assert warehouse.contents(db_session, "ST-SWAP", today=TODAY)["inbound"]["units"] == 0
+    # the inbound pipeline and the guard read the same lines
+    assert sum(r["outstanding"] for r in planning.inbound_pipeline(db_session, as_of=TODAY)) == 55 + 7
+
+
+def test_contents_leaves_the_datacenter_scenario_alone(client, db_session):
+    wh = _save(db_session, Location(code="WH", name="Transit warehouse", location_type=LocationType.WAREHOUSE, capacity=10))
+    prod = _save(db_session, Product(product_code="SRV-1", name="Server 1"))
+    _save(db_session, Asset(serial_number="DC-1", product_id=prod.id, status=AssetStatus.IN_STORAGE, current_location_id=wh.id, received_date=TODAY))
+    assert client.get("/api/v1/warehouse/compartments").json()["scenario"] == "datacenter"
+    d = warehouse.contents(db_session, "ST-REPAIR", today=TODAY)
+    assert d["on_hand"] == 0 and d["capacity"] is None and d["age"] is None and d["inbound"]["units"] is None
+
+
+def test_api_contents_endpoint(client, db_session):
+    prod = _warehouse(db_session)
+    _inbound(db_session, prod)
+    r = client.get("/api/v1/warehouse/compartments/ST-NEW/contents?oldest=2")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["on_hand"] == 4 and body["unit"] == "devices" and body["target_placeholder"] is True
+    assert [u["serial_number"] for u in body["oldest"]] == ["N-1", "N-2"]
+    # the endpoint reads the real clock: the ETA is a fixed fact, and a line due on 20.09.2026 stays late
+    assert body["inbound"]["units"] == 55 and body["inbound"]["lines"][0]["late"] is True
+    assert body["inbound"]["lines"][0]["eta"] == (TODAY - timedelta(days=3)).isoformat()
+    assert body["age"]["basis"] and body["condition"]["grade_basis"] and body["inbound"]["basis"]
+    assert client.get("/api/v1/warehouse/compartments/ST-NOWHERE/contents").status_code == 404
+    assert client.anon().get("/api/v1/warehouse/compartments/ST-NEW/contents").status_code in (401, 403)

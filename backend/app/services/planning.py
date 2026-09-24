@@ -35,8 +35,9 @@ from app.services import forecasting, recovery
 
 # Statuses that count as "on hand in the warehouse, not yet deployed".
 _ON_HAND = tuple(DEPLOYABLE_STATUSES)   # new units plus refurbished units cleared for the next rental
-# Order statuses that still have units expected to arrive.
-_OPEN_ORDER = (
+# Order statuses that still have units expected to arrive. Public under the second name
+# so the warehouse's inbound read counts the same lines as the pipeline and the guard.
+_OPEN_ORDER = OPEN_ORDER_STATUSES = (
     OrderStatus.PENDING, OrderStatus.APPROVED,
     OrderStatus.PLACED, OrderStatus.PARTIALLY_RECEIVED,
 )
