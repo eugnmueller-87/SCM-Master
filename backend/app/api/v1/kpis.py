@@ -3,6 +3,8 @@
   GET /kpis                    — every KPI: live value, targets Y1/Y2/Y3, owner, status, trend
   GET /kpis/{id}/history       — the daily snapshots of one KPI
   PUT /kpis/{id}/target        — set the targets and the owner (PROCUREMENT; ADMIN passes)
+  GET /kpis/export.csv         — every KPI flat: today, goal and its origin, half-year steps, plan need,
+                                 public value with source, owner, levers, the data counted
 
 Reads write one snapshot per KPI per day (that is how the trend exists) and reuse
 that day's measurement on later reads; ``?refresh=true`` measures again. Any
@@ -12,7 +14,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_role
@@ -28,8 +30,20 @@ _proc = require_role(Role.PROCUREMENT)
 def list_kpis(refresh: bool = Query(False, description="measure again now instead of reusing today's measurement"),
               db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
     rows = svc.compute_all(db, refresh=refresh)
-    db.commit()   # the day's snapshot and any seeded placeholder target
+    db.commit()   # the day's snapshot and the goal model's targets
     return rows
+
+
+@router.get("/export.csv", response_class=Response)
+def export_kpis(db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
+    """Every KPI as one flat row for a spreadsheet, Power BI or a deck: today, the goal and
+    where it comes from, the goal at each half-year end, the plan's need at each milestone,
+    the public value with its source, the owner, the levers, and what is counted from which
+    data. The same record /kpis serves, flattened; nothing is computed twice."""
+    rows = svc.compute_all(db)
+    db.commit()
+    return Response(content=svc.export_csv(rows), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="kpis.csv"'})
 
 
 @router.get("/{kpi_id}/history", response_model=List[KpiPoint])

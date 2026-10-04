@@ -61,14 +61,18 @@ def test_warehouse_kpis_from_assets(db_session):
     assert by["stock_turns"]["reason"]
 
 
-def test_seeded_targets_follow_the_direction_and_stay_placeholders(db_session):
+def test_targets_come_from_the_goal_model_and_stay_placeholders(db_session):
+    """No made-up targets any more: a KPI with neither a plan need nor a comparable public value
+    has none and says so; one with an industry value carries it even before it is measured."""
     _stock(db_session)
     by = {r["id"]: r for r in svc.compute_all(db_session, today=TODAY)}
-    aging = by["aging_stock_pct"]                 # lower is better: targets go down
-    assert aging["target_y1"] < aging["current"] and aging["target_y3"] < aging["target_y1"]
-    assert aging["placeholder"] is True
-    turns = by["stock_turns"]                     # not measurable: no target seeded
-    assert turns["target_y1"] is None
+    aging = by["aging_stock_pct"]
+    assert aging["goal"]["basis"] == "owner" and aging["goal"]["goal"] is None
+    assert aging["target_y1"] is None and aging["status"] == "no_target"
+    assert aging["placeholder"] is True and aging["updated_by"] == "goal-model" and aging["owner"]
+    turns = by["stock_turns"]                     # not measurable here, but the industry value stands
+    assert turns["current"] is None and turns["goal"]["basis"] == "industry"
+    assert turns["target_y1"] == turns["goal"]["goal"] == 6.0 and turns["goal"]["steps"] == []
 
 
 def test_set_target_is_owned_and_status_follows(db_session):

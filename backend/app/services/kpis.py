@@ -41,7 +41,18 @@ from app.models.kpi import KpiSnapshot, KpiTarget
 from app.models.procurement import OrderItem, PurchaseOrder
 from app.models.rental import ContractStatus, RentalContract
 from app.models.requisition import PurchaseRequisition, RequisitionStatus
-from app.services import accuracy, analytics, contracts, costing_service, planning, timeshift, tracking
+from app.services import (
+    accuracy,
+    analytics,
+    capacity_plan,
+    contracts,
+    costing_service,
+    kpi_goals,
+    planning,
+    timeshift,
+    tracking,
+    warehouse,
+)
 from app.services import fleet as fleet_svc
 
 # -----------------------------------------------------------------------------
@@ -99,14 +110,13 @@ def explained(**words) -> Callable:
 @dataclass(frozen=True)
 class KpiDef:
     id: str
-    group: str            # fleet | warehouse | cost | process | suppliers
+    group: str            # plan | fleet | warehouse | cost | process | suppliers
     name: str
     unit: str             # pct | eur | days | weeks | count | ratio | turns | hours
     direction: str        # "lower" | "higher"  (which way is better)
     definition: str       # plain words, what the number is
     source: str           # which tab / endpoint the number comes from
     compute: Callable[[Session, date], tuple[Optional[float], Optional[str]]]
-    seed_rule: str = "pct"   # how a placeholder target is derived: pct (10/20/30 % better), floor0 (toward 0), cap100 (toward 100 %)
     explain: Optional[KpiExplain] = None   # taken from the compute function's @explained when not given
 
     def __post_init__(self):
@@ -1033,16 +1043,119 @@ def k_returns_overdue(db, today):
     return float(n), None
 
 
+# ---------------------------------------------------------------------------------------------
+# the flow the fleet plan depends on: days per station, in the plan's own measure
+#
+# The capacity plan sizes every compartment as throughput times dwell (Little's law) and says,
+# per milestone, the dwell a compartment may not exceed at today's capacity. These four KPIs
+# measure exactly that dwell, from the same warehouse read, so the plan's requirement and the
+# KPI are one number in one unit. The older KPIs on the same stations (the share over an MDM
+# service level, the median return-to-ready with allowances, reach in months) keep their own
+# definitions and history; the plan's goals sit here.
+
+PLAN_STATIONS = {
+    "plan_new_stock_days": ("ST-NEW",),
+    "plan_return_to_ready_days": ("ST-RETURNS", "ST-MDM", "ST-WIPE", "ST-REFURB"),
+    "plan_mdm_hold_days": ("ST-MDM",),
+    "plan_second_life_days": ("ST-SECOND",),
+}
+_PLAN_CAVEAT = ("Derived, not measured: the mean age of the stock still present, the dwell warehouse.py and the capacity "
+                "plan use, because a unit's finished stay is not recorded. A unit still here has not finished its stay, "
+                "so the figure leans short, and so does the plan built on it. Units without a status_since are left out. ")
+
+
+def _station_days(db, today, codes: tuple[str, ...]):
+    """The mean days of the stock present, summed over the stations a device passes in turn."""
+    if not _daas(db):
+        return None, "no rental fleet in this database"
+    W = _once(db, ("warehouse_compartments", today), lambda: warehouse.compartments(db, today=today))
+    by = {c["code"]: c for c in W.get("compartments", [])}
+    for code in codes:
+        if code not in by:
+            return None, f"compartment {code} is not in the warehouse read"
+        if by[code]["mean_days"] is None:
+            return None, f"no dated stock in {by[code]['name']}"
+    return round(sum(by[code]["mean_days"] for code in codes), 1), None
+
+
+@explained(
+    basis="derived",
+    calculation="The mean days the devices in new stock (bought, not yet rented) have been there: today minus "
+                "status_since, averaged over the units on hand in compartment ST-NEW.",
+    reads="asset (status, status_since); location (code)",
+    caveats=_PLAN_CAVEAT + _NO_FLEET,
+    why="New stock is paid for and earns nothing until it is rented; at the fleet plan's purchase pace, every extra "
+        "day here is space the warehouse does not have.",
+    needs="Devices in new stock with a status_since date.",
+)
+def k_plan_new_stock_days(db, today):
+    return _station_days(db, today, PLAN_STATIONS["plan_new_stock_days"])
+
+
+@explained(
+    basis="derived",
+    calculation="The mean days of the stock present in each station of the way back, summed: returns intake, MDM "
+                "release hold, wipe and grading, refurbishment. The path of a device that comes back for a second "
+                "rental; the repair detour is left out, as the capacity plan leaves it out of this sum.",
+    reads="asset (status, status_since); location (code)",
+    caveats=_PLAN_CAVEAT + "A sum of four station means, not the time of one device: it is the path length the stock "
+            "depends on. " + _NO_FLEET,
+    why="Every day on the way back is a day a paid-for device earns nothing, and the stock on that way grows with "
+        "every day as the returns rise with the fleet.",
+    needs="Dated stock in each of the four stations.",
+)
+def k_plan_return_to_ready_days(db, today):
+    return _station_days(db, today, PLAN_STATIONS["plan_return_to_ready_days"])
+
+
+@explained(
+    basis="derived",
+    calculation="The mean days the devices in the MDM release hold have been waiting for the old customer to release "
+                "them: today minus status_since, averaged over the units on hand in compartment ST-MDM.",
+    reads="asset (status, status_since); location (code)",
+    caveats=_PLAN_CAVEAT + "The release is the customer's act, so the lever is the contract, not the warehouse. "
+            + _NO_FLEET,
+    why="Nothing can be wiped, graded or rented again until the customer releases it; at the plan's return volume "
+        "this wait decides how much room the hold needs.",
+    needs="Devices in the MDM release hold with a status_since date.",
+)
+def k_plan_mdm_hold_days(db, today):
+    return _station_days(db, today, PLAN_STATIONS["plan_mdm_hold_days"])
+
+
+@explained(
+    basis="derived",
+    calculation="The mean days refurbished devices have waited for their second customer: today minus status_since, "
+                "averaged over the units on hand in compartment ST-SECOND.",
+    reads="asset (status, status_since); location (code)",
+    caveats=_PLAN_CAVEAT + _NO_FLEET,
+    why="A refurbished device on the shelf is capital spent twice and earning nothing; the plan doubles the second "
+        "rentals, so the shelf has to empty faster or grow.",
+    needs="Devices in second-life stock with a status_since date.",
+)
+def k_plan_second_life_days(db, today):
+    return _station_days(db, today, PLAN_STATIONS["plan_second_life_days"])
+
+
 KPIS: list[KpiDef] = [
+    # the flow the fleet plan depends on, in days per station (see PLAN_STATIONS)
+    KpiDef("plan_new_stock_days", "plan", "Days in new stock", "days", "lower",
+           "Mean days a bought device waits in new stock before its first rental.", "Capacity plan · ST-NEW", k_plan_new_stock_days),
+    KpiDef("plan_return_to_ready_days", "plan", "Days from return to ready", "days", "lower",
+           "Mean days through intake, MDM release, wipe and refurbishment, summed station by station.", "Capacity plan · return path", k_plan_return_to_ready_days),
+    KpiDef("plan_mdm_hold_days", "plan", "Days in the MDM release hold", "days", "lower",
+           "Mean days a returned device waits for the old customer's release.", "Capacity plan · ST-MDM", k_plan_mdm_hold_days),
+    KpiDef("plan_second_life_days", "plan", "Days in second-life stock", "days", "lower",
+           "Mean days a refurbished device waits for its second customer.", "Capacity plan · ST-SECOND", k_plan_second_life_days),
     # fleet and recommerce
     KpiDef("second_rental_share_pct", "fleet", "Second rental share of the rented fleet", "pct", "higher",
-           "Rented devices on their second rental. Every one is a device that did not have to be bought.", "Fleet · /fleet/summary", k_second_rental_share_pct, "cap100"),
+           "Rented devices on their second rental. Every one is a device that did not have to be bought.", "Fleet · /fleet/summary", k_second_rental_share_pct),
     KpiDef("returns_overdue", "fleet", "Returns overdue", "count", "lower",
-           "Running contracts whose planned end has passed while the device is still out.", "Returns · /fleet/returns/upcoming", k_returns_overdue, "floor0"),
+           "Running contracts whose planned end has passed while the device is still out.", "Returns · /fleet/returns/upcoming", k_returns_overdue),
     KpiDef("early_return_share_pct", "fleet", "Early and defect returns", "pct", "lower",
-           "Contracts of the last twelve months that ended before their planned end: early, defect or swap.", "Returns · rental contracts", k_early_return_share_pct, "floor0"),
+           "Contracts of the last twelve months that ended before their planned end: early, defect or swap.", "Returns · rental contracts", k_early_return_share_pct),
     KpiDef("mdm_release_over_sla_pct", "fleet", f"MDM release waiting over {fleet_svc.MDM_RELEASE_SLA_DAYS} days", "pct", "lower",
-           "Returned devices the old customer has not released from its MDM within the service level. The most common wait in the chain.", "Warehouse · MDM release hold", k_mdm_release_over_sla_pct, "floor0"),
+           "Returned devices the old customer has not released from its MDM within the service level. The most common wait in the chain.", "Warehouse · MDM release hold", k_mdm_release_over_sla_pct),
     KpiDef("return_to_ready_days", "fleet", "Return to ready, median days", "days", "lower",
            "Days a returned device has spent in the return chain so far: measured in its current station, a fixed allowance for the stations before it.", "Warehouse · stations", k_return_to_ready_days),
     KpiDef("sellable_reach_months", "fleet", "Sellable stock reach, months", "count", "lower",
@@ -1054,95 +1167,62 @@ KPIS: list[KpiDef] = [
     KpiDef("resale_share_of_purchase_pct", "fleet", "Resale proceeds as share of purchase price", "pct", "higher",
            "Net sale proceeds of the last twelve months over what those devices cost to buy, serial by serial.", "Recommerce · sales and provenance", k_resale_share_of_purchase_pct),
     KpiDef("recycling_share_pct", "fleet", "Recycling share of fleet exits", "pct", "lower",
-           "Devices recycled over devices sold plus recycled, last twelve months.", "Recommerce", k_recycling_share_pct, "floor0"),
+           "Devices recycled over devices sold plus recycled, last twelve months.", "Recommerce", k_recycling_share_pct),
     # warehouse
     KpiDef("capacity_committed_pct", "warehouse", "Warehouse committed", "pct", "lower",
            "On hand plus inbound as a share of warehouse capacity. At 85 % a location counts as critical; an order that does not fit in the free space is refused.", "Capacity · /planning/capacity-flow", k_capacity_committed_pct),
     KpiDef("weeks_of_cover", "warehouse", "Weeks of cover (availability)", "weeks", "higher",
            "How long today's on-hand lasts at the trailing deployment rate.", "Inventory · /planning/capacity-flow", k_weeks_of_cover),
     KpiDef("items_at_risk", "warehouse", "Products at stock-out risk", "count", "lower",
-           "Products that run dry before their open inbound lands.", "Inventory · /planning/inventory-position", k_items_at_risk, "floor0"),
+           "Products that run dry before their open inbound lands.", "Inventory · /planning/inventory-position", k_items_at_risk),
     KpiDef("safety_stock_coverage_pct", "warehouse", "Safety stock coverage (availability)", "pct", "higher",
-           "Share of products holding at least their service-level safety stock.", "Inventory · /planning/inventory-position", k_safety_stock_coverage_pct, "cap100"),
+           "Share of products holding at least their service-level safety stock.", "Inventory · /planning/inventory-position", k_safety_stock_coverage_pct),
     KpiDef("stock_value_eur", "warehouse", "Capital tied up in stock", "eur", "lower",
            "Order price of every unit physically in the warehouse, whatever its station. What the warehouse costs to hold.", "Assets · asset provenance", k_stock_value_eur),
     KpiDef("carrying_cost_eur_per_day", "warehouse", "Carrying cost per day", "eur", "lower",
            f"Capital tied up times {CARRYING_COST_RATE_PA:.0%} a year (placeholder rate, owner CFO), per day.", "Assets · asset provenance", k_carrying_cost_eur_per_day),
     KpiDef("aging_stock_pct", "warehouse", f"Aging: stock older than {AGING_DAYS} days", "pct", "lower",
-           f"Share of on-hand units in their current station for more than {AGING_DAYS} days.", "Assets · status_since", k_aging_stock_pct, "floor0"),
+           f"Share of on-hand units in their current station for more than {AGING_DAYS} days.", "Assets · status_since", k_aging_stock_pct),
     KpiDef("median_days_in_stock", "warehouse", "Median days in stock", "days", "lower",
            "Half of the on-hand units have waited longer than this in their current station.", "Assets · status_since", k_median_days_in_stock),
     KpiDef("dead_stock_value_eur", "warehouse", "Write-down risk: dead stock value", "eur", "lower",
-           f"On-hand value of products with no deployment in the last {DEAD_STOCK_DAYS} days. The write-down candidates.", "Assets · deployed_date", k_dead_stock_value_eur, "floor0"),
+           f"On-hand value of products with no deployment in the last {DEAD_STOCK_DAYS} days. The write-down candidates.", "Assets · deployed_date", k_dead_stock_value_eur),
     KpiDef("stock_turns", "warehouse", "Stock turns per year", "turns", "higher",
            "Units that went out in the last 90 days (deployed or rented), annualised, over the stock that can go out next.", "Assets · deployed_date", k_stock_turns),
     KpiDef("dock_to_deploy_days", "warehouse", "Dock to deploy, median days", "days", "lower",
            "Days from receipt to deployment, median over the units received in the last year.", "Assets · lifecycle", k_dock_to_deploy_days),
     KpiDef("inbound_overdue_pct", "warehouse", "Inbound lines overdue", "pct", "lower",
-           "Open order lines past their estimated delivery date.", "Orders · /planning/inbound", k_inbound_overdue_pct, "floor0"),
+           "Open order lines past their estimated delivery date.", "Orders · /planning/inbound", k_inbound_overdue_pct),
     KpiDef("on_time_delivery_pct", "warehouse", "On-time delivery", "pct", "higher",
-           "Tracked shipments with no delay against the original ETA.", "Orders · /v_order_tracking", k_on_time_delivery_pct, "cap100"),
+           "Tracked shipments with no delay against the original ETA.", "Orders · /v_order_tracking", k_on_time_delivery_pct),
     # cost
     KpiDef("negotiation_gap_eur", "cost", "Addressable negotiation saving", "eur", "lower",
-           "Sum of quote minus should-cost target over all products priced above target. Money still on the table.", "SCM Analytics · /analytics/should-cost/savings", k_negotiation_gap_eur, "floor0"),
+           "Sum of quote minus should-cost target over all products priced above target. Money still on the table.", "SCM Analytics · /analytics/should-cost/savings", k_negotiation_gap_eur),
     KpiDef("products_above_target_pct", "cost", "Products priced above should-cost target", "pct", "lower",
-           "Share of products with a bill of materials whose quote sits above the target price.", "SCM Analytics · /analytics/should-cost/savings", k_products_above_target_pct, "floor0"),
+           "Share of products with a bill of materials whose quote sits above the target price.", "SCM Analytics · /analytics/should-cost/savings", k_products_above_target_pct),
     KpiDef("spend_under_contract_pct", "cost", "Spend under active contract", "pct", "higher",
-           "Received spend bought from a product-supplier pair with an active contract.", "Contracts · /product-suppliers", k_spend_under_contract_pct, "cap100"),
+           "Received spend bought from a product-supplier pair with an active contract.", "Contracts · /product-suppliers", k_spend_under_contract_pct),
     KpiDef("top3_supplier_share_pct", "cost", "Top-3 supplier share of spend", "pct", "lower",
            "Concentration risk: share of spend with the three largest suppliers.", "Spend · /analytics/spend/by-supplier", k_top3_supplier_share_pct),
     # process
     KpiDef("auto_placed_pct", "process", "Orders placed without a human", "pct", "higher",
-           "Decided requisitions that cleared the confidence bar and were placed automatically.", "Requisitions", k_auto_placed_pct, "cap100"),
+           "Decided requisitions that cleared the confidence bar and were placed automatically.", "Requisitions", k_auto_placed_pct),
     KpiDef("requisition_cycle_hours", "process", "Requisition decision time, median hours", "hours", "lower",
            "Hours from a requisition being staged to a person deciding it.", "Requisitions", k_requisition_cycle_hours),
     KpiDef("forecast_mape_pct", "process", "Forecast error (MAPE)", "pct", "lower",
            "Backtested demand forecast error over the deployment history.", "SCM Analytics · accuracy", k_forecast_mape_pct),
     # suppliers
     KpiDef("contracts_needing_action", "suppliers", "Contracts needing action", "count", "lower",
-           "Product-supplier contracts expiring, due for renewal or expired.", "Contracts", k_contracts_needing_action, "floor0"),
+           "Product-supplier contracts expiring, due for renewal or expired.", "Contracts", k_contracts_needing_action),
     KpiDef("single_sourced_products_pct", "suppliers", "Single-sourced products", "pct", "lower",
            "Products with exactly one active source. Every one is a re-sourcing risk.", "Contracts · /product-suppliers", k_single_sourced_products_pct),
 ]
 
 KPI_BY_ID = {k.id: k for k in KPIS}
-GROUP_LABEL = {"fleet": "Fleet and recommerce", "warehouse": "Warehouse and availability", "cost": "Cost and commercial", "process": "Process and automation", "suppliers": "Suppliers and contracts"}
+GROUP_LABEL = {"plan": "Flow for the fleet plan", "fleet": "Fleet and recommerce", "warehouse": "Warehouse and availability", "cost": "Cost and commercial", "process": "Process and automation", "suppliers": "Suppliers and contracts"}
 
 # -----------------------------------------------------------------------------
 # targets
-
-
-def _seed_targets(kpi: KpiDef, current: Optional[float]) -> tuple[Optional[float], Optional[float], Optional[float]]:
-    """A placeholder target from today's value: 10 / 20 / 30 percent better in the good direction."""
-    if current is None:
-        return None, None, None
-    steps = (0.10, 0.20, 0.30)
-    out = []
-    for s in steps:
-        if kpi.direction == "lower":
-            v = current * (1 - s)
-            if kpi.seed_rule == "floor0":
-                v = max(0.0, v)
-        else:
-            v = current * (1 + s)
-            if kpi.seed_rule == "cap100" or kpi.unit == "pct":
-                v = min(100.0, v)
-        out.append(round(v, 2))
-    return out[0], out[1], out[2]
-
-
-def get_or_seed_target(db: Session, kpi: KpiDef, current: Optional[float]) -> KpiTarget:
-    t = db.execute(select(KpiTarget).where(KpiTarget.kpi_id == kpi.id)).scalar_one_or_none()
-    if t is None:
-        y1, y2, y3 = _seed_targets(kpi, current)
-        t = KpiTarget(kpi_id=kpi.id, target_y1=y1, target_y2=y2, target_y3=y3, owner=None,
-                      note="placeholder: derived from today's value, 10/20/30 % better; set the real target", placeholder=True)
-        db.add(t)
-        db.flush()
-    elif t.placeholder and t.target_y1 is None and current is not None:
-        t.target_y1, t.target_y2, t.target_y3 = _seed_targets(kpi, current)
-        db.flush()
-    return t
 
 
 def set_target(db: Session, kpi_id: str, *, y1: Optional[float], y2: Optional[float], y3: Optional[float],
@@ -1290,7 +1370,10 @@ def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = T
             measured_at, measured_on = datetime.now(timezone.utc), today
             if snapshot:
                 _snapshot(db, kpi.id, today, current, reason, measured_at)
-        t = get_or_seed_target(db, kpi, current)
+        # The goal: from the fleet plan, a public value or the owner (services/kpi_goals.py),
+        # written into the target row unless a person owns that row.
+        goal = kpi_goals.goal_for(kpi, current, _fleet_plan(db, today), today, PLAN_STATIONS.get(kpi.id))
+        t = kpi_goals.sync_target(db, kpi, goal)
         hist = history(db, kpi.id)
         measured = [h["value"] for h in hist if h["value"] is not None]
         first = measured[0] if measured else None
@@ -1308,6 +1391,47 @@ def compute_all(db: Session, *, today: Optional[date] = None, snapshot: bool = T
             "target_y1": t.target_y1, "target_y2": t.target_y2, "target_y3": t.target_y3,
             "owner": t.owner, "note": t.note, "placeholder": t.placeholder, "updated_by": t.updated_by,
             "status": status, "progress_pct": progress, "gap_to_y1": gap,
+            "goal": goal,
             "history": [{"as_of": h["as_of"], "value": h["value"]} for h in hist[-60:]],
         })
     return out
+
+
+def _fleet_plan(db: Session, today: date) -> Optional[dict]:
+    """The capacity plan once per KPI read (about a third of a second on the full fleet); None
+    outside the device fleet, where there is no plan to steer by."""
+    if not _daas(db):
+        return None
+    return _once(db, ("capacity_plan", today), lambda: capacity_plan.plan(db, today=today))
+
+
+def export_csv(rows: list[dict]) -> str:
+    """The KPI records as one flat table. Wide on purpose: a spreadsheet or a BI tool reads one
+    row per KPI. The half-year and milestone columns are named by their dates, so the file says
+    which goal belongs to which day without a lookup."""
+    import csv
+    import io
+
+    steps = sorted({str(s["date"]) for r in rows for s in ((r.get("goal") or {}).get("steps") or [])})
+    miles = sorted({str(m["date"]) for r in rows for m in (((r.get("goal") or {}).get("plan") or {}).get("milestones") or [])})
+    head = (["id", "group", "name", "unit", "direction", "today", "as_of", "status", "goal_basis", "goal", "horizon"]
+            + [f"goal_{d}" for d in steps] + [f"plan_need_{d}" for d in miles] + [f"plan_extra_places_{d}" for d in miles]
+            + ["industry_value", "industry_match", "industry_text", "industry_source", "owner", "levers", "steered_by",
+               "goal_note", "definition", "calculation", "reads", "caveats"])
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(head)
+    for r in rows:
+        g = r.get("goal") or {}
+        by_step = {str(s["date"]): s["value"] for s in g.get("steps") or []}
+        plan = g.get("plan") or {}
+        by_ms = {str(m["date"]): m for m in plan.get("milestones") or []}
+        ind = g.get("industry") or {}
+        w.writerow([r["id"], r["group"], r["name"], r["unit"], r["direction"], r["current"], r["as_of"], r["status"],
+                    g.get("basis"), g.get("goal"), g.get("horizon")]
+                   + [by_step.get(d) for d in steps]
+                   + [(by_ms.get(d) or {}).get("need") for d in miles] + [(by_ms.get(d) or {}).get("extra_places") for d in miles]
+                   + [ind.get("value"), ind.get("match"), ind.get("text"), ind.get("source"), g.get("owner"),
+                      " | ".join(f"{lv['text']} ({lv['kind']})" for lv in g.get("levers") or []), g.get("steered_by"),
+                      g.get("note"), r["definition"], r["calculation"], r["reads"], r["caveats"]])
+    return buf.getvalue()
