@@ -1,6 +1,7 @@
 """Fleet API (DaaS scenario): where the devices are and what comes back when.
 
   GET /fleet/summary            — scenario, counts at customer / in warehouse per station, returns due, resale last 12 months
+  GET /fleet/breakdown          — the fleet by manufacturer, class and model, each with its per-status counts
   GET /fleet/returns/calendar   — per month: planned contract ends by cycle and the expected next step
   GET /fleet/returns/upcoming   — the contracts ending in the next N days, one row each
 
@@ -54,6 +55,17 @@ class UpcomingReturn(BaseModel):
 @router.get("/summary", response_model=Dict[str, Any])
 def fleet_summary(db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
     return svc.summary(db)
+
+
+@router.get("/breakdown", response_model=Dict[str, Any])
+def fleet_breakdown(db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
+    """What the fleet is made of: manufacturer, class, model, each per status.
+
+    The whole tree in one call, sorted by size, so a client drills without another
+    round trip. Two reads, both grouped in the database: at 400,000 devices a
+    per-model question must not cost a per-device read.
+    """
+    return svc.breakdown(db)
 
 
 @router.get("/returns/calendar", response_model=List[CalendarMonth])
