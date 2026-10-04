@@ -15,6 +15,9 @@ backend/var/
 # Generated agent artifacts (sample output for local review)
 agent_insights_sample.json
 
+# The temporary file a killed data-stream export can leave beside its target (app/export_stream.py)
+.devices_by_customer.*.tmp
+
 # Env / secrets
 .env
 .env.*

@@ -1,0 +1,2685 @@
+{
+  "stream": "devices_by_customer",
+  "source_system": "SCM-Master",
+  "owner_role": "Fleet Operations",
+  "stage": 1,
+  "as_of": "2026-10-04",
+  "generated_at": "2026-10-04T16:22:37+00:00",
+  "definition": "A device is at a customer while its asset status is RENTED: it carries that customer on the asset and has one running rental contract.",
+  "totals": {
+    "customers": 84,
+    "devices_at_customer": 300000,
+    "contracts_ending_90d": 27029,
+    "returns_overdue": 374
+  },
+  "rows": [
+    {
+      "customer_code": "CUST-001",
+      "customer": "Customer 001 (role-only)",
+      "since": "2022-01-29",
+      "devices_at_customer": 21461,
+      "contracts_active": 21461,
+      "contracts_ending_90d": 2836,
+      "returns_overdue": 37,
+      "by_category": {
+        "Smartphone": 12545,
+        "Laptop": 5618,
+        "Tablet": 3298
+      },
+      "returns_by_month": {
+        "2026-10": 865,
+        "2026-11": 989,
+        "2026-12": 923,
+        "2027-01": 922,
+        "2027-02": 752,
+        "2027-03": 828,
+        "2027-04": 803,
+        "2027-05": 833,
+        "2027-06": 766,
+        "2027-07": 747,
+        "2027-08": 750,
+        "2027-09": 763
+      }
+    },
+    {
+      "customer_code": "CUST-004",
+      "customer": "Customer 004 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 21381,
+      "contracts_active": 21381,
+      "contracts_ending_90d": 2753,
+      "returns_overdue": 41,
+      "by_category": {
+        "Smartphone": 12452,
+        "Laptop": 5602,
+        "Tablet": 3327
+      },
+      "returns_by_month": {
+        "2026-10": 855,
+        "2026-11": 928,
+        "2026-12": 906,
+        "2027-01": 915,
+        "2027-02": 808,
+        "2027-03": 838,
+        "2027-04": 799,
+        "2027-05": 833,
+        "2027-06": 805,
+        "2027-07": 773,
+        "2027-08": 785,
+        "2027-09": 739
+      }
+    },
+    {
+      "customer_code": "CUST-005",
+      "customer": "Customer 005 (role-only)",
+      "since": "2024-02-14",
+      "devices_at_customer": 19007,
+      "contracts_active": 19007,
+      "contracts_ending_90d": 1515,
+      "returns_overdue": 24,
+      "by_category": {
+        "Smartphone": 11387,
+        "Laptop": 4771,
+        "Tablet": 2849
+      },
+      "returns_by_month": {
+        "2026-10": 437,
+        "2026-11": 526,
+        "2026-12": 521,
+        "2027-01": 506,
+        "2027-02": 584,
+        "2027-03": 778,
+        "2027-04": 775,
+        "2027-05": 721,
+        "2027-06": 721,
+        "2027-07": 717,
+        "2027-08": 705,
+        "2027-09": 730
+      }
+    },
+    {
+      "customer_code": "CUST-002",
+      "customer": "Customer 002 (role-only)",
+      "since": "2025-01-14",
+      "devices_at_customer": 13944,
+      "contracts_active": 13944,
+      "contracts_ending_90d": 216,
+      "returns_overdue": 1,
+      "by_category": {
+        "Smartphone": 8630,
+        "Laptop": 3304,
+        "Tablet": 2010
+      },
+      "returns_by_month": {
+        "2026-10": 81,
+        "2026-11": 57,
+        "2026-12": 75,
+        "2027-01": 294,
+        "2027-02": 474,
+        "2027-03": 470,
+        "2027-04": 437,
+        "2027-05": 450,
+        "2027-06": 473,
+        "2027-07": 427,
+        "2027-08": 444,
+        "2027-09": 445
+      }
+    },
+    {
+      "customer_code": "CUST-003",
+      "customer": "Customer 003 (role-only)",
+      "since": "2025-07-10",
+      "devices_at_customer": 10097,
+      "contracts_active": 10097,
+      "contracts_ending_90d": 236,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 6254,
+        "Laptop": 2361,
+        "Tablet": 1482
+      },
+      "returns_by_month": {
+        "2026-10": 78,
+        "2026-11": 69,
+        "2026-12": 85,
+        "2027-01": 77,
+        "2027-02": 79,
+        "2027-03": 83,
+        "2027-04": 64,
+        "2027-05": 69,
+        "2027-06": 88,
+        "2027-07": 314,
+        "2027-08": 392,
+        "2027-09": 431
+      }
+    },
+    {
+      "customer_code": "CUST-011",
+      "customer": "Customer 011 (role-only)",
+      "since": "2021-11-14",
+      "devices_at_customer": 8141,
+      "contracts_active": 8141,
+      "contracts_ending_90d": 1037,
+      "returns_overdue": 16,
+      "by_category": {
+        "Smartphone": 4753,
+        "Laptop": 2124,
+        "Tablet": 1264
+      },
+      "returns_by_month": {
+        "2026-10": 339,
+        "2026-11": 312,
+        "2026-12": 358,
+        "2027-01": 355,
+        "2027-02": 279,
+        "2027-03": 310,
+        "2027-04": 326,
+        "2027-05": 286,
+        "2027-06": 276,
+        "2027-07": 313,
+        "2027-08": 301,
+        "2027-09": 305
+      }
+    },
+    {
+      "customer_code": "CUST-013",
+      "customer": "Customer 013 (role-only)",
+      "since": "2022-08-10",
+      "devices_at_customer": 8063,
+      "contracts_active": 8063,
+      "contracts_ending_90d": 1039,
+      "returns_overdue": 15,
+      "by_category": {
+        "Smartphone": 4666,
+        "Laptop": 2157,
+        "Tablet": 1240
+      },
+      "returns_by_month": {
+        "2026-10": 325,
+        "2026-11": 349,
+        "2026-12": 350,
+        "2027-01": 345,
+        "2027-02": 299,
+        "2027-03": 330,
+        "2027-04": 257,
+        "2027-05": 314,
+        "2027-06": 278,
+        "2027-07": 296,
+        "2027-08": 312,
+        "2027-09": 258
+      }
+    },
+    {
+      "customer_code": "CUST-012",
+      "customer": "Customer 012 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 7988,
+      "contracts_active": 7988,
+      "contracts_ending_90d": 1071,
+      "returns_overdue": 15,
+      "by_category": {
+        "Smartphone": 4702,
+        "Laptop": 2087,
+        "Tablet": 1199
+      },
+      "returns_by_month": {
+        "2026-10": 325,
+        "2026-11": 343,
+        "2026-12": 385,
+        "2027-01": 357,
+        "2027-02": 296,
+        "2027-03": 324,
+        "2027-04": 299,
+        "2027-05": 311,
+        "2027-06": 288,
+        "2027-07": 268,
+        "2027-08": 314,
+        "2027-09": 305
+      }
+    },
+    {
+      "customer_code": "CUST-016",
+      "customer": "Customer 016 (role-only)",
+      "since": "2023-04-19",
+      "devices_at_customer": 7986,
+      "contracts_active": 7986,
+      "contracts_ending_90d": 982,
+      "returns_overdue": 25,
+      "by_category": {
+        "Smartphone": 4629,
+        "Laptop": 2107,
+        "Tablet": 1250
+      },
+      "returns_by_month": {
+        "2026-10": 279,
+        "2026-11": 373,
+        "2026-12": 310,
+        "2027-01": 337,
+        "2027-02": 290,
+        "2027-03": 305,
+        "2027-04": 284,
+        "2027-05": 305,
+        "2027-06": 302,
+        "2027-07": 317,
+        "2027-08": 304,
+        "2027-09": 287
+      }
+    },
+    {
+      "customer_code": "CUST-009",
+      "customer": "Customer 009 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 7980,
+      "contracts_active": 7980,
+      "contracts_ending_90d": 1038,
+      "returns_overdue": 22,
+      "by_category": {
+        "Smartphone": 4601,
+        "Laptop": 2106,
+        "Tablet": 1273
+      },
+      "returns_by_month": {
+        "2026-10": 317,
+        "2026-11": 352,
+        "2026-12": 343,
+        "2027-01": 363,
+        "2027-02": 288,
+        "2027-03": 288,
+        "2027-04": 316,
+        "2027-05": 297,
+        "2027-06": 276,
+        "2027-07": 299,
+        "2027-08": 281,
+        "2027-09": 272
+      }
+    },
+    {
+      "customer_code": "CUST-015",
+      "customer": "Customer 015 (role-only)",
+      "since": "2022-05-09",
+      "devices_at_customer": 7940,
+      "contracts_active": 7940,
+      "contracts_ending_90d": 990,
+      "returns_overdue": 23,
+      "by_category": {
+        "Smartphone": 4774,
+        "Laptop": 2018,
+        "Tablet": 1148
+      },
+      "returns_by_month": {
+        "2026-10": 308,
+        "2026-11": 320,
+        "2026-12": 346,
+        "2027-01": 345,
+        "2027-02": 297,
+        "2027-03": 327,
+        "2027-04": 265,
+        "2027-05": 325,
+        "2027-06": 294,
+        "2027-07": 290,
+        "2027-08": 289,
+        "2027-09": 290
+      }
+    },
+    {
+      "customer_code": "CUST-006",
+      "customer": "Customer 006 (role-only)",
+      "since": "2024-04-16",
+      "devices_at_customer": 6920,
+      "contracts_active": 6920,
+      "contracts_ending_90d": 639,
+      "returns_overdue": 14,
+      "by_category": {
+        "Smartphone": 4212,
+        "Laptop": 1685,
+        "Tablet": 1023
+      },
+      "returns_by_month": {
+        "2026-10": 192,
+        "2026-11": 226,
+        "2026-12": 206,
+        "2027-01": 171,
+        "2027-02": 184,
+        "2027-03": 178,
+        "2027-04": 202,
+        "2027-05": 279,
+        "2027-06": 251,
+        "2027-07": 283,
+        "2027-08": 261,
+        "2027-09": 276
+      }
+    },
+    {
+      "customer_code": "CUST-007",
+      "customer": "Customer 007 (role-only)",
+      "since": "2024-05-30",
+      "devices_at_customer": 6823,
+      "contracts_active": 6823,
+      "contracts_ending_90d": 623,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 4144,
+        "Laptop": 1614,
+        "Tablet": 1065
+      },
+      "returns_by_month": {
+        "2026-10": 162,
+        "2026-11": 222,
+        "2026-12": 224,
+        "2027-01": 222,
+        "2027-02": 156,
+        "2027-03": 191,
+        "2027-04": 170,
+        "2027-05": 185,
+        "2027-06": 288,
+        "2027-07": 279,
+        "2027-08": 281,
+        "2027-09": 286
+      }
+    },
+    {
+      "customer_code": "CUST-020",
+      "customer": "Customer 020 (role-only)",
+      "since": "2024-06-09",
+      "devices_at_customer": 6632,
+      "contracts_active": 6632,
+      "contracts_ending_90d": 580,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 4082,
+        "Laptop": 1589,
+        "Tablet": 961
+      },
+      "returns_by_month": {
+        "2026-10": 159,
+        "2026-11": 211,
+        "2026-12": 198,
+        "2027-01": 184,
+        "2027-02": 178,
+        "2027-03": 171,
+        "2027-04": 160,
+        "2027-05": 166,
+        "2027-06": 258,
+        "2027-07": 256,
+        "2027-08": 267,
+        "2027-09": 260
+      }
+    },
+    {
+      "customer_code": "CUST-008",
+      "customer": "Customer 008 (role-only)",
+      "since": "2024-11-18",
+      "devices_at_customer": 5587,
+      "contracts_active": 5587,
+      "contracts_ending_90d": 317,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 3453,
+        "Laptop": 1317,
+        "Tablet": 817
+      },
+      "returns_by_month": {
+        "2026-10": 32,
+        "2026-11": 91,
+        "2026-12": 177,
+        "2027-01": 213,
+        "2027-02": 152,
+        "2027-03": 162,
+        "2027-04": 168,
+        "2027-05": 164,
+        "2027-06": 147,
+        "2027-07": 157,
+        "2027-08": 149,
+        "2027-09": 167
+      }
+    },
+    {
+      "customer_code": "CUST-010",
+      "customer": "Customer 010 (role-only)",
+      "since": "2025-02-02",
+      "devices_at_customer": 5049,
+      "contracts_active": 5049,
+      "contracts_ending_90d": 92,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 3144,
+        "Laptop": 1202,
+        "Tablet": 703
+      },
+      "returns_by_month": {
+        "2026-10": 28,
+        "2026-11": 30,
+        "2026-12": 30,
+        "2027-01": 46,
+        "2027-02": 139,
+        "2027-03": 169,
+        "2027-04": 166,
+        "2027-05": 182,
+        "2027-06": 167,
+        "2027-07": 163,
+        "2027-08": 162,
+        "2027-09": 166
+      }
+    },
+    {
+      "customer_code": "CUST-019",
+      "customer": "Customer 019 (role-only)",
+      "since": "2025-02-20",
+      "devices_at_customer": 4900,
+      "contracts_active": 4900,
+      "contracts_ending_90d": 98,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 3081,
+        "Laptop": 1100,
+        "Tablet": 719
+      },
+      "returns_by_month": {
+        "2026-10": 25,
+        "2026-11": 40,
+        "2026-12": 30,
+        "2027-01": 37,
+        "2027-02": 64,
+        "2027-03": 171,
+        "2027-04": 142,
+        "2027-05": 163,
+        "2027-06": 158,
+        "2027-07": 171,
+        "2027-08": 163,
+        "2027-09": 149
+      }
+    },
+    {
+      "customer_code": "CUST-014",
+      "customer": "Customer 014 (role-only)",
+      "since": "2025-03-05",
+      "devices_at_customer": 4819,
+      "contracts_active": 4819,
+      "contracts_ending_90d": 91,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 3000,
+        "Laptop": 1109,
+        "Tablet": 710
+      },
+      "returns_by_month": {
+        "2026-10": 26,
+        "2026-11": 29,
+        "2026-12": 34,
+        "2027-01": 39,
+        "2027-02": 28,
+        "2027-03": 162,
+        "2027-04": 157,
+        "2027-05": 164,
+        "2027-06": 170,
+        "2027-07": 150,
+        "2027-08": 172,
+        "2027-09": 177
+      }
+    },
+    {
+      "customer_code": "CUST-017",
+      "customer": "Customer 017 (role-only)",
+      "since": "2025-06-26",
+      "devices_at_customer": 3974,
+      "contracts_active": 3974,
+      "contracts_ending_90d": 95,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 2461,
+        "Laptop": 921,
+        "Tablet": 592
+      },
+      "returns_by_month": {
+        "2026-10": 29,
+        "2026-11": 35,
+        "2026-12": 29,
+        "2027-01": 34,
+        "2027-02": 39,
+        "2027-03": 35,
+        "2027-04": 20,
+        "2027-05": 36,
+        "2027-06": 40,
+        "2027-07": 154,
+        "2027-08": 157,
+        "2027-09": 163
+      }
+    },
+    {
+      "customer_code": "CUST-018",
+      "customer": "Customer 018 (role-only)",
+      "since": "2025-06-30",
+      "devices_at_customer": 3827,
+      "contracts_active": 3827,
+      "contracts_ending_90d": 90,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 2403,
+        "Laptop": 903,
+        "Tablet": 521
+      },
+      "returns_by_month": {
+        "2026-10": 28,
+        "2026-11": 27,
+        "2026-12": 31,
+        "2027-01": 31,
+        "2027-02": 27,
+        "2027-03": 37,
+        "2027-04": 16,
+        "2027-05": 26,
+        "2027-06": 27,
+        "2027-07": 149,
+        "2027-08": 172,
+        "2027-09": 169
+      }
+    },
+    {
+      "customer_code": "CUST-036",
+      "customer": "Customer 036 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2764,
+      "contracts_active": 2764,
+      "contracts_ending_90d": 370,
+      "returns_overdue": 3,
+      "by_category": {
+        "Smartphone": 1623,
+        "Laptop": 729,
+        "Tablet": 412
+      },
+      "returns_by_month": {
+        "2026-10": 108,
+        "2026-11": 122,
+        "2026-12": 135,
+        "2027-01": 123,
+        "2027-02": 101,
+        "2027-03": 113,
+        "2027-04": 120,
+        "2027-05": 121,
+        "2027-06": 104,
+        "2027-07": 91,
+        "2027-08": 106,
+        "2027-09": 90
+      }
+    },
+    {
+      "customer_code": "CUST-057",
+      "customer": "Customer 057 (role-only)",
+      "since": "2022-04-13",
+      "devices_at_customer": 2751,
+      "contracts_active": 2751,
+      "contracts_ending_90d": 369,
+      "returns_overdue": 3,
+      "by_category": {
+        "Smartphone": 1592,
+        "Laptop": 727,
+        "Tablet": 432
+      },
+      "returns_by_month": {
+        "2026-10": 100,
+        "2026-11": 133,
+        "2026-12": 128,
+        "2027-01": 130,
+        "2027-02": 94,
+        "2027-03": 114,
+        "2027-04": 98,
+        "2027-05": 98,
+        "2027-06": 85,
+        "2027-07": 86,
+        "2027-08": 93,
+        "2027-09": 96
+      }
+    },
+    {
+      "customer_code": "CUST-034",
+      "customer": "Customer 034 (role-only)",
+      "since": "2022-05-12",
+      "devices_at_customer": 2747,
+      "contracts_active": 2747,
+      "contracts_ending_90d": 374,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 1619,
+        "Laptop": 692,
+        "Tablet": 436
+      },
+      "returns_by_month": {
+        "2026-10": 101,
+        "2026-11": 120,
+        "2026-12": 142,
+        "2027-01": 114,
+        "2027-02": 110,
+        "2027-03": 103,
+        "2027-04": 94,
+        "2027-05": 112,
+        "2027-06": 100,
+        "2027-07": 102,
+        "2027-08": 98,
+        "2027-09": 109
+      }
+    },
+    {
+      "customer_code": "CUST-040",
+      "customer": "Customer 040 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2728,
+      "contracts_active": 2728,
+      "contracts_ending_90d": 361,
+      "returns_overdue": 3,
+      "by_category": {
+        "Smartphone": 1627,
+        "Laptop": 715,
+        "Tablet": 386
+      },
+      "returns_by_month": {
+        "2026-10": 105,
+        "2026-11": 120,
+        "2026-12": 128,
+        "2027-01": 108,
+        "2027-02": 99,
+        "2027-03": 90,
+        "2027-04": 100,
+        "2027-05": 130,
+        "2027-06": 119,
+        "2027-07": 82,
+        "2027-08": 101,
+        "2027-09": 106
+      }
+    },
+    {
+      "customer_code": "CUST-022",
+      "customer": "Customer 022 (role-only)",
+      "since": "2022-10-31",
+      "devices_at_customer": 2723,
+      "contracts_active": 2723,
+      "contracts_ending_90d": 365,
+      "returns_overdue": 6,
+      "by_category": {
+        "Smartphone": 1607,
+        "Laptop": 732,
+        "Tablet": 384
+      },
+      "returns_by_month": {
+        "2026-10": 102,
+        "2026-11": 122,
+        "2026-12": 128,
+        "2027-01": 124,
+        "2027-02": 96,
+        "2027-03": 120,
+        "2027-04": 97,
+        "2027-05": 96,
+        "2027-06": 95,
+        "2027-07": 106,
+        "2027-08": 108,
+        "2027-09": 88
+      }
+    },
+    {
+      "customer_code": "CUST-042",
+      "customer": "Customer 042 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2720,
+      "contracts_active": 2720,
+      "contracts_ending_90d": 352,
+      "returns_overdue": 4,
+      "by_category": {
+        "Smartphone": 1608,
+        "Laptop": 731,
+        "Tablet": 381
+      },
+      "returns_by_month": {
+        "2026-10": 118,
+        "2026-11": 106,
+        "2026-12": 124,
+        "2027-01": 108,
+        "2027-02": 95,
+        "2027-03": 98,
+        "2027-04": 101,
+        "2027-05": 96,
+        "2027-06": 110,
+        "2027-07": 96,
+        "2027-08": 114,
+        "2027-09": 112
+      }
+    },
+    {
+      "customer_code": "CUST-059",
+      "customer": "Customer 059 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2713,
+      "contracts_active": 2713,
+      "contracts_ending_90d": 347,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1608,
+        "Laptop": 702,
+        "Tablet": 403
+      },
+      "returns_by_month": {
+        "2026-10": 101,
+        "2026-11": 121,
+        "2026-12": 118,
+        "2027-01": 112,
+        "2027-02": 94,
+        "2027-03": 96,
+        "2027-04": 108,
+        "2027-05": 104,
+        "2027-06": 92,
+        "2027-07": 89,
+        "2027-08": 95,
+        "2027-09": 94
+      }
+    },
+    {
+      "customer_code": "CUST-030",
+      "customer": "Customer 030 (role-only)",
+      "since": "2022-08-10",
+      "devices_at_customer": 2680,
+      "contracts_active": 2680,
+      "contracts_ending_90d": 377,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 1509,
+        "Laptop": 747,
+        "Tablet": 424
+      },
+      "returns_by_month": {
+        "2026-10": 112,
+        "2026-11": 126,
+        "2026-12": 134,
+        "2027-01": 115,
+        "2027-02": 105,
+        "2027-03": 109,
+        "2027-04": 96,
+        "2027-05": 91,
+        "2027-06": 103,
+        "2027-07": 85,
+        "2027-08": 107,
+        "2027-09": 94
+      }
+    },
+    {
+      "customer_code": "CUST-025",
+      "customer": "Customer 025 (role-only)",
+      "since": "2022-07-08",
+      "devices_at_customer": 2679,
+      "contracts_active": 2679,
+      "contracts_ending_90d": 391,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1562,
+        "Laptop": 696,
+        "Tablet": 421
+      },
+      "returns_by_month": {
+        "2026-10": 125,
+        "2026-11": 111,
+        "2026-12": 144,
+        "2027-01": 120,
+        "2027-02": 103,
+        "2027-03": 80,
+        "2027-04": 107,
+        "2027-05": 92,
+        "2027-06": 93,
+        "2027-07": 104,
+        "2027-08": 85,
+        "2027-09": 87
+      }
+    },
+    {
+      "customer_code": "CUST-043",
+      "customer": "Customer 043 (role-only)",
+      "since": "2023-04-18",
+      "devices_at_customer": 2678,
+      "contracts_active": 2678,
+      "contracts_ending_90d": 312,
+      "returns_overdue": 4,
+      "by_category": {
+        "Smartphone": 1552,
+        "Laptop": 704,
+        "Tablet": 422
+      },
+      "returns_by_month": {
+        "2026-10": 95,
+        "2026-11": 92,
+        "2026-12": 120,
+        "2027-01": 123,
+        "2027-02": 83,
+        "2027-03": 114,
+        "2027-04": 98,
+        "2027-05": 88,
+        "2027-06": 90,
+        "2027-07": 84,
+        "2027-08": 104,
+        "2027-09": 109
+      }
+    },
+    {
+      "customer_code": "CUST-039",
+      "customer": "Customer 039 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2674,
+      "contracts_active": 2674,
+      "contracts_ending_90d": 356,
+      "returns_overdue": 8,
+      "by_category": {
+        "Smartphone": 1584,
+        "Laptop": 690,
+        "Tablet": 400
+      },
+      "returns_by_month": {
+        "2026-10": 103,
+        "2026-11": 126,
+        "2026-12": 116,
+        "2027-01": 111,
+        "2027-02": 102,
+        "2027-03": 114,
+        "2027-04": 115,
+        "2027-05": 114,
+        "2027-06": 100,
+        "2027-07": 83,
+        "2027-08": 107,
+        "2027-09": 88
+      }
+    },
+    {
+      "customer_code": "CUST-028",
+      "customer": "Customer 028 (role-only)",
+      "since": "2022-01-08",
+      "devices_at_customer": 2660,
+      "contracts_active": 2660,
+      "contracts_ending_90d": 369,
+      "returns_overdue": 8,
+      "by_category": {
+        "Smartphone": 1556,
+        "Laptop": 709,
+        "Tablet": 395
+      },
+      "returns_by_month": {
+        "2026-10": 117,
+        "2026-11": 130,
+        "2026-12": 118,
+        "2027-01": 123,
+        "2027-02": 95,
+        "2027-03": 121,
+        "2027-04": 101,
+        "2027-05": 86,
+        "2027-06": 113,
+        "2027-07": 84,
+        "2027-08": 96,
+        "2027-09": 99
+      }
+    },
+    {
+      "customer_code": "CUST-048",
+      "customer": "Customer 048 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2649,
+      "contracts_active": 2649,
+      "contracts_ending_90d": 322,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 1498,
+        "Laptop": 745,
+        "Tablet": 406
+      },
+      "returns_by_month": {
+        "2026-10": 107,
+        "2026-11": 99,
+        "2026-12": 104,
+        "2027-01": 106,
+        "2027-02": 87,
+        "2027-03": 107,
+        "2027-04": 106,
+        "2027-05": 90,
+        "2027-06": 88,
+        "2027-07": 101,
+        "2027-08": 89,
+        "2027-09": 84
+      }
+    },
+    {
+      "customer_code": "CUST-023",
+      "customer": "Customer 023 (role-only)",
+      "since": "2022-04-16",
+      "devices_at_customer": 2639,
+      "contracts_active": 2639,
+      "contracts_ending_90d": 392,
+      "returns_overdue": 6,
+      "by_category": {
+        "Smartphone": 1554,
+        "Laptop": 705,
+        "Tablet": 380
+      },
+      "returns_by_month": {
+        "2026-10": 115,
+        "2026-11": 127,
+        "2026-12": 142,
+        "2027-01": 119,
+        "2027-02": 101,
+        "2027-03": 110,
+        "2027-04": 104,
+        "2027-05": 113,
+        "2027-06": 85,
+        "2027-07": 80,
+        "2027-08": 97,
+        "2027-09": 84
+      }
+    },
+    {
+      "customer_code": "CUST-037",
+      "customer": "Customer 037 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2635,
+      "contracts_active": 2635,
+      "contracts_ending_90d": 346,
+      "returns_overdue": 5,
+      "by_category": {
+        "Smartphone": 1561,
+        "Laptop": 683,
+        "Tablet": 391
+      },
+      "returns_by_month": {
+        "2026-10": 102,
+        "2026-11": 104,
+        "2026-12": 129,
+        "2027-01": 115,
+        "2027-02": 115,
+        "2027-03": 106,
+        "2027-04": 113,
+        "2027-05": 93,
+        "2027-06": 101,
+        "2027-07": 108,
+        "2027-08": 89,
+        "2027-09": 86
+      }
+    },
+    {
+      "customer_code": "CUST-033",
+      "customer": "Customer 033 (role-only)",
+      "since": "2023-02-23",
+      "devices_at_customer": 2631,
+      "contracts_active": 2631,
+      "contracts_ending_90d": 313,
+      "returns_overdue": 9,
+      "by_category": {
+        "Smartphone": 1526,
+        "Laptop": 692,
+        "Tablet": 413
+      },
+      "returns_by_month": {
+        "2026-10": 112,
+        "2026-11": 98,
+        "2026-12": 96,
+        "2027-01": 106,
+        "2027-02": 86,
+        "2027-03": 105,
+        "2027-04": 102,
+        "2027-05": 119,
+        "2027-06": 114,
+        "2027-07": 104,
+        "2027-08": 85,
+        "2027-09": 113
+      }
+    },
+    {
+      "customer_code": "CUST-031",
+      "customer": "Customer 031 (role-only)",
+      "since": "2023-04-26",
+      "devices_at_customer": 2623,
+      "contracts_active": 2623,
+      "contracts_ending_90d": 362,
+      "returns_overdue": 4,
+      "by_category": {
+        "Smartphone": 1551,
+        "Laptop": 674,
+        "Tablet": 398
+      },
+      "returns_by_month": {
+        "2026-10": 105,
+        "2026-11": 137,
+        "2026-12": 114,
+        "2027-01": 98,
+        "2027-02": 90,
+        "2027-03": 101,
+        "2027-04": 89,
+        "2027-05": 99,
+        "2027-06": 91,
+        "2027-07": 95,
+        "2027-08": 103,
+        "2027-09": 113
+      }
+    },
+    {
+      "customer_code": "CUST-027",
+      "customer": "Customer 027 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2616,
+      "contracts_active": 2616,
+      "contracts_ending_90d": 360,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1492,
+        "Laptop": 697,
+        "Tablet": 427
+      },
+      "returns_by_month": {
+        "2026-10": 111,
+        "2026-11": 126,
+        "2026-12": 117,
+        "2027-01": 114,
+        "2027-02": 93,
+        "2027-03": 103,
+        "2027-04": 90,
+        "2027-05": 107,
+        "2027-06": 97,
+        "2027-07": 76,
+        "2027-08": 105,
+        "2027-09": 99
+      }
+    },
+    {
+      "customer_code": "CUST-029",
+      "customer": "Customer 029 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2613,
+      "contracts_active": 2613,
+      "contracts_ending_90d": 325,
+      "returns_overdue": 4,
+      "by_category": {
+        "Smartphone": 1505,
+        "Laptop": 680,
+        "Tablet": 428
+      },
+      "returns_by_month": {
+        "2026-10": 98,
+        "2026-11": 117,
+        "2026-12": 103,
+        "2027-01": 100,
+        "2027-02": 83,
+        "2027-03": 114,
+        "2027-04": 94,
+        "2027-05": 110,
+        "2027-06": 79,
+        "2027-07": 79,
+        "2027-08": 97,
+        "2027-09": 94
+      }
+    },
+    {
+      "customer_code": "CUST-044",
+      "customer": "Customer 044 (role-only)",
+      "since": "2023-10-04",
+      "devices_at_customer": 2604,
+      "contracts_active": 2604,
+      "contracts_ending_90d": 335,
+      "returns_overdue": 1,
+      "by_category": {
+        "Smartphone": 1501,
+        "Laptop": 685,
+        "Tablet": 418
+      },
+      "returns_by_month": {
+        "2026-10": 87,
+        "2026-11": 117,
+        "2026-12": 122,
+        "2027-01": 112,
+        "2027-02": 113,
+        "2027-03": 100,
+        "2027-04": 87,
+        "2027-05": 98,
+        "2027-06": 91,
+        "2027-07": 79,
+        "2027-08": 84,
+        "2027-09": 75
+      }
+    },
+    {
+      "customer_code": "CUST-055",
+      "customer": "Customer 055 (role-only)",
+      "since": "2021-10-15",
+      "devices_at_customer": 2596,
+      "contracts_active": 2596,
+      "contracts_ending_90d": 381,
+      "returns_overdue": 6,
+      "by_category": {
+        "Smartphone": 1535,
+        "Laptop": 672,
+        "Tablet": 389
+      },
+      "returns_by_month": {
+        "2026-10": 107,
+        "2026-11": 133,
+        "2026-12": 132,
+        "2027-01": 136,
+        "2027-02": 98,
+        "2027-03": 102,
+        "2027-04": 106,
+        "2027-05": 98,
+        "2027-06": 96,
+        "2027-07": 85,
+        "2027-08": 87,
+        "2027-09": 93
+      }
+    },
+    {
+      "customer_code": "CUST-056",
+      "customer": "Customer 056 (role-only)",
+      "since": "2023-09-26",
+      "devices_at_customer": 2594,
+      "contracts_active": 2594,
+      "contracts_ending_90d": 328,
+      "returns_overdue": 6,
+      "by_category": {
+        "Smartphone": 1559,
+        "Laptop": 652,
+        "Tablet": 383
+      },
+      "returns_by_month": {
+        "2026-10": 103,
+        "2026-11": 105,
+        "2026-12": 113,
+        "2027-01": 110,
+        "2027-02": 83,
+        "2027-03": 86,
+        "2027-04": 92,
+        "2027-05": 87,
+        "2027-06": 86,
+        "2027-07": 100,
+        "2027-08": 102,
+        "2027-09": 91
+      }
+    },
+    {
+      "customer_code": "CUST-054",
+      "customer": "Customer 054 (role-only)",
+      "since": "2023-08-26",
+      "devices_at_customer": 2584,
+      "contracts_active": 2584,
+      "contracts_ending_90d": 287,
+      "returns_overdue": 6,
+      "by_category": {
+        "Smartphone": 1541,
+        "Laptop": 673,
+        "Tablet": 370
+      },
+      "returns_by_month": {
+        "2026-10": 74,
+        "2026-11": 112,
+        "2026-12": 97,
+        "2027-01": 112,
+        "2027-02": 95,
+        "2027-03": 99,
+        "2027-04": 90,
+        "2027-05": 124,
+        "2027-06": 87,
+        "2027-07": 95,
+        "2027-08": 93,
+        "2027-09": 102
+      }
+    },
+    {
+      "customer_code": "CUST-052",
+      "customer": "Customer 052 (role-only)",
+      "since": "2023-07-14",
+      "devices_at_customer": 2553,
+      "contracts_active": 2553,
+      "contracts_ending_90d": 319,
+      "returns_overdue": 8,
+      "by_category": {
+        "Smartphone": 1466,
+        "Laptop": 694,
+        "Tablet": 393
+      },
+      "returns_by_month": {
+        "2026-10": 96,
+        "2026-11": 111,
+        "2026-12": 105,
+        "2027-01": 96,
+        "2027-02": 118,
+        "2027-03": 98,
+        "2027-04": 73,
+        "2027-05": 91,
+        "2027-06": 94,
+        "2027-07": 97,
+        "2027-08": 91,
+        "2027-09": 81
+      }
+    },
+    {
+      "customer_code": "CUST-049",
+      "customer": "Customer 049 (role-only)",
+      "since": "2023-10-11",
+      "devices_at_customer": 2532,
+      "contracts_active": 2532,
+      "contracts_ending_90d": 331,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 1577,
+        "Laptop": 600,
+        "Tablet": 355
+      },
+      "returns_by_month": {
+        "2026-10": 116,
+        "2026-11": 110,
+        "2026-12": 99,
+        "2027-01": 93,
+        "2027-02": 92,
+        "2027-03": 97,
+        "2027-04": 93,
+        "2027-05": 101,
+        "2027-06": 96,
+        "2027-07": 88,
+        "2027-08": 90,
+        "2027-09": 82
+      }
+    },
+    {
+      "customer_code": "CUST-058",
+      "customer": "Customer 058 (role-only)",
+      "since": "2024-03-07",
+      "devices_at_customer": 2380,
+      "contracts_active": 2380,
+      "contracts_ending_90d": 183,
+      "returns_overdue": 3,
+      "by_category": {
+        "Smartphone": 1400,
+        "Laptop": 608,
+        "Tablet": 372
+      },
+      "returns_by_month": {
+        "2026-10": 51,
+        "2026-11": 60,
+        "2026-12": 66,
+        "2027-01": 65,
+        "2027-02": 58,
+        "2027-03": 92,
+        "2027-04": 99,
+        "2027-05": 81,
+        "2027-06": 95,
+        "2027-07": 77,
+        "2027-08": 102,
+        "2027-09": 90
+      }
+    },
+    {
+      "customer_code": "CUST-035",
+      "customer": "Customer 035 (role-only)",
+      "since": "2024-02-08",
+      "devices_at_customer": 2364,
+      "contracts_active": 2364,
+      "contracts_ending_90d": 197,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1425,
+        "Laptop": 561,
+        "Tablet": 378
+      },
+      "returns_by_month": {
+        "2026-10": 59,
+        "2026-11": 70,
+        "2026-12": 62,
+        "2027-01": 72,
+        "2027-02": 95,
+        "2027-03": 83,
+        "2027-04": 85,
+        "2027-05": 107,
+        "2027-06": 90,
+        "2027-07": 95,
+        "2027-08": 87,
+        "2027-09": 81
+      }
+    },
+    {
+      "customer_code": "CUST-045",
+      "customer": "Customer 045 (role-only)",
+      "since": "2024-02-08",
+      "devices_at_customer": 2292,
+      "contracts_active": 2292,
+      "contracts_ending_90d": 203,
+      "returns_overdue": 1,
+      "by_category": {
+        "Smartphone": 1365,
+        "Laptop": 576,
+        "Tablet": 351
+      },
+      "returns_by_month": {
+        "2026-10": 71,
+        "2026-11": 63,
+        "2026-12": 60,
+        "2027-01": 67,
+        "2027-02": 83,
+        "2027-03": 94,
+        "2027-04": 77,
+        "2027-05": 111,
+        "2027-06": 84,
+        "2027-07": 79,
+        "2027-08": 75,
+        "2027-09": 105
+      }
+    },
+    {
+      "customer_code": "CUST-047",
+      "customer": "Customer 047 (role-only)",
+      "since": "2024-06-16",
+      "devices_at_customer": 2197,
+      "contracts_active": 2197,
+      "contracts_ending_90d": 189,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1374,
+        "Laptop": 533,
+        "Tablet": 290
+      },
+      "returns_by_month": {
+        "2026-10": 51,
+        "2026-11": 66,
+        "2026-12": 70,
+        "2027-01": 62,
+        "2027-02": 45,
+        "2027-03": 60,
+        "2027-04": 59,
+        "2027-05": 47,
+        "2027-06": 57,
+        "2027-07": 80,
+        "2027-08": 75,
+        "2027-09": 73
+      }
+    },
+    {
+      "customer_code": "CUST-021",
+      "customer": "Customer 021 (role-only)",
+      "since": "2024-05-11",
+      "devices_at_customer": 2177,
+      "contracts_active": 2177,
+      "contracts_ending_90d": 221,
+      "returns_overdue": 3,
+      "by_category": {
+        "Smartphone": 1365,
+        "Laptop": 506,
+        "Tablet": 306
+      },
+      "returns_by_month": {
+        "2026-10": 61,
+        "2026-11": 79,
+        "2026-12": 73,
+        "2027-01": 75,
+        "2027-02": 48,
+        "2027-03": 54,
+        "2027-04": 57,
+        "2027-05": 93,
+        "2027-06": 88,
+        "2027-07": 77,
+        "2027-08": 101,
+        "2027-09": 89
+      }
+    },
+    {
+      "customer_code": "CUST-026",
+      "customer": "Customer 026 (role-only)",
+      "since": "2024-07-19",
+      "devices_at_customer": 2153,
+      "contracts_active": 2153,
+      "contracts_ending_90d": 208,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1333,
+        "Laptop": 480,
+        "Tablet": 340
+      },
+      "returns_by_month": {
+        "2026-10": 70,
+        "2026-11": 75,
+        "2026-12": 57,
+        "2027-01": 63,
+        "2027-02": 53,
+        "2027-03": 58,
+        "2027-04": 65,
+        "2027-05": 54,
+        "2027-06": 55,
+        "2027-07": 57,
+        "2027-08": 88,
+        "2027-09": 101
+      }
+    },
+    {
+      "customer_code": "CUST-032",
+      "customer": "Customer 032 (role-only)",
+      "since": "2024-06-05",
+      "devices_at_customer": 2152,
+      "contracts_active": 2152,
+      "contracts_ending_90d": 191,
+      "returns_overdue": 2,
+      "by_category": {
+        "Smartphone": 1299,
+        "Laptop": 518,
+        "Tablet": 335
+      },
+      "returns_by_month": {
+        "2026-10": 53,
+        "2026-11": 70,
+        "2026-12": 64,
+        "2027-01": 58,
+        "2027-02": 45,
+        "2027-03": 61,
+        "2027-04": 76,
+        "2027-05": 67,
+        "2027-06": 81,
+        "2027-07": 82,
+        "2027-08": 69,
+        "2027-09": 77
+      }
+    },
+    {
+      "customer_code": "CUST-041",
+      "customer": "Customer 041 (role-only)",
+      "since": "2024-10-08",
+      "devices_at_customer": 2052,
+      "contracts_active": 2052,
+      "contracts_ending_90d": 190,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 1281,
+        "Laptop": 500,
+        "Tablet": 271
+      },
+      "returns_by_month": {
+        "2026-10": 53,
+        "2026-11": 67,
+        "2026-12": 69,
+        "2027-01": 68,
+        "2027-02": 50,
+        "2027-03": 55,
+        "2027-04": 44,
+        "2027-05": 46,
+        "2027-06": 67,
+        "2027-07": 62,
+        "2027-08": 52,
+        "2027-09": 66
+      }
+    },
+    {
+      "customer_code": "CUST-046",
+      "customer": "Customer 046 (role-only)",
+      "since": "2024-10-16",
+      "devices_at_customer": 2012,
+      "contracts_active": 2012,
+      "contracts_ending_90d": 180,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 1294,
+        "Laptop": 445,
+        "Tablet": 273
+      },
+      "returns_by_month": {
+        "2026-10": 44,
+        "2026-11": 70,
+        "2026-12": 62,
+        "2027-01": 58,
+        "2027-02": 60,
+        "2027-03": 51,
+        "2027-04": 58,
+        "2027-05": 50,
+        "2027-06": 59,
+        "2027-07": 49,
+        "2027-08": 60,
+        "2027-09": 53
+      }
+    },
+    {
+      "customer_code": "CUST-050",
+      "customer": "Customer 050 (role-only)",
+      "since": "2025-02-02",
+      "devices_at_customer": 1690,
+      "contracts_active": 1690,
+      "contracts_ending_90d": 28,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 1046,
+        "Laptop": 373,
+        "Tablet": 271
+      },
+      "returns_by_month": {
+        "2026-10": 6,
+        "2026-11": 9,
+        "2026-12": 12,
+        "2027-01": 17,
+        "2027-02": 49,
+        "2027-03": 68,
+        "2027-04": 63,
+        "2027-05": 66,
+        "2027-06": 52,
+        "2027-07": 62,
+        "2027-08": 62,
+        "2027-09": 55
+      }
+    },
+    {
+      "customer_code": "CUST-051",
+      "customer": "Customer 051 (role-only)",
+      "since": "2025-02-22",
+      "devices_at_customer": 1628,
+      "contracts_active": 1628,
+      "contracts_ending_90d": 30,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 1004,
+        "Laptop": 393,
+        "Tablet": 231
+      },
+      "returns_by_month": {
+        "2026-10": 6,
+        "2026-11": 8,
+        "2026-12": 14,
+        "2027-01": 10,
+        "2027-02": 18,
+        "2027-03": 64,
+        "2027-04": 50,
+        "2027-05": 68,
+        "2027-06": 55,
+        "2027-07": 49,
+        "2027-08": 49,
+        "2027-09": 56
+      }
+    },
+    {
+      "customer_code": "CUST-053",
+      "customer": "Customer 053 (role-only)",
+      "since": "2025-02-14",
+      "devices_at_customer": 1575,
+      "contracts_active": 1575,
+      "contracts_ending_90d": 30,
+      "returns_overdue": 1,
+      "by_category": {
+        "Smartphone": 979,
+        "Laptop": 370,
+        "Tablet": 226
+      },
+      "returns_by_month": {
+        "2026-10": 8,
+        "2026-11": 10,
+        "2026-12": 12,
+        "2027-01": 7,
+        "2027-02": 20,
+        "2027-03": 51,
+        "2027-04": 63,
+        "2027-05": 58,
+        "2027-06": 47,
+        "2027-07": 61,
+        "2027-08": 57,
+        "2027-09": 47
+      }
+    },
+    {
+      "customer_code": "CUST-065",
+      "customer": "Customer 065 (role-only)",
+      "since": "2026-01-08",
+      "devices_at_customer": 1544,
+      "contracts_active": 1544,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 945,
+        "Laptop": 377,
+        "Tablet": 222
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 25,
+        "2027-02": 15,
+        "2027-03": 18,
+        "2027-04": 22,
+        "2027-05": 20,
+        "2027-06": 21,
+        "2027-07": 16,
+        "2027-08": 16,
+        "2027-09": 25
+      }
+    },
+    {
+      "customer_code": "CUST-066",
+      "customer": "Customer 066 (role-only)",
+      "since": "2026-01-21",
+      "devices_at_customer": 1519,
+      "contracts_active": 1519,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 951,
+        "Laptop": 324,
+        "Tablet": 244
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 12,
+        "2027-02": 19,
+        "2027-03": 11,
+        "2027-04": 25,
+        "2027-05": 25,
+        "2027-06": 16,
+        "2027-07": 16,
+        "2027-08": 33,
+        "2027-09": 25
+      }
+    },
+    {
+      "customer_code": "CUST-074",
+      "customer": "Customer 074 (role-only)",
+      "since": "2026-01-31",
+      "devices_at_customer": 1453,
+      "contracts_active": 1453,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 903,
+        "Laptop": 356,
+        "Tablet": 194
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 19,
+        "2027-03": 17,
+        "2027-04": 15,
+        "2027-05": 15,
+        "2027-06": 22,
+        "2027-07": 20,
+        "2027-08": 22,
+        "2027-09": 35
+      }
+    },
+    {
+      "customer_code": "CUST-075",
+      "customer": "Customer 075 (role-only)",
+      "since": "2026-02-06",
+      "devices_at_customer": 1434,
+      "contracts_active": 1434,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 900,
+        "Laptop": 324,
+        "Tablet": 210
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 17,
+        "2027-03": 12,
+        "2027-04": 11,
+        "2027-05": 28,
+        "2027-06": 17,
+        "2027-07": 18,
+        "2027-08": 14,
+        "2027-09": 22
+      }
+    },
+    {
+      "customer_code": "CUST-071",
+      "customer": "Customer 071 (role-only)",
+      "since": "2026-02-14",
+      "devices_at_customer": 1376,
+      "contracts_active": 1376,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 858,
+        "Laptop": 331,
+        "Tablet": 187
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 7,
+        "2027-03": 15,
+        "2027-04": 22,
+        "2027-05": 22,
+        "2027-06": 18,
+        "2027-07": 25,
+        "2027-08": 23,
+        "2027-09": 26
+      }
+    },
+    {
+      "customer_code": "CUST-084",
+      "customer": "Customer 084 (role-only)",
+      "since": "2026-03-01",
+      "devices_at_customer": 1331,
+      "contracts_active": 1331,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 838,
+        "Laptop": 295,
+        "Tablet": 198
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 20,
+        "2027-04": 14,
+        "2027-05": 25,
+        "2027-06": 26,
+        "2027-07": 16,
+        "2027-08": 20,
+        "2027-09": 27
+      }
+    },
+    {
+      "customer_code": "CUST-060",
+      "customer": "Customer 060 (role-only)",
+      "since": "2025-06-03",
+      "devices_at_customer": 1308,
+      "contracts_active": 1308,
+      "contracts_ending_90d": 38,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 822,
+        "Laptop": 303,
+        "Tablet": 183
+      },
+      "returns_by_month": {
+        "2026-10": 12,
+        "2026-11": 12,
+        "2026-12": 14,
+        "2027-01": 16,
+        "2027-02": 8,
+        "2027-03": 11,
+        "2027-04": 8,
+        "2027-05": 7,
+        "2027-06": 55,
+        "2027-07": 47,
+        "2027-08": 56,
+        "2027-09": 44
+      }
+    },
+    {
+      "customer_code": "CUST-024",
+      "customer": "Customer 024 (role-only)",
+      "since": "2025-07-07",
+      "devices_at_customer": 1279,
+      "contracts_active": 1279,
+      "contracts_ending_90d": 31,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 793,
+        "Laptop": 291,
+        "Tablet": 195
+      },
+      "returns_by_month": {
+        "2026-10": 11,
+        "2026-11": 10,
+        "2026-12": 10,
+        "2027-01": 13,
+        "2027-02": 8,
+        "2027-03": 14,
+        "2027-04": 9,
+        "2027-05": 9,
+        "2027-06": 11,
+        "2027-07": 39,
+        "2027-08": 52,
+        "2027-09": 52
+      }
+    },
+    {
+      "customer_code": "CUST-061",
+      "customer": "Customer 061 (role-only)",
+      "since": "2026-03-12",
+      "devices_at_customer": 1216,
+      "contracts_active": 1216,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 751,
+        "Laptop": 286,
+        "Tablet": 179
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 9,
+        "2027-04": 18,
+        "2027-05": 14,
+        "2027-06": 18,
+        "2027-07": 25,
+        "2027-08": 18,
+        "2027-09": 22
+      }
+    },
+    {
+      "customer_code": "CUST-038",
+      "customer": "Customer 038 (role-only)",
+      "since": "2025-08-17",
+      "devices_at_customer": 1212,
+      "contracts_active": 1212,
+      "contracts_ending_90d": 28,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 744,
+        "Laptop": 288,
+        "Tablet": 180
+      },
+      "returns_by_month": {
+        "2026-10": 10,
+        "2026-11": 9,
+        "2026-12": 7,
+        "2027-01": 11,
+        "2027-02": 8,
+        "2027-03": 12,
+        "2027-04": 8,
+        "2027-05": 9,
+        "2027-06": 8,
+        "2027-07": 11,
+        "2027-08": 32,
+        "2027-09": 50
+      }
+    },
+    {
+      "customer_code": "CUST-079",
+      "customer": "Customer 079 (role-only)",
+      "since": "2026-03-18",
+      "devices_at_customer": 1184,
+      "contracts_active": 1184,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 776,
+        "Laptop": 242,
+        "Tablet": 166
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 4,
+        "2027-04": 22,
+        "2027-05": 17,
+        "2027-06": 23,
+        "2027-07": 22,
+        "2027-08": 22,
+        "2027-09": 32
+      }
+    },
+    {
+      "customer_code": "CUST-082",
+      "customer": "Customer 082 (role-only)",
+      "since": "2026-03-29",
+      "devices_at_customer": 1169,
+      "contracts_active": 1169,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 750,
+        "Laptop": 256,
+        "Tablet": 163
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 2,
+        "2027-04": 18,
+        "2027-05": 21,
+        "2027-06": 20,
+        "2027-07": 26,
+        "2027-08": 25,
+        "2027-09": 20
+      }
+    },
+    {
+      "customer_code": "CUST-072",
+      "customer": "Customer 072 (role-only)",
+      "since": "2026-04-07",
+      "devices_at_customer": 1122,
+      "contracts_active": 1122,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 662,
+        "Laptop": 278,
+        "Tablet": 182
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 13,
+        "2027-05": 16,
+        "2027-06": 28,
+        "2027-07": 29,
+        "2027-08": 24,
+        "2027-09": 19
+      }
+    },
+    {
+      "customer_code": "CUST-073",
+      "customer": "Customer 073 (role-only)",
+      "since": "2026-04-09",
+      "devices_at_customer": 1073,
+      "contracts_active": 1073,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 675,
+        "Laptop": 235,
+        "Tablet": 163
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 14,
+        "2027-05": 21,
+        "2027-06": 19,
+        "2027-07": 19,
+        "2027-08": 15,
+        "2027-09": 30
+      }
+    },
+    {
+      "customer_code": "CUST-077",
+      "customer": "Customer 077 (role-only)",
+      "since": "2026-04-20",
+      "devices_at_customer": 1034,
+      "contracts_active": 1034,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 647,
+        "Laptop": 239,
+        "Tablet": 148
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 10,
+        "2027-05": 21,
+        "2027-06": 12,
+        "2027-07": 24,
+        "2027-08": 22,
+        "2027-09": 30
+      }
+    },
+    {
+      "customer_code": "CUST-069",
+      "customer": "Customer 069 (role-only)",
+      "since": "2026-04-26",
+      "devices_at_customer": 981,
+      "contracts_active": 981,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 607,
+        "Laptop": 226,
+        "Tablet": 148
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 5,
+        "2027-05": 13,
+        "2027-06": 26,
+        "2027-07": 22,
+        "2027-08": 32,
+        "2027-09": 31
+      }
+    },
+    {
+      "customer_code": "CUST-063",
+      "customer": "Customer 063 (role-only)",
+      "since": "2026-04-30",
+      "devices_at_customer": 956,
+      "contracts_active": 956,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 589,
+        "Laptop": 227,
+        "Tablet": 140
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 20,
+        "2027-06": 23,
+        "2027-07": 25,
+        "2027-08": 17,
+        "2027-09": 23
+      }
+    },
+    {
+      "customer_code": "CUST-062",
+      "customer": "Customer 062 (role-only)",
+      "since": "2026-05-20",
+      "devices_at_customer": 868,
+      "contracts_active": 868,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 561,
+        "Laptop": 194,
+        "Tablet": 113
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 7,
+        "2027-06": 21,
+        "2027-07": 17,
+        "2027-08": 19,
+        "2027-09": 28
+      }
+    },
+    {
+      "customer_code": "CUST-076",
+      "customer": "Customer 076 (role-only)",
+      "since": "2026-06-14",
+      "devices_at_customer": 733,
+      "contracts_active": 733,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 456,
+        "Laptop": 164,
+        "Tablet": 113
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 8,
+        "2027-07": 22,
+        "2027-08": 17,
+        "2027-09": 14
+      }
+    },
+    {
+      "customer_code": "CUST-067",
+      "customer": "Customer 067 (role-only)",
+      "since": "2026-06-10",
+      "devices_at_customer": 729,
+      "contracts_active": 729,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 466,
+        "Laptop": 164,
+        "Tablet": 99
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 9,
+        "2027-07": 19,
+        "2027-08": 14,
+        "2027-09": 27
+      }
+    },
+    {
+      "customer_code": "CUST-070",
+      "customer": "Customer 070 (role-only)",
+      "since": "2026-07-01",
+      "devices_at_customer": 593,
+      "contracts_active": 593,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 363,
+        "Laptop": 145,
+        "Tablet": 85
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 14,
+        "2027-08": 23,
+        "2027-09": 21
+      }
+    },
+    {
+      "customer_code": "CUST-083",
+      "customer": "Customer 083 (role-only)",
+      "since": "2026-07-18",
+      "devices_at_customer": 562,
+      "contracts_active": 562,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 331,
+        "Laptop": 137,
+        "Tablet": 94
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 6,
+        "2027-08": 18,
+        "2027-09": 30
+      }
+    },
+    {
+      "customer_code": "CUST-078",
+      "customer": "Customer 078 (role-only)",
+      "since": "2026-07-27",
+      "devices_at_customer": 462,
+      "contracts_active": 462,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 309,
+        "Laptop": 90,
+        "Tablet": 63
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 10,
+        "2027-08": 16,
+        "2027-09": 23
+      }
+    },
+    {
+      "customer_code": "CUST-064",
+      "customer": "Customer 064 (role-only)",
+      "since": "2026-08-14",
+      "devices_at_customer": 400,
+      "contracts_active": 400,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 258,
+        "Laptop": 87,
+        "Tablet": 55
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 0,
+        "2027-08": 11,
+        "2027-09": 28
+      }
+    },
+    {
+      "customer_code": "CUST-080",
+      "customer": "Customer 080 (role-only)",
+      "since": "2026-08-28",
+      "devices_at_customer": 313,
+      "contracts_active": 313,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 205,
+        "Laptop": 65,
+        "Tablet": 43
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 0,
+        "2027-08": 5,
+        "2027-09": 24
+      }
+    },
+    {
+      "customer_code": "CUST-068",
+      "customer": "Customer 068 (role-only)",
+      "since": "2026-08-25",
+      "devices_at_customer": 311,
+      "contracts_active": 311,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 187,
+        "Laptop": 77,
+        "Tablet": 47
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 0,
+        "2027-08": 2,
+        "2027-09": 23
+      }
+    },
+    {
+      "customer_code": "CUST-081",
+      "customer": "Customer 081 (role-only)",
+      "since": "2026-09-03",
+      "devices_at_customer": 261,
+      "contracts_active": 261,
+      "contracts_ending_90d": 0,
+      "returns_overdue": 0,
+      "by_category": {
+        "Smartphone": 168,
+        "Laptop": 55,
+        "Tablet": 38
+      },
+      "returns_by_month": {
+        "2026-10": 0,
+        "2026-11": 0,
+        "2026-12": 0,
+        "2027-01": 0,
+        "2027-02": 0,
+        "2027-03": 0,
+        "2027-04": 0,
+        "2027-05": 0,
+        "2027-06": 0,
+        "2027-07": 0,
+        "2027-08": 0,
+        "2027-09": 34
+      }
+    }
+  ],
+  "rented_total": 300000,
+  "customers_holding_devices": 84,
+  "returns_schedule": [
+    {
+      "month": "2026-10",
+      "devices": 8076,
+      "by_category": {
+        "Laptop": 1777,
+        "Smartphone": 5110,
+        "Tablet": 1189
+      }
+    },
+    {
+      "month": "2026-11",
+      "devices": 9132,
+      "by_category": {
+        "Laptop": 2055,
+        "Smartphone": 5704,
+        "Tablet": 1373
+      }
+    },
+    {
+      "month": "2026-12",
+      "devices": 9221,
+      "by_category": {
+        "Laptop": 2065,
+        "Smartphone": 5801,
+        "Tablet": 1355
+      }
+    },
+    {
+      "month": "2027-01",
+      "devices": 9320,
+      "by_category": {
+        "Laptop": 2083,
+        "Smartphone": 5887,
+        "Tablet": 1350
+      }
+    },
+    {
+      "month": "2027-02",
+      "devices": 8569,
+      "by_category": {
+        "Laptop": 1992,
+        "Smartphone": 5361,
+        "Tablet": 1216
+      }
+    },
+    {
+      "month": "2027-03",
+      "devices": 9693,
+      "by_category": {
+        "Laptop": 2138,
+        "Smartphone": 6225,
+        "Tablet": 1330
+      }
+    },
+    {
+      "month": "2027-04",
+      "devices": 9330,
+      "by_category": {
+        "Laptop": 2095,
+        "Smartphone": 5918,
+        "Tablet": 1317
+      }
+    },
+    {
+      "month": "2027-05",
+      "devices": 9825,
+      "by_category": {
+        "Laptop": 2191,
+        "Smartphone": 6358,
+        "Tablet": 1276
+      }
+    },
+    {
+      "month": "2027-06",
+      "devices": 9713,
+      "by_category": {
+        "Laptop": 2129,
+        "Smartphone": 6197,
+        "Tablet": 1387
+      }
+    },
+    {
+      "month": "2027-07",
+      "devices": 10120,
+      "by_category": {
+        "Laptop": 2242,
+        "Smartphone": 6459,
+        "Tablet": 1419
+      }
+    },
+    {
+      "month": "2027-08",
+      "devices": 10532,
+      "by_category": {
+        "Laptop": 2340,
+        "Smartphone": 6662,
+        "Tablet": 1530
+      }
+    },
+    {
+      "month": "2027-09",
+      "devices": 10665,
+      "by_category": {
+        "Laptop": 2320,
+        "Smartphone": 6841,
+        "Tablet": 1504
+      }
+    }
+  ],
+  "returns_overdue_total": 374,
+  "returns_after_window": 185430,
+  "inbound_open_pos": [
+    {
+      "month": "2026-10",
+      "units": 12320,
+      "by_category": {
+        "Smartphone": 9520,
+        "Laptop": 2800
+      }
+    },
+    {
+      "month": "2026-11",
+      "units": 3640,
+      "by_category": {
+        "Laptop": 3640
+      }
+    },
+    {
+      "month": "2026-12",
+      "units": 840,
+      "by_category": {
+        "Tablet": 840
+      }
+    },
+    {
+      "month": "2027-01",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-02",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-03",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-04",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-05",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-06",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-07",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-08",
+      "units": 0,
+      "by_category": {}
+    },
+    {
+      "month": "2027-09",
+      "units": 0,
+      "by_category": {}
+    }
+  ],
+  "inbound_open_pos_late": {
+    "units": 11200,
+    "by_category": {
+      "Smartphone": 11200
+    }
+  },
+  "inbound_open_pos_no_eta": {
+    "units": 0,
+    "by_category": {}
+  },
+  "inbound_open_pos_after_window": {
+    "units": 0,
+    "by_category": {}
+  },
+  "inbound_open_total": 28000,
+  "defects": [
+    {
+      "month": "2025-11",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 529,
+      "written_off": 97
+    },
+    {
+      "month": "2025-12",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 550,
+      "written_off": 108
+    },
+    {
+      "month": "2026-01",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 589,
+      "written_off": 114
+    },
+    {
+      "month": "2026-02",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 494,
+      "written_off": 86
+    },
+    {
+      "month": "2026-03",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 585,
+      "written_off": 115
+    },
+    {
+      "month": "2026-04",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 591,
+      "written_off": 104
+    },
+    {
+      "month": "2026-05",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 650,
+      "written_off": 77
+    },
+    {
+      "month": "2026-06",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 639,
+      "written_off": 99
+    },
+    {
+      "month": "2026-07",
+      "reported": 0,
+      "in_repair": 0,
+      "repairs_invoiced": 692,
+      "written_off": 101
+    },
+    {
+      "month": "2026-08",
+      "reported": 444,
+      "in_repair": 0,
+      "repairs_invoiced": 882,
+      "written_off": 110
+    },
+    {
+      "month": "2026-09",
+      "reported": 421,
+      "in_repair": 1118,
+      "repairs_invoiced": 571,
+      "written_off": 86
+    },
+    {
+      "month": "2026-10",
+      "reported": 0,
+      "in_repair": 282,
+      "repairs_invoiced": 0,
+      "written_off": 15
+    }
+  ],
+  "in_repair_now": 1400,
+  "in_repair_before_window": 0,
+  "in_repair_undated": 0,
+  "basis": {
+    "customers": "organisations that are neither a supplier nor a manufacturer, whether or not they hold a device now; one row each",
+    "since": "start of the customer's first rental contract; the model stores no onboarding date for a customer",
+    "devices_at_customer": "assets with status RENTED, by the customer on the asset",
+    "contracts_active": "rental contracts with status RUNNING",
+    "contracts_ending_90d": "running contracts whose planned end is between today and today + 90 days; the total is the sum over the customers' rows",
+    "returns_overdue": "running contracts whose planned end has passed: the device is still out after its contract ended; the total is the sum over the customers' rows",
+    "returns_by_month": "a customer's running contracts by the month of their planned end, from today; overdue ones are not repeated",
+    "returns_schedule": "every running contract, whichever organisation holds it, by the month of its planned end, from today; overdue ones are in returns_overdue_total",
+    "returns_overdue_total": "every running contract whose planned end has passed, whichever organisation holds it",
+    "returns_after_window": "every running contract whose planned end is after the last month of the grid",
+    "rented_total": "every asset with status RENTED, whether or not its customer is one of the rows",
+    "customers_holding_devices": "customers with at least one asset with status RENTED",
+    "by_category": "product category of the device",
+    "inbound_open_pos": "outstanding units (ordered minus received) of open purchase order lines (PENDING, APPROVED, PLACED, PARTIALLY_RECEIVED), by the month of the line's estimated delivery date",
+    "inbound_open_pos_late": "the same lines whose estimated delivery date is before as_of",
+    "inbound_open_pos_no_eta": "the same lines without an estimated delivery date",
+    "inbound_open_pos_after_window": "the same lines whose estimated delivery date is after the last month of the grid",
+    "inbound_open_total": "every outstanding unit on the open lines: the months, late, no date and after the grid together",
+    "defects": "reported: rentals ended for a defect or a swap, by the end date; in_repair: devices in repair now, by the day they entered repair; repairs_invoiced: repair partner invoices, by the invoice date; written_off: devices recycled, the exit without proceeds, by the exit date. The last month is the current one, up to as_of. Reported: in the seeded data (app.seed_daas) a rental ends for a defect only for the devices that are in repair on the seed day, and those rentals ended in the weeks before it; the seed writes no defect history before that, and the demo simulation ends rentals as planned or early only, so every other month reads 0. Those zeros are a property of the simulated data, not of the business. Repairs invoiced: in the seeded data (app.seed_daas) a repair invoice exists only for a grade C device that went on to a second rental, dated at least eight days before that rental began, and the devices in repair on the seed day carry none yet; so a current month that began less than eight days before the seed day reads 0 until the simulation's repair-done event writes new invoices. Those zeros are a property of the simulated data, not of the business",
+    "in_repair_now": "every asset with status REPAIR, whatever sent it there (a defect or a grade C return): not a count of defects. defects[].in_repair spreads it over the months the devices entered repair; in_repair_before_window and in_repair_undated hold the rest",
+    "in_repair_before_window": "devices in repair now that entered repair before the first month of the defects grid",
+    "in_repair_undated": "devices in repair now without the date they entered it: in the total, in no month"
+  },
+  "omissions": [
+    "defects[].replacements_consumed: no row links a defect return to the replacement device, and the movement log (asset_event) that would show swap-buffer devices going out holds no seeded history, so seeded months would read as false zeros",
+    "defects[].reported, the history: in the seeded data (app.seed_daas) a rental ends for a defect only for the devices that are in repair on the seed day, and those rentals ended in the weeks before it; the seed writes no defect history before that, and the demo simulation ends rentals as planned or early only, so every other month reads 0. Those zeros are a property of the simulated data, not of the business",
+    "defects[].repairs_invoiced, the newest days: in the seeded data (app.seed_daas) a repair invoice exists only for a grade C device that went on to a second rental, dated at least eight days before that rental began, and the devices in repair on the seed day carry none yet; so a current month that began less than eight days before the seed day reads 0 until the simulation's repair-done event writes new invoices. Those zeros are a property of the simulated data, not of the business"
+  ]
+}

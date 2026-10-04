@@ -1422,4 +1422,20 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .mv-form .input { flex: 1; padding: 7px 9px; font-size: 13px; }
 .mv-path__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .mv-path__now { text-align: right; }
+/* Customers: the rented fleet and the month grid of what lands at the warehouse */
+.cu-scroll { overflow-x: auto; }
+.cu-grid thead th, .cu-grid tbody td { padding-left: 12px; padding-right: 12px; white-space: nowrap; }
+.cu-grid thead th.cu-group { text-align: center; border-bottom: 1px solid var(--ts-line); }
+.cu-bucket > td { background: var(--ts-paper-deep); }
+.cu-tbl thead th, .cu-tbl > tbody > tr > td { padding-left: 14px; padding-right: 14px; }
+.cu-tbl .cu-name, .cu-tbl .cu-nowrap, .cu-tbl .cu-next { white-space: nowrap; }
+.cu-tbl .cu-next { font-size: 12px; }
+.cu-tbl .cu-bar { width: 72px; margin: 6px 0 0 auto; }
+.cu-chip { display: inline-block; font-size: 11.5px; color: var(--ts-ink-mute); white-space: nowrap; margin-right: 8px; }
+/* an opened customer: the detail row's own cell only, never the tables inside it */
+.cu-detail > td { background: var(--ts-paper-deep); padding: 0 22px 16px !important; }
+.cu-detail .wh-cnt__grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.cu-detail .wh-cnt__block { overflow-x: auto; }
+.cu-detail .wh-cnt__block .tbl thead th, .cu-detail .wh-cnt__block .tbl tbody td { padding: 6px 10px; }
+.cu-detail .wh-cnt__block .tbl td.num { white-space: nowrap; }
 

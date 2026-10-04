@@ -207,21 +207,33 @@ def summary(db: Session, *, today: Optional[date] = None) -> dict:
     }
 
 
-def return_calendar(db: Session, *, today: Optional[date] = None, months: int = 24) -> list[dict]:
+def return_calendar(db: Session, *, today: Optional[date] = None, months: int = 24,
+                    since: Optional[date] = None, customer_id: Optional[str] = None) -> list[dict]:
+    """Planned contract ends per month, from the first of the current month.
+
+    ``since`` raises the lower bound inside the first month: the rented-fleet overview
+    passes today, so a contract whose planned end has already passed is counted once, in
+    its overdue bucket, and not again in the current month. ``customer_id`` narrows the
+    calendar to one customer. Left out, both give the calendar the Returns tab has always read.
+    """
     today = today or date.today()
     start = date(today.year, today.month, 1)
     end_y, end_m = divmod(start.month - 1 + months, 12)
     horizon = date(start.year + end_y, end_m + 1, 1)
+    lower = max(start, since) if since else start
 
     # One grouped query: month x cycle x device family, so the answer is a few hundred
     # rows however many contracts are running.
     cyc = case((RentalContract.cycle_no >= 2, 2), else_=1).label("cyc")
+    crit = [RentalContract.status == ContractStatus.RUNNING,
+            RentalContract.planned_end >= lower, RentalContract.planned_end < horizon]
+    if customer_id is not None:
+        crit.append(RentalContract.customer_id == customer_id)
     rows = db.execute(
         select(RentalContract.planned_end, cyc, Product.category, func.count(RentalContract.id))
         .join(Asset, Asset.id == RentalContract.asset_id)
         .join(Product, Product.id == Asset.product_id)
-        .where(RentalContract.status == ContractStatus.RUNNING,
-               RentalContract.planned_end >= start, RentalContract.planned_end < horizon)
+        .where(*crit)
         .group_by(RentalContract.planned_end, cyc, Product.category)
     ).all()
 

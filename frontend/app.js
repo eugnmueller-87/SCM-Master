@@ -85,6 +85,7 @@ const NAV_DAAS = [
   { id: "overview",     label: "Overview",     icon: "gauge" },
   { id: "kpis",         label: "KPIs",         icon: "target" },
   { id: "assets",       label: "Fleet",        icon: "box",   countKey: "assets" },
+  { id: "customers",    label: "Customers",    icon: "users" },
   { id: "returns",      label: "Returns",      icon: "return", countKey: "returns30" },
   { id: "warehouse",    label: "Warehouse",    icon: "layers" },
   { id: "movements",    label: "Movements",    icon: "route" },
