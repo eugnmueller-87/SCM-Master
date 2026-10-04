@@ -68,7 +68,7 @@ class TCOByClassRow(BaseModel):
 # ---- the device fleet (services/tco_device.py) ------------------------------
 
 class DeviceRate(BaseModel):
-    """A design parameter: a placeholder until the owning role sets it."""
+    """A design parameter: a placeholder until the owning role sets it, or a public price with its source."""
     id: str
     label: str
     unit: str
@@ -77,6 +77,7 @@ class DeviceRate(BaseModel):
     note: str
     value: Optional[float]
     by_family: Optional[Dict[str, float]]
+    source: Optional[str] = None
 
 
 class DeviceLayerDef(BaseModel):
@@ -89,7 +90,7 @@ class DeviceComponent(BaseModel):
     """One source of a layer's number: a measured quantity, and either a measured cost or a rate."""
     id: str
     label: str
-    basis: str            # "measured" or "quantity measured, rate placeholder"
+    basis: str            # "measured", "quantity measured, rate placeholder" or "quantity measured, rate from a public source"
     quantity: Optional[float]
     unit: str
     rate: Optional[float]
@@ -124,9 +125,24 @@ class DeviceResale(BaseModel):
     reason: Optional[str]
 
 
+class DeviceRent(BaseModel):
+    """What the contracts earned, and the margin after the whole-life cost."""
+    revenue: Optional[float]
+    contracts_with_rent: int
+    rent_months: float
+    per_month: Optional[float]          # the average rent of a device-month
+    per_device: Optional[float]
+    margin: Optional[float]
+    margin_per_device: Optional[float]
+    margin_per_month: Optional[float]
+    margin_share: Optional[float]       # margin over revenue
+    reason: Optional[str]
+    note: Optional[str]
+
+
 class DeviceGroup(BaseModel):
     """One population: a model, a device class or the whole portfolio, with the counts behind every figure."""
-    kind: str             # portfolio | class | model
+    kind: str             # portfolio | class | model | device
     key: str
     label: str
     family: Optional[str]
@@ -148,10 +164,14 @@ class DeviceGroup(BaseModel):
     in_repair: int
     in_refurb: int
     swap_events: int
+    returns: int
+    device_days_owned: int
+    device_days_off_rent: Optional[int]
     layers: List[DeviceLayer]
     gross: Optional[float]
     credit: float
     net: Optional[float]
+    rent: DeviceRent
     per_device: DeviceMoney
     per_month: DeviceMoney
     per_month_reason: Optional[str]
@@ -177,3 +197,48 @@ class DeviceTCO(BaseModel):
     rates: List[DeviceRate]
     layers: List[DeviceLayerDef]
     cohorts: Dict[str, DeviceCohort]
+
+
+class DeviceLifeEvent(BaseModel):
+    """One dated step of a device's life: received, a rental, a repair or refurbishment, the sale."""
+    date: date
+    kind: str             # received | rental | repair | refurb | sold | recycled
+    amount: Optional[float] = None    # the price paid, the rent a rental earned, an invoice, the proceeds
+    cycle: Optional[int] = None
+    end: Optional[date] = None
+    reason: Optional[str] = None
+    days: Optional[int] = None
+    rent_eur_month: Optional[float] = None
+    channel: Optional[str] = None
+
+
+class DeviceOne(DeviceGroup):
+    """One serial through the same figures as the fleet, with the dated life behind them."""
+    as_of: date
+    id: str
+    serial_number: str
+    product_id: str
+    status: str
+    grade: Optional[str]
+    cycle_no: int
+    finished: bool
+    unit_price: Optional[float]
+    received_date: Optional[date]
+    sold_date: Optional[date]
+    sale_price: Optional[float]
+    sale_channel: Optional[str]
+    life: List[DeviceLifeEvent]
+
+
+class DeviceSerial(BaseModel):
+    serial_number: str
+    status: str
+    cycle_no: int
+    group: str            # finished | rented | on_hand
+
+
+class DeviceSerials(BaseModel):
+    product_id: str
+    label: str
+    family: Optional[str]
+    serials: List[DeviceSerial]

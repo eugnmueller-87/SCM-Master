@@ -42,6 +42,19 @@ Every shape here was measured against the full fleet before it was chosen.
 
 **No fake zeros.** A layer the data cannot support is ``None`` with a ``reason``; a
 class with no device says so.
+
+**Every cost a device causes between two rentals is its own line (04.10.2026).** Shipping
+to the user and the return trip, the intake, test and grading of every device that comes
+back with its wipe are separate components, because they are what an
+operations lead negotiates one by one and what scales with every rental cycle. Two layers
+became measurable from the asset's own dates: *financing*, the cost of capital on what the
+device was bought for over every day it is owned (receipt to sale, recycling or today),
+which replaces the stock-only capital charge; and *days off rent*, every day owned and not
+out on rent, which gives the finished lives the warehouse figure they lacked. Beside the
+cost, the rent every contract carries: revenue, rent per device-month and the margin per
+device and per month, so a model that costs more than it earns shows it. One device is a
+population of one: ``device()`` runs a single serial through the same ``_figures`` as the
+fleet, so a serial's TCO and the model's average can never be computed two ways.
 """
 from __future__ import annotations
 
@@ -51,7 +64,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import Date, func, literal, select
+from sqlalchemy import Date, case, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.models.catalog import Product
@@ -60,6 +73,7 @@ from app.models.procurement import OrderItem
 from app.models.rental import RentalContract
 from app.models.tco import ServiceEvent, ServiceKind
 from app.services import kpis
+from app.services.exceptions import NotFoundError
 
 DAYS_PER_MONTH = 30.4375
 FAMILIES = ("Smartphone", "Tablet", "Laptop")            # the device classes, in the order the screen shows them
@@ -82,6 +96,13 @@ class Rate:
     note: str
     value: Optional[float] = None               # one value for every device class ...
     by_family: Optional[dict[str, float]] = None  # ... or one per class
+    # Where the number comes from when it is not ours to set: a public price list or tariff,
+    # with what it covers. None means a placeholder until the owner sets it.
+    source: Optional[str] = None
+
+    @property
+    def placeholder(self) -> bool:
+        return self.source is None
 
     def for_family(self, family: Optional[str]) -> Optional[float]:
         if self.by_family is not None:
@@ -89,37 +110,85 @@ class Rate:
         return self.value
 
 
-# EUR net. Placeholders until the named role sets them; the screen shows them as such.
+# EUR net. Three origins, each written at the value (researched 04.10.2026): a public price
+# with its source; a figure derived from public prices, the derivation written out; or a
+# placeholder with the role that sets it, only where nothing is public. Every public price
+# here is a list price for a small sender and overstates what a fleet of this size pays; it
+# is the upper bound until the owner puts the negotiated rate in its place.
+GBP_PER_EUR = 0.85033   # ECB euro reference rate, 2 Oct 2026
+_DHL_SERVICES = "https://www.dhl.de/dam/jcr:03e8bbfe-7e82-450c-a5be-1132bccfb798/dhl-paket-preise-fuer-services-102025.pdf"
+_CENTERPRISE = ("https://assets.applytosupply.digitalmarketplace.service.gov.uk/g-cloud-14/documents/92520/"
+                "351928326234533-pricing-document-2022-05-18-1013.pdf")
+_PARCEL = {"Smartphone": 4.24, "Tablet": 4.24, "Laptop": 7.69}
+
 RATES: dict[str, Rate] = {r.id: r for r in (
     Rate("inbound", "Inbound logistics and handling", "per device", "Head of Supply",
          "freight, import handling and receiving, once per device delivered",
          by_family={"Smartphone": 4.0, "Tablet": 5.0, "Laptop": 9.0}),
-    Rate("enrolment", "Enrolment and configuration", "per rental start", "Head of Operations",
-         "MDM enrolment, staging and shipping to the user, once per rental",
-         by_family={"Smartphone": 15.0, "Tablet": 15.0, "Laptop": 25.0}),
+    # Until 04.10.2026 one placeholder of 15 (25 for a laptop) carried enrolment and the parcel
+    # together. The parcel is now its own sourced line; enrolment is that placeholder less the
+    # parcel, so splitting the line did not move the total.
+    Rate("enrolment", "Enrolment and staging", "per rental start", "Head of Operations",
+         "MDM enrolment, configuration and packing, once per rental: the earlier combined placeholder "
+         "(15, a laptop 25) less the parcel, which is now its own line",
+         by_family={f: round(old - _PARCEL[f], 2) for f, old in (("Smartphone", 15.0), ("Tablet", 15.0), ("Laptop", 25.0))}),
+    Rate("outbound", "Shipping to the user", "per rental start", "Head of Operations",
+         "the parcel to the user's address, once per rental start",
+         by_family=dict(_PARCEL),
+         source="Smartphone and tablet: DHL Paket for business customers, 1 kg, from 4.24 EUR net incl. toll, at an example "
+                "3,000 parcels a year plus an unpublished monthly fee (https://www.dhl.de/de/geschaeftskunden/paket/kunde-werden.html). "
+                "Laptop: DHL publishes no business price per weight, so the private-customer price for 5 kg, 7.69 EUR, stands "
+                "as the upper bound (https://www.dhl.de/de/privatkunden/pakete-versenden/deutschlandweit-versenden/preise-national.html). "
+                "Both retrieved 04.10.2026."),
     Rate("software", "Software and management", "per device-month", "Head of IT",
-         "MDM licence and support tooling, per month in service", value=2.5),
+         "the MDM licence per month in service; support tooling is not in this rate", value=round(25.61 / 12, 2),
+         source="Microsoft Intune Plan 1 device licence, 25.61 EUR net a year on a one-year CSP term, divided by 12 "
+                "(reseller list price, https://www.software-express.de/hersteller/microsoft/intune/, page dated 06.03.2026, "
+                "retrieved 04.10.2026)"),
     Rate("support", "Support", "per device-month", "Head of Customer Success",
          "first-level support, per month in service", value=1.5),
     Rate("swap", "Defect and swap handling", "per event", "Head of Service Operations",
          "return of the defect device and shipping of the replacement, per contract ended by a defect or a swap", value=35.0),
+    Rate("return_ship", "Return shipping", "per rental ended on schedule or early", "Head of Operations",
+         "DHL collects the device from the user with the label; a return after a defect or a swap is in the swap handling",
+         value=round(6.40 + 1.99, 2),
+         source="DHL Retoure mit Abholung und Label, 6.40 EUR net incl. toll and CO2 surcharge, plus the pickup order with "
+                f"label print booked online, 1.99 EUR, which DHL bills on top (footnote 5), {_DHL_SERVICES}. Price list "
+                "Stand 10/2025, before the price rise of 01.01.2026; no weight class. Retrieved 04.10.2026."),
+    Rate("intake", "Return intake, test, grade and wipe", "per device returned", "Head of Operations",
+         "receiving, audit, Blancco erasure or factory reset, function test and visual grade of every device that comes back",
+         by_family={"Smartphone": round(6.00 / GBP_PER_EUR, 2), "Tablet": round(6.00 / GBP_PER_EUR, 2),
+                    "Laptop": round(8.00 / GBP_PER_EUR, 2)},
+         source="Centerprise asset lifetime management, per unit for audit, Blancco/factory reset, de-tag, post test and "
+                f"visual grade: phones and PDAs 6.00 GBP, laptop 8.00 GBP ({_CENTERPRISE}), a UK public-sector framework "
+                "price (G-Cloud 14), converted at the ECB reference rate of 2 Oct 2026 (1 EUR = 0.85033 GBP). A tablet "
+                "takes the phone price; the list has no tablet line. Retrieved 04.10.2026."),
     Rate("warehouse_day", "Warehousing", "per device-day", "Head of Operations",
-         "space and handling, per device and day on hand", value=0.04),
-    Rate("capital", "Cost of capital", "per EUR of stock value and year", "CFO",
-         "the KPI tab's carrying-cost rate, on the order-line value of the stock on hand", value=kpis.CARRYING_COST_RATE_PA),
+         "space and handling, per device and day owned and not out on rent", value=0.04),
+    Rate("capital", "Cost of capital", "per EUR of acquisition value and year", "CFO",
+         "the KPI tab's carrying-cost rate, on what the device was bought for, over every day it is owned: from receipt to "
+         "sale, recycling or today. No device-as-a-service financier publishes its rate; the public anchors are the ECB "
+         "main refinancing rate, 2.65 % from 16.09.2026 (https://www.ecb.europa.eu/stats/policy_and_exchange_rates/"
+         "key_ecb_interest_rates/html/index.en.html), euro-area new corporate loans over 1m EUR, 3.34 % in August 2026 "
+         "(https://www.ecb.europa.eu/press/stats/mfi/html/ecb.mir2610~8e4898ad10.en.html), and the 4.625 % coupon of "
+         "Grenke's 2031 bond (https://grenke.com/investor-relations/debt-capital/issued-bonds), all retrieved 04.10.2026",
+         value=kpis.CARRYING_COST_RATE_PA),
     Rate("recycling", "Recycling", "per device", "Head of Recommerce",
          "WEEE handling and data destruction of a device that is not sold", value=6.0),
 )}
 
-# The layers, in the order of a device's life. The eighth is the credit.
+# The layers, in the order of a device's life. The last is the credit.
 LAYERS = (
     ("acquisition", "Acquisition", "what the device was bought for: the unit price of the order line it traces to"),
     ("inbound", "Inbound logistics", "freight, import handling and receiving, per device delivered"),
-    ("enrolment", "Enrolment and configuration", "MDM enrolment, staging and shipping to the user, once per rental start"),
+    ("enrolment", "Enrolment and staging", "MDM enrolment, configuration and packing, once per rental start"),
+    ("outbound", "Shipping to the user", "the parcel to the user, once per rental start"),
     ("software", "Software and management", "MDM licence and support tooling, per month in service"),
     ("support", "Support and damage", "first-level support per month in service, plus every contract ended by a defect or a swap"),
+    ("returns", "Returns and intake", "the return trip, then intake, test, grade and wipe of every device that comes back"),
     ("service", "Repair and refurbishment", "the partner's invoice per repair and per refurbishment, from the service events"),
-    ("warehouse", "Warehousing and tied-up capital", "days on hand across the compartments, and the cost of the money sitting in that stock"),
+    ("warehouse", "Days off rent", "every day the device is owned and not out on rent: on the shelf, in transit or on the bench"),
+    ("financing", "Financing", "the cost of the money in the device: what it was bought for, over every day it is owned"),
     ("eol", "End of life", "resale proceeds as a credit, from the sold serials; recycling cost where there are none"),
 )
 
@@ -130,9 +199,10 @@ COHORTS = {
               "paid on day one and most of a young fleet's resale credit has not arrived yet."),
 }
 
-BASIS = ("Quantities are measured: prices from the order lines, months in service from the rental contracts, repairs and "
-         "refurbishments from the service events, dwell from the compartments, proceeds from the sold serials. Rates are "
-         "placeholders with an owner. Everything is computed in the database from every serial.")
+BASIS = ("Quantities are measured: prices from the order lines, months in service and rent from the rental contracts, "
+         "returns from how each contract ended, repairs and refurbishments from the service events, days owned from the "
+         "receipt and sale dates, proceeds from the sold serials. A rate is a public list price with its source, or a "
+         "placeholder with the role that sets it. Everything is computed in the database from every serial.")
 
 
 def _money(x) -> Decimal:
@@ -203,12 +273,20 @@ class _Q:
     repair_cost: Decimal = _ZERO
     refurbs: int = 0
     refurb_cost: Decimal = _ZERO
-    on_hand_dated: int = 0               # on hand with a dwell date
-    on_hand_days: int = 0                # device-days on hand, to date
-    on_hand_value_days: Decimal = _ZERO  # EUR-days: days times the order-line price, for the priced ones
-    on_hand_unpriced: int = 0
-    inbound: Decimal = _ZERO             # the two per-class rates, applied per model and summed upward
+    returns: int = 0                    # contracts ended: every one is a device coming back
+    returns_plain: int = 0               # of those, ended on schedule or early (a defect or swap is in the swap rate)
+    owned_dated: int = 0                 # devices with a receipt date
+    owned_days: int = 0                  # device-days owned: receipt to sale, recycling or today
+    owned_value_days: Decimal = _ZERO    # EUR-days: days owned times the order-line price, for the priced ones
+    owned_unpriced: int = 0              # dated devices without an order-line price
+    rent_contracts: int = 0              # contracts that carry a rent
+    rent_days: int = 0                   # the days those contracts ran
+    rent_eur_days: Decimal = _ZERO       # rent per month times the days it ran; revenue is this over DAYS_PER_MONTH
+    inbound: Decimal = _ZERO             # the per-class rates, applied per model and summed upward
     enrolment: Decimal = _ZERO
+    outbound: Decimal = _ZERO
+    return_ship: Decimal = _ZERO
+    intake: Decimal = _ZERO
 
     def merge(self, other: "_Q") -> None:
         for f in fields(self):
@@ -235,6 +313,15 @@ def _add_starts(acc: dict[str, _Q], rows) -> None:
             q.start_ord_cycle2 += n * o
 
 
+def _add_return(q: _Q, reason, n: int) -> None:
+    """``n`` contracts ended: every one brings a device back; a defect or a swap travels on the swap rate."""
+    q.returns += n
+    if reason in ("defect", "swap"):
+        q.swap_events += n
+    else:
+        q.returns_plain += n
+
+
 def _add_ends(acc: dict[str, _Q], rows) -> None:
     for pid, cycle, end, reason, n in rows:
         q, n, o = acc[pid], int(n), _as_date(end).toordinal()
@@ -243,21 +330,27 @@ def _add_ends(acc: dict[str, _Q], rows) -> None:
         if int(cycle) >= 2:
             q.ended_cycle2 += n
             q.end_ord_cycle2 += n * o
-        if reason in ("defect", "swap"):
-            q.swap_events += n
+        _add_return(q, reason, n)
 
 
 def _add_joined(acc: dict[str, _Q], rows) -> None:
-    """Contracts already summed to days in SQL: (model, cycle, end reason, how many, device-days)."""
-    for pid, cycle, reason, n, days in rows:
+    """Contracts already summed in SQL: (model, cycle, end reason, how many, device-days, how many
+    ended, how many carry a rent, rent times days, the days of those with a rent)."""
+    for pid, cycle, reason, n, days, n_ended, n_rent, rent_eur_days, rent_days in rows:
         q, n, days = acc[pid], int(n), max(0, int(round(float(days or 0))))
         q.contracts += n
         q.direct_days += days
         if int(cycle) >= 2:
             q.contracts_cycle2 += n
             q.direct_days_cycle2 += days
-        if reason in ("defect", "swap"):
-            q.swap_events += n
+        _add_return(q, reason, int(n_ended))
+        _add_rent(q, n_rent, rent_eur_days, rent_days)
+
+
+def _add_rent(q: _Q, n, rent_eur_days, days) -> None:
+    q.rent_contracts += int(n or 0)
+    q.rent_eur_days += max(_ZERO, _money(rent_eur_days))
+    q.rent_days += max(0, int(round(float(days or 0))))
 
 
 def _add_events(acc: dict[str, _Q], rows) -> None:
@@ -330,32 +423,38 @@ def _read(db: Session, today: date) -> tuple[dict, dict, dict[str, _Q], dict[str
         add_devices(status, pid, None, n, n_priced, proceeds)
     finished = Asset.status.in_(FINISHED_STATUSES)
 
-    # Dwell on hand, summed to device-days per order line in SQL from the covering index (the
-    # rows are visited anyway, so the day count is done there); a device with a dwell date in
-    # the future would count negative, so the sum is floored at zero.
+    # Days owned, summed per (status, order line) in SQL: receipt to sale, recycling or today.
+    # One pass over the asset table, with the day count done there because every row is
+    # visited anyway; the line gives the price, so the capital is price times days. They feed
+    # two layers: financing (the money in the device for as long as it is ours) and the days
+    # off rent (days owned minus days on rent). A receipt date in the future would count
+    # negative, so each group is floored at zero; a device without one is counted apart.
     today_lit = literal(today, Date)
-    on_hand = (Asset.status.in_(tuple(WAREHOUSE_STATUSES)), Asset.status_since.is_not(None))
-    dwell_days = func.sum(_days_between(db, today_lit, Asset.status_since))
+    owned_end = func.coalesce(Asset.sold_date, Asset.decommissioned_date, today_lit)
+    owned_cols = (func.count(Asset.received_date), func.sum(_days_between(db, owned_end, Asset.received_date)))
 
-    def add_dwell(pid, price, n, days):
-        n, days, q = int(n), max(0, int(round(float(days or 0)))), fleet[pid]
-        q.on_hand_dated += n
-        q.on_hand_days += days
-        if price is not None:
-            q.on_hand_value_days += price * days
-        else:
-            q.on_hand_unpriced += n
+    def add_owned(status, pid, price, n_dated, days):
+        n_dated, days = int(n_dated), max(0, int(round(float(days or 0))))
+        for q in ((fleet[pid], fin[pid]) if status in FINISHED_STATUSES else (fleet[pid],)):
+            q.owned_dated += n_dated
+            q.owned_days += days
+            if price is not None:
+                q.owned_value_days += price * days
+            else:
+                q.owned_unpriced += n_dated
 
-    for lid, n, days in db.execute(select(Asset.source_order_item_id, func.count(), dwell_days)
-                                   .where(*on_hand, Asset.source_order_item_id.is_not(None))
-                                   .group_by(Asset.source_order_item_id)).all():
+    for status, lid, n_dated, days in db.execute(
+            select(Asset.status, Asset.source_order_item_id, *owned_cols)
+            .where(Asset.source_order_item_id.is_not(None))
+            .group_by(Asset.status, Asset.source_order_item_id)).all():
         pid, price = lines.get(lid, (None, None))
         if pid is not None:
-            add_dwell(pid, price, n, days)
-    for pid, n, days in db.execute(select(Asset.product_id, func.count(), dwell_days)
-                                   .where(*on_hand, Asset.source_order_item_id.is_(None))
-                                   .group_by(Asset.product_id)).all():
-        add_dwell(pid, None, n, days)
+            add_owned(status, pid, price, n_dated, days)
+    for status, pid, n_dated, days in db.execute(
+            select(Asset.status, Asset.product_id, *owned_cols)
+            .where(Asset.source_order_item_id.is_(None))
+            .group_by(Asset.status, Asset.product_id)).all():
+        add_owned(status, pid, None, n_dated, days)
 
     # contracts, from the (model, cycle, start) and (model, cycle, end, reason) indexes; a
     # contract written without its model (an older path) is joined to its device instead
@@ -374,10 +473,25 @@ def _read(db: Session, today: date) -> tuple[dict, dict, dict[str, _Q], dict[str
                                 .select_from(rc).join(Asset, Asset.id == rc.asset_id)
                                 .where(rc.product_id.is_(None), rc.actual_end.is_not(None))
                                 .group_by(Asset.product_id, rc.cycle_no, rc.actual_end, rc.end_reason)).all())
+    # Rent: what each contract carries per month, times the days it ran (to today for a running
+    # one). The rent is not in any index, so this is one pass over the contracts, grouped by
+    # model; a contract without its model is joined to its device, as above.
+    run_days = _days_between(db, func.coalesce(rc.actual_end, today_lit), rc.start_date)
+    rent_cols = (func.count(rc.rent_eur_month),
+                 func.coalesce(func.sum(rc.rent_eur_month * run_days), 0),
+                 func.coalesce(func.sum(case((rc.rent_eur_month.is_not(None), run_days), else_=0)), 0))
+    for pid, n_rent, rent_eur_days, rent_days in db.execute(
+            select(rc.product_id, *rent_cols).where(rc.product_id.is_not(None)).group_by(rc.product_id)).all():
+        _add_rent(fleet[pid], n_rent, rent_eur_days, rent_days)
+    for pid, n_rent, rent_eur_days, rent_days in db.execute(
+            select(Asset.product_id, *rent_cols).select_from(rc).join(Asset, Asset.id == rc.asset_id)
+            .where(rc.product_id.is_(None)).group_by(Asset.product_id)).all():
+        _add_rent(fleet[pid], n_rent, rent_eur_days, rent_days)
     # the finished cohort's contracts: one join driven from its devices, which are few, with
-    # the days summed in SQL; a contract still running on a finished device would end today
-    service_days = func.sum(_days_between(db, func.coalesce(rc.actual_end, today_lit), rc.start_date))
-    _add_joined(fin, db.execute(select(Asset.product_id, rc.cycle_no, rc.end_reason, func.count(), service_days)
+    # the days, the returns and the rent summed in SQL; a contract still running on a finished
+    # device would end today
+    _add_joined(fin, db.execute(select(Asset.product_id, rc.cycle_no, rc.end_reason, func.count(), func.sum(run_days),
+                                       func.count(rc.actual_end), *rent_cols)
                                 .select_from(Asset).join(rc, rc.asset_id == Asset.id).where(finished)
                                 .group_by(Asset.product_id, rc.cycle_no, rc.end_reason)).all())
 
@@ -392,10 +506,18 @@ def _read(db: Session, today: date) -> tuple[dict, dict, dict[str, _Q], dict[str
     # the per-class rates, applied where the class is known: per model
     for acc in (fleet, fin):
         for pid, q in acc.items():
-            family = products.get(pid, (None, None, None))[2]
-            q.inbound = _money((RATES["inbound"].for_family(family) or 0) * q.devices)
-            q.enrolment = _money((RATES["enrolment"].for_family(family) or 0) * q.contracts)
+            _apply_family_rates(q, products.get(pid, (None, None, None))[2])
     return products, lines, fleet, fin
+
+
+def _apply_family_rates(q: _Q, family: Optional[str]) -> None:
+    """The rates that differ by device class, applied to one model's (or one device's) counts."""
+    rate = lambda rid: RATES[rid].for_family(family) or 0  # noqa: E731 - a lookup, not a function
+    q.inbound = _money(rate("inbound") * q.devices)
+    q.enrolment = _money(rate("enrolment") * q.contracts)
+    q.outbound = _money(rate("outbound") * q.contracts)
+    q.return_ship = _money(rate("return_ship") * q.returns_plain)
+    q.intake = _money(rate("intake") * q.returns)
 
 
 # ---------------------------------------------------------------------------
@@ -404,9 +526,14 @@ def _read(db: Session, today: date) -> tuple[dict, dict, dict[str, _Q], dict[str
 
 def _component(cid: str, label: str, *, quantity, unit: str, rate: Optional[Rate], rate_value, total,
                measured: bool, reason: Optional[str] = None, note: Optional[str] = None) -> dict:
+    if measured:
+        basis = "measured"
+    elif rate is not None and rate.source:
+        basis = "quantity measured, rate from a public source"
+    else:
+        basis = "quantity measured, rate placeholder"
     return {
-        "id": cid, "label": label,
-        "basis": "measured" if measured else "quantity measured, rate placeholder",
+        "id": cid, "label": label, "basis": basis,
         "quantity": (None if quantity is None else round(float(quantity), 1)), "unit": unit,
         "rate": (None if rate_value is None else float(rate_value)), "rate_id": (rate.id if rate else None),
         "total": (None if total is None else float(total)), "reason": reason, "note": note,
@@ -437,7 +564,7 @@ def _layer(lid: str, label: str, components: list[dict], devices: int, months: f
 
 
 def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
-    """The eight layers of one population, and the totals over them."""
+    """The layers of one population, the totals over them, and what its contracts earned."""
     devices = q.devices
     days = q.days(today)
     months = days / DAYS_PER_MONTH
@@ -458,6 +585,9 @@ def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
     enrolment = [_component("enrolment", R["enrolment"].label, quantity=q.contracts, unit="rental starts", rate=R["enrolment"],
                             rate_value=(q.enrolment / q.contracts if q.contracts else R["enrolment"].for_family(None)),
                             total=q.enrolment, measured=False)]
+    outbound = [_component("outbound", R["outbound"].label, quantity=q.contracts, unit="rental starts", rate=R["outbound"],
+                           rate_value=(q.outbound / q.contracts if q.contracts else R["outbound"].for_family(None)),
+                           total=q.outbound, measured=False)]
     software = [_component("software", R["software"].label, quantity=months, unit="device-months in service", rate=R["software"],
                            rate_value=R["software"].value, total=_money(R["software"].value * months), measured=False)]
     support = [
@@ -474,26 +604,38 @@ def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
                    rate_value=(q.refurb_cost / q.refurbs if q.refurbs else None), total=q.refurb_cost, measured=True,
                    note=(f"{q.in_refurb:,} devices on the bench now, not yet invoiced" if q.in_refurb else None)),
     ]
-    if finished:
-        wh_reason = "the warehouse days of a finished life are not logged; a measured figure needs the movement log"
-    elif q.on_hand == 0:
-        wh_reason = "no device of this group on hand"
-    elif q.on_hand_dated == 0:
-        wh_reason = "no dwell recorded: status_since is empty for every unit on hand"
-    else:
-        wh_reason = None
-    undated = q.on_hand - q.on_hand_dated
-    warehouse = [
-        _component("warehouse_days", R["warehouse_day"].label, quantity=q.on_hand_days, unit="device-days on hand, to date",
-                   rate=R["warehouse_day"], rate_value=R["warehouse_day"].value,
-                   total=(None if wh_reason else _money(R["warehouse_day"].value * q.on_hand_days)), measured=False, reason=wh_reason,
-                   note=(None if wh_reason or not undated else f"{undated:,} units on hand carry no dwell date and are not in this figure")),
-        _component("capital", R["capital"].label, quantity=(float(q.on_hand_value_days) if not wh_reason else None), unit="EUR-days of stock value",
-                   rate=R["capital"], rate_value=R["capital"].value,
-                   total=(None if wh_reason else _money(float(q.on_hand_value_days) * R["capital"].value / 365.0)), measured=False,
-                   reason=wh_reason,
-                   note=(None if wh_reason or not q.on_hand_unpriced else f"{q.on_hand_unpriced:,} units on hand have no order-line price and tie up nothing here")),
+    # Every ended contract brings a device back: it is received, tested, graded and wiped. The
+    # trip itself is its own rate, except after a defect or a swap, where the swap rate already
+    # carries the return and the replacement.
+    returns = [
+        _component("return_ship", R["return_ship"].label, quantity=q.returns_plain, unit="rentals ended on schedule or early",
+                   rate=R["return_ship"],
+                   rate_value=(q.return_ship / q.returns_plain if q.returns_plain else R["return_ship"].for_family(None)),
+                   total=q.return_ship, measured=False,
+                   note=(f"{q.swap_events:,} returns after a defect or a swap travel on the swap rate" if q.swap_events else None)),
+        _component("intake", R["intake"].label, quantity=q.returns, unit="devices returned", rate=R["intake"],
+                   rate_value=(q.intake / q.returns if q.returns else R["intake"].for_family(None)),
+                   total=q.intake, measured=False),
     ]
+    # Days owned come from the receipt and sale dates of every serial; days on rent from the
+    # contracts. What lies between is the time a device costs space, handling and money while
+    # it earns nothing: the shelf, the carrier, the refurbisher's bench.
+    own_reason = None if q.owned_dated else "no device of this group carries a receipt date"
+    undated = devices - q.owned_dated
+    undated_note = f"{undated:,} devices carry no receipt date and are not in this figure" if undated > 0 else None
+    off_rent = None if own_reason else max(0, q.owned_days - days)
+    warehouse = [_component(
+        "off_rent_days", R["warehouse_day"].label, quantity=off_rent, unit="device-days owned and not out on rent",
+        rate=R["warehouse_day"], rate_value=R["warehouse_day"].value,
+        total=(None if own_reason else _money(R["warehouse_day"].value * off_rent)), measured=False, reason=own_reason,
+        note=(None if own_reason else undated_note))]
+    unpriced_note = (f"{q.owned_unpriced:,} devices have no order-line price and tie up nothing here"
+                     if q.owned_unpriced else None)
+    financing = [_component(
+        "capital", R["capital"].label, quantity=(None if own_reason else float(q.owned_value_days)),
+        unit="EUR-days of acquisition value owned", rate=R["capital"], rate_value=R["capital"].value,
+        total=(None if own_reason else _money(float(q.owned_value_days) * R["capital"].value / 365.0)), measured=False,
+        reason=own_reason, note=(None if own_reason else "; ".join(n for n in (undated_note, unpriced_note) if n) or None))]
     eol = [
         _component("resale", "Resale proceeds (credit)", quantity=q.sold_priced, unit="devices sold with recorded proceeds", rate=None,
                    rate_value=(q.proceeds / q.sold_priced if q.sold_priced else None), total=(-q.proceeds if q.sold else None), measured=True,
@@ -502,8 +644,9 @@ def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
         _component("recycling", R["recycling"].label, quantity=q.recycled, unit="devices recycled", rate=R["recycling"],
                    rate_value=R["recycling"].value, total=_money(R["recycling"].value * q.recycled), measured=False),
     ]
-    parts = {"acquisition": acquisition, "inbound": inbound, "enrolment": enrolment, "software": software,
-             "support": support, "service": service, "warehouse": warehouse, "eol": eol}
+    parts = {"acquisition": acquisition, "inbound": inbound, "enrolment": enrolment, "outbound": outbound,
+             "software": software, "support": support, "returns": returns, "service": service,
+             "warehouse": warehouse, "financing": financing, "eol": eol}
     layers = [_layer(lid, labels[lid], parts[lid], devices, months) for lid, _l, _d in LAYERS]
     if not devices:
         _blank(layers, "no device in this group")
@@ -519,6 +662,28 @@ def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
         resale_reason = "no device of this group has been sold yet"
     elif q.acquisition_of_sold == 0:
         resale_reason = "the sold devices trace to no priced order line, so no share can be given"
+    # What the contracts earned: the rent each one carries, times the months it ran. Set
+    # against the whole-life cost this is the margin, per device and per month in service.
+    rent_months = q.rent_days / DAYS_PER_MONTH
+    if not devices:
+        rent_reason = "no device in this group"
+    elif not q.contracts:
+        rent_reason = "no rental yet"
+    elif not q.rent_contracts:
+        rent_reason = "no contract of this group carries a rent"
+    else:
+        rent_reason = None
+    revenue = None if rent_reason else round(float(q.rent_eur_days) / DAYS_PER_MONTH, 2)
+    margin = (round(revenue - net, 2) if revenue is not None and net is not None else None)
+    rent = {
+        "revenue": revenue, "contracts_with_rent": q.rent_contracts, "rent_months": round(rent_months, 1),
+        "per_month": per(revenue, rent_months), "per_device": per(revenue, devices),
+        "margin": margin, "margin_per_device": per(margin, devices), "margin_per_month": per(margin, months),
+        "margin_share": (round(margin / revenue, 4) if margin is not None and revenue else None),
+        "reason": rent_reason,
+        "note": (f"{q.contracts - q.rent_contracts:,} contracts carry no rent; the margin leaves out what they earned"
+                 if 0 < q.rent_contracts < q.contracts else None),
+    }
     totals = {
         "devices": devices, "rented": q.rented, "on_hand": q.on_hand, "sold": q.sold, "recycled": q.recycled, "priced": q.priced,
         "contracts": q.contracts, "contracts_cycle2": q.contracts_cycle2,
@@ -526,7 +691,8 @@ def _figures(q: _Q, today: date, *, finished: bool) -> tuple[list[dict], dict]:
         "months_per_device": (round(months / devices, 1) if devices and q.contracts else None),
         "second_life_share_of_months": (round(q.days(today, cycle2=True) / days, 4) if days > 0 else None),
         "repairs": q.repairs, "refurbs": q.refurbs, "in_repair": q.in_repair, "in_refurb": q.in_refurb, "swap_events": q.swap_events,
-        "gross": gross, "credit": round(credit, 2), "net": net,
+        "returns": q.returns, "device_days_owned": q.owned_days, "device_days_off_rent": off_rent,
+        "gross": gross, "credit": round(credit, 2), "net": net, "rent": rent,
         "per_device": {"gross": per(gross, devices), "credit": per(credit, devices), "net": per(net, devices)},
         "per_month": {"gross": per(gross, months), "credit": per(credit, months), "net": per(net, months)},
         "per_month_reason": months_reason,
@@ -584,8 +750,8 @@ def overview(db: Session, *, today: Optional[date] = None) -> dict:
     today = today or date.today()
     head = {
         "scenario": "daas", "as_of": today, "reason": None, "basis": BASIS,
-        "rates": [{"id": r.id, "label": r.label, "unit": r.unit, "owner": r.owner, "placeholder": True, "note": r.note,
-                   "value": r.value, "by_family": r.by_family} for r in RATES.values()],
+        "rates": [{"id": r.id, "label": r.label, "unit": r.unit, "owner": r.owner, "placeholder": r.placeholder, "note": r.note,
+                   "value": r.value, "by_family": r.by_family, "source": r.source} for r in RATES.values()],
         "layers": [{"id": lid, "label": label, "description": desc} for lid, label, desc in LAYERS],
     }
     if not _is_daas(db):
@@ -596,3 +762,120 @@ def overview(db: Session, *, today: Optional[date] = None) -> dict:
     products, _lines, fleet, fin = _read(db, today)
     head["cohorts"] = {cid: _cohort(cid, acc, products, today) for cid, acc in (("finished", fin), ("fleet", fleet))}
     return head
+
+
+# ---------------------------------------------------------------------------
+# one device: a population of one, through the same figures
+
+
+def device(db: Session, key: str, *, today: Optional[date] = None) -> dict:
+    """The whole life of one serial: every layer of its TCO, what its contracts earned, and the
+    dated events behind both. ``key`` is the serial number or the asset id.
+
+    The quantities are the same ones the fleet reads sum, taken from this device's own rows,
+    and they go through the same ``_figures``: a serial's number and its model's average are
+    one calculation at two sizes.
+    """
+    today = today or date.today()
+    a = db.scalar(select(Asset).where(Asset.serial_number == key)) or db.get(Asset, key)
+    if a is None:
+        raise NotFoundError(f"Device {key!r} not found")
+    prod = db.get(Product, a.product_id)
+    family = prod.category if prod is not None else None
+    line = db.get(OrderItem, a.source_order_item_id) if a.source_order_item_id else None
+    price = Decimal(str(line.unit_price)) if line is not None and line.unit_price is not None else None
+    rc, se = RentalContract, ServiceEvent
+    contracts = db.scalars(select(rc).where(rc.asset_id == a.id).order_by(rc.cycle_no, rc.start_date)).all()
+    events = db.scalars(select(se).where(se.asset_id == a.id).order_by(se.event_date)).all()
+
+    q, status = _Q(devices=1), a.status
+    finished = status in FINISHED_STATUSES
+    if status == AssetStatus.RENTED:
+        q.rented = 1
+    elif status in WAREHOUSE_STATUSES:
+        q.on_hand = 1
+    elif status == AssetStatus.SOLD:
+        q.sold = 1
+    elif status == AssetStatus.RECYCLED:
+        q.recycled = 1
+    q.in_repair = int(status == AssetStatus.REPAIR)
+    q.in_refurb = int(status == AssetStatus.REFURB)
+    if price is not None:
+        q.priced, q.acquisition = 1, price
+    if status == AssetStatus.SOLD and a.sale_price is not None:
+        q.sold_priced, q.proceeds = 1, _money(a.sale_price)
+        q.acquisition_of_sold = price if price is not None else _ZERO
+
+    life: list[dict] = []
+    if a.received_date is not None:
+        life.append({"date": _as_date(a.received_date), "kind": "received", "amount": (float(price) if price is not None else None)})
+    for c in contracts:
+        start = _as_date(c.start_date)
+        end = _as_date(c.actual_end) if c.actual_end is not None else None
+        d = max(0, ((end or today) - start).days)
+        q.contracts += 1
+        q.direct_days += d
+        if c.cycle_no >= 2:
+            q.contracts_cycle2 += 1
+            q.direct_days_cycle2 += d
+        if end is not None:
+            _add_return(q, c.end_reason, 1)
+        rent = Decimal(str(c.rent_eur_month)) if c.rent_eur_month is not None else None
+        if rent is not None:
+            _add_rent(q, 1, rent * d, d)
+        life.append({"date": start, "kind": "rental", "cycle": c.cycle_no, "end": end, "reason": c.end_reason,
+                     "days": d, "rent_eur_month": (float(rent) if rent is not None else None),
+                     "amount": (round(float(rent) * d / DAYS_PER_MONTH, 2) if rent is not None else None)})
+    for e in events:
+        if e.kind == ServiceKind.REPAIR or e.kind == "REPAIR":
+            q.repairs += 1
+            q.repair_cost += _money(e.cost)
+        else:
+            q.refurbs += 1
+            q.refurb_cost += _money(e.cost)
+        kind = getattr(e.kind, "value", e.kind)
+        life.append({"date": _as_date(e.event_date), "kind": str(kind).lower(), "cycle": e.cycle_no, "amount": float(_money(e.cost))})
+    if a.received_date is not None:
+        owned_end = a.sold_date or a.decommissioned_date or today
+        q.owned_dated = 1
+        q.owned_days = max(0, (_as_date(owned_end) - _as_date(a.received_date)).days)
+        if price is not None:
+            q.owned_value_days = price * q.owned_days
+        else:
+            q.owned_unpriced = 1
+    if status == AssetStatus.SOLD and a.sold_date is not None:
+        life.append({"date": _as_date(a.sold_date), "kind": "sold", "channel": a.sale_channel,
+                     "amount": (float(_money(a.sale_price)) if a.sale_price is not None else None)})
+    elif status == AssetStatus.RECYCLED and (a.decommissioned_date or a.sold_date) is not None:
+        life.append({"date": _as_date(a.decommissioned_date or a.sold_date), "kind": "recycled", "amount": None})
+    life.sort(key=lambda ev: ev["date"])
+    _apply_family_rates(q, family)
+
+    layers, totals = _figures(q, today, finished=finished)
+    row = {"kind": "device", "key": a.serial_number, "label": (prod.name if prod is not None else a.product_id),
+           "family": family, "product_code": (prod.product_code if prod is not None else None), "reason": None,
+           "as_of": today, "id": a.id, "serial_number": a.serial_number, "product_id": a.product_id,
+           "status": getattr(status, "value", status), "grade": a.grade, "cycle_no": a.cycle_no, "finished": finished,
+           "unit_price": (float(price) if price is not None else None), "received_date": a.received_date,
+           "sold_date": a.sold_date, "sale_price": (float(a.sale_price) if a.sale_price is not None else None),
+           "sale_channel": a.sale_channel, "life": life}
+    row.update(totals, layers=layers)
+    return row
+
+
+SERIAL_GROUPS = (("finished", FINISHED_STATUSES), ("rented", (AssetStatus.RENTED,)), ("on_hand", tuple(WAREHOUSE_STATUSES)))
+
+
+def serials(db: Session, product_id: str, *, per_group: int = 4) -> dict:
+    """A few serials of one model to open one by one: finished lives first, the ones with the
+    most rentals behind them, then rented, then on hand. A handful of index reads per model."""
+    prod = db.get(Product, product_id)
+    if prod is None:
+        raise NotFoundError(f"Product {product_id!r} not found")
+    out = []
+    for group, statuses in SERIAL_GROUPS:
+        rows = db.execute(select(Asset.serial_number, Asset.status, Asset.cycle_no)
+                          .where(Asset.product_id == product_id, Asset.status.in_(statuses))
+                          .order_by(Asset.cycle_no.desc(), Asset.serial_number).limit(per_group)).all()
+        out += [{"serial_number": s, "status": getattr(st, "value", st), "cycle_no": c, "group": group} for s, st, c in rows]
+    return {"product_id": product_id, "label": prod.name, "family": prod.category, "serials": out}

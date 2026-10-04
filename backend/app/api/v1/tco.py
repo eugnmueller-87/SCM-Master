@@ -6,6 +6,11 @@ Read-only views over the TCO service:
   GET /tco/by-class      — the datacenter waterfall per product category
   GET /tco/devices       — the device fleet: cost per device and per month in service,
                            per class and per model, finished lives and the fleet to date
+  GET /tco/devices/serial/{key}
+                         — one serial's whole life: every layer, what its rentals earned,
+                           the dated events behind both (key = serial number or asset id)
+  GET /tco/devices/models/{product_id}/serials
+                         — a few serials of one model to open: finished, rented, on hand
 
 The first three accept ``exclude_landed_types`` (repeatable) for tariff/scenario
 filtering (e.g. ?exclude_landed_types=DUTY) and belong to the datacenter's stored
@@ -24,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.auth import User
-from app.schemas.tco import AssetTCO, DeviceTCO, PortfolioTCO, TCOByClassRow
+from app.schemas.tco import AssetTCO, DeviceOne, DeviceSerials, DeviceTCO, PortfolioTCO, TCOByClassRow
 from app.services import tco as svc
 from app.services import tco_device
 
@@ -57,3 +62,17 @@ def device_tco(db: Session = Depends(get_db), _u: User = Depends(get_current_use
     """The rented-device fleet's TCO: per class, per model and rolled up, for the finished
     lives and for the whole fleet to date. Every figure with the counts behind it."""
     return tco_device.overview(db)
+
+
+@router.get("/tco/devices/serial/{key}", response_model=DeviceOne)
+def device_tco_one(key: str, db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
+    """One device's TCO, through the same figures as the fleet: acquisition to resale, every
+    rental with what it earned, every repair and refurbishment with its invoice."""
+    return tco_device.device(db, key)
+
+
+@router.get("/tco/devices/models/{product_id}/serials", response_model=DeviceSerials)
+def device_tco_serials(product_id: str, per_group: int = Query(4, ge=1, le=20),
+                       db: Session = Depends(get_db), _u: User = Depends(get_current_user)):
+    """A few serials of one model to open one by one: finished lives first, then rented, then on hand."""
+    return tco_device.serials(db, product_id, per_group=per_group)
