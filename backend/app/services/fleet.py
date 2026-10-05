@@ -17,6 +17,7 @@ hundred thousand.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Optional
@@ -24,7 +25,7 @@ from typing import Optional
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.catalog import Organization, Product
+from app.models.catalog import Organization, Product, ProductSupplier
 from app.models.flow import WAREHOUSE_STATUSES, Asset, AssetStatus
 from app.models.rental import ContractStatus, RentalContract
 
@@ -267,3 +268,161 @@ def upcoming_returns(db: Session, *, today: Optional[date] = None, days: int = 3
                     "age_months": round((today - a.received_date).days / 30.4375, 1) if a.received_date else None,
                     "expected_next": ("sale" if c.cycle_no >= 2 else "second rental, grade permitting")})
     return out
+
+
+# ---------------------------------------------------------------------------
+# What the fleet is made of: manufacturer, class, model
+# ---------------------------------------------------------------------------
+# Added 04.10.2026. The console could say how many devices are where, never WHICH
+# devices. "How many Apple, how many Samsung" had no answer, and a fleet owner
+# negotiates per manufacturer, plans a launch per model and writes off per class.
+#
+# WHY IT IS BUILT THIS WAY
+# No join from asset to manufacturer. A product carries two sources for the volume
+# models (Apple and Samsung phones have a second reseller), so joining asset to
+# product_supplier would count those devices twice, silently and only for the two
+# manufacturers that matter most. Instead: one small read builds product -> maker
+# (a few dozen rows), one grouped read counts assets per product and status (a few
+# hundred rows), and the tree is folded in Python. Nothing fans out, nothing is
+# pulled row by row, and at 400,000 devices both reads stay scalar.
+#
+# A product with no manufacturer on file lands under UNKNOWN_MAKER rather than
+# being dropped. A fleet that does not add up is worse than one with an honest
+# unknown in it.
+
+UNKNOWN_MAKER = "not on file"
+
+# Everything in the warehouse, in the order a device travels, so a model row reads
+# as a road and not as an alphabet.
+BREAKDOWN_STATUSES = [
+    # the rental road
+    AssetStatus.RENTED, AssetStatus.IN_STORAGE, AssetStatus.RETURNED, AssetStatus.MDM_RELEASE,
+    AssetStatus.WIPE_GRADING, AssetStatus.REPAIR, AssetStatus.REFURB, AssetStatus.READY_SECOND,
+    AssetStatus.SELLABLE, AssetStatus.SWAP_BUFFER, AssetStatus.RECEIVED,
+    # the datacenter scenario still exists and seed_reset still detects it. Without
+    # these two a datacenter database would carry devices in `total` that appear in
+    # no chip at all: present in the sum, invisible in the breakdown.
+    AssetStatus.DEPLOYED, AssetStatus.MAINTENANCE,
+    # left the fleet
+    AssetStatus.SOLD, AssetStatus.RECYCLED, AssetStatus.DISPOSED, AssetStatus.DECOMMISSIONED,
+]
+
+_RRP = re.compile(r"Launch RRP\s+([0-9]+(?:[.,][0-9]+)?)\s*EUR")
+_LAUNCH = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _catalogue_facts(description: Optional[str]) -> dict:
+    """Launch price and launch day, read back out of the product description the
+    seed wrote from the catalogue, plus the source URL that came with it. Parsed
+    tolerantly: a description in another shape yields None, never a guess, and the
+    raw text travels along so a reader can always see where the number came from."""
+    text = description or ""
+    rrp = _RRP.search(text)
+    launch = _LAUNCH.search(text)
+    url = text.split("Source:", 1)[1].strip() if "Source:" in text else ""
+    return {
+        "launch_rrp_eur": float(rrp.group(1).replace(",", ".")) if rrp else None,
+        "launch_date": launch.group(1) if launch else None,
+        "source": url,
+        "provenance": text,
+    }
+
+
+def _maker_by_product(db: Session) -> dict[str, str]:
+    """product id -> manufacturer name. DISTINCT, because a product may carry
+    several sources and they all name the same maker; without it the count of a
+    dual-sourced model would double."""
+    rows = db.execute(
+        select(ProductSupplier.product_id, Organization.name)
+        .join(Organization, Organization.id == ProductSupplier.manufacturer_id)
+        .distinct()
+    ).all()
+    return {str(pid): str(name) for pid, name in rows}
+
+
+def breakdown(db: Session, *, today: Optional[date] = None) -> dict:
+    """The fleet by manufacturer, class and model, each with its per-status counts.
+
+    The tree is returned whole and sorted by size, so the client can drill without
+    another round trip: a manufacturer opens its classes, a class opens its models.
+    `active` excludes what has left the fleet (sold, recycled); `total` does not, so
+    both questions are answerable from the same row without a second call.
+    """
+    today = today or date.today()
+    makers = _maker_by_product(db)
+
+    products: dict[str, tuple] = {}
+    rows = db.execute(
+        select(Product.id, Product.product_code, Product.name, Product.category, Product.description)
+    ).all()
+    for r in rows:
+        products[str(r[0])] = r
+
+    counts = db.execute(
+        select(Asset.product_id, Asset.status, func.count(Asset.id))
+        .group_by(Asset.product_id, Asset.status)
+    ).all()
+
+    gone = {AssetStatus.SOLD, AssetStatus.RECYCLED, AssetStatus.DISPOSED, AssetStatus.DECOMMISSIONED}
+
+    def blank() -> dict:
+        return {"total": 0, "active": 0, "by_status": defaultdict(int)}
+
+    tree: dict[str, dict] = {}
+    model_of: dict[tuple, dict] = {}
+    for product_id, status, n in counts:
+        key = str(product_id)
+        prod = products.get(key)
+        if prod is None:
+            continue
+        _pid, code, name, family, description = prod
+        maker = makers.get(key, UNKNOWN_MAKER)
+        family = family or "not classified"
+        n = int(n)
+
+        maker_node = tree.setdefault(maker, dict(blank(), name=maker, families={}))
+        fam_node = maker_node["families"].setdefault(family, dict(blank(), name=family, models={}))
+        mk = (maker, family, code)
+        model_node = model_of.get(mk)
+        if model_node is None:
+            model_node = dict(blank(), code=code, name=name, **_catalogue_facts(description))
+            model_of[mk] = model_node
+            fam_node["models"][code] = model_node
+
+        for node in (maker_node, fam_node, model_node):
+            node["total"] += n
+            node["by_status"][status.value if hasattr(status, "value") else str(status)] += n
+            if status not in gone:
+                node["active"] += n
+
+    def finish(node: dict) -> dict:
+        node["by_status"] = {s.value: node["by_status"].get(s.value, 0) for s in BREAKDOWN_STATUSES
+                             if node["by_status"].get(s.value, 0)}
+        return node
+
+    makers_out = []
+    for maker_node in tree.values():
+        fams = []
+        for fam_node in maker_node["families"].values():
+            models = sorted(fam_node["models"].values(), key=lambda m: (-m["active"], -m["total"]))
+            fam_node["models"] = [finish(m) for m in models]
+            fams.append(finish(fam_node))
+        maker_node["families"] = sorted(fams, key=lambda f: (-f["active"], -f["total"]))
+        makers_out.append(finish(maker_node))
+    # Nach der LEBENDEN Flotte sortiert: was verkauft ist, verwaltet niemand mehr.
+    makers_out.sort(key=lambda m: (-m["active"], -m["total"]))
+
+    total = sum(m["total"] for m in makers_out)
+    active = sum(m["active"] for m in makers_out)
+    for m in makers_out:
+        # Precomputed so no client has to divide, and so two screens cannot
+        # disagree about what the share is a share OF: the active fleet.
+        m["share_active"] = round(100.0 * m["active"] / active, 1) if active else 0.0
+
+    return {
+        "as_of": today,
+        "total": total,
+        "active": active,
+        "statuses": [s.value for s in BREAKDOWN_STATUSES],
+        "manufacturers": makers_out,
+    }
