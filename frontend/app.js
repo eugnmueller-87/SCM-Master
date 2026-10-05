@@ -900,3 +900,38 @@ async function renderDaasOverview() {
     $("#screen").innerHTML = errState(e.message);
   }
 }
+
+
+/* ─── Navigation als Schublade (Telefon) ──────────────────────────────────
+   Der Zustand haengt an data-nav am Wurzelelement, damit das Stylesheet ihn
+   allein auswertet. Sie schliesst bei jedem Weg hinaus: ein Klick auf einen
+   Eintrag, ein Klick daneben, Escape. Eine Schublade, die offen bleibt,
+   nachdem man etwas ausgewaehlt hat, verdeckt genau das Ergebnis. */
+(function navDrawer() {
+  const app = document.getElementById("app-view");
+  const btn = document.getElementById("menubtn");
+  const scrim = document.getElementById("navscrim");
+  const sidebar = document.getElementById("sidebar");
+  if (!app || !btn || !scrim || !sidebar) return;
+
+  function setOpen(open) {
+    app.dataset.nav = open ? "open" : "closed";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    scrim.hidden = !open;
+  }
+  setOpen(false);
+
+  btn.addEventListener("click", () => setOpen(app.dataset.nav !== "open"));
+  scrim.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && app.dataset.nav === "open") { setOpen(false); btn.focus(); }
+  });
+  // Jeder Weg hinaus schliesst sie, auch die Eintraege, die erst spaeter
+  // gezeichnet werden: deshalb am Behaelter und nicht an den Links.
+  sidebar.addEventListener("click", (e) => { if (e.target.closest("a")) setOpen(false); });
+  // Zurueck auf einen breiten Schirm: die Leiste steht dort ohnehin, ein
+  // zurueckgebliebener Zustand wuerde die Abdeckung ueber allem lassen.
+  const wide = window.matchMedia("(min-width: 861px)");
+  const onWide = (m) => { if (m.matches) setOpen(false); };
+  wide.addEventListener ? wide.addEventListener("change", onWide) : wide.addListener(onWide);
+})();

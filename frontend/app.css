@@ -1423,3 +1423,91 @@ body.ictw-ai-on .ictw-reason { display: block; }
 .mv-path__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .mv-path__now { text-align: right; }
 
+
+/* ─── Telefon ──────────────────────────────────────────────────────────
+   Angelegt 04.10.2026. Vorher endete das Stylesheet bei 900 Pixeln, und
+   darunter stand die 240-Pixel-Leiste neben einem 150-Pixel-Inhalt.
+
+   Unterhalb von 860 Pixeln wird die Leiste zur Schublade: sie faehrt ueber
+   den Inhalt statt neben ihm zu stehen, und data-nav am Wurzelelement
+   entscheidet, ob sie draussen ist. Damit bleibt die Navigation dieselbe,
+   sie ist nur nicht mehr dauerhaft im Weg. */
+
+.menubtn { display: none; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+
+  .menubtn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 38px; height: 38px; flex: none; margin-right: 10px;
+    background: none; border: 1px solid var(--ts-line); border-radius: 9px;
+    color: var(--ts-ink); cursor: pointer;
+  }
+  .menubtn:hover { background: var(--ts-paper-deep); }
+
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
+    width: 272px; max-width: 86vw; height: 100%;
+    transform: translateX(-100%);
+    transition: transform .18s ease;
+    overflow-y: auto;
+  }
+  /* Der Schatten erst, wenn die Schublade draussen ist. Steht er dauerhaft,
+     leuchtet der 12-Pixel-Versatz am linken Rand durch, obwohl die Leiste
+     weggefahren ist, und es sieht aus wie ein Darstellungsfehler. */
+  .app[data-nav="open"] .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 0 0 1px var(--ts-line), 12px 0 32px rgba(0, 0, 0, .18);
+  }
+
+  .navscrim {
+    position: fixed; inset: 0; z-index: 55;
+    background: rgba(15, 20, 26, .42);
+  }
+
+  /* Die Leiste traegt jetzt den Knopf und muss links Platz lassen. Die Suche
+     ist auf einem Telefon das erste, was weichen darf: sie ist eine Abkuerzung,
+     keine Navigation. */
+  .topbar { padding-left: 12px; padding-right: 12px; gap: 8px; }
+  .searchbar { display: none; }
+  .crumbs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .content { padding-left: 16px; padding-right: 16px; }
+
+  /* Jedes Raster, das auf feste Spalten gesetzt war, stapelt. Zwei Spalten,
+     wo zwei Zahlen nebeneinander noch lesbar sind, sonst eine. */
+  .content--rail,
+  .track-split,
+  .kpi-explain__grid,
+  .kpi-form { grid-template-columns: 1fr; gap: 16px; }
+  .kpi-form__wide { grid-column: span 1; }
+
+  .stats, .stats--5, .tkpis, .ipos-strip, .ipos-dl-grid, .ictw-kpis,
+  .wh-cnt__strip, .sim-grid, .sim-hold__grid, .om-tiers {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+  }
+
+  /* Zwei Zeitachsen mit festen 200- und 150-Pixel-Spalten: auf dem Telefon
+     passen die drei Spalten nicht nebeneinander, also untereinander. */
+  .cp-axis { display: none; }
+  .cp-tl { grid-template-columns: 1fr; gap: 4px; }
+
+  /* Tabellen sind Daten und duerfen breit sein. Sie scrollen in sich, damit
+     nicht die ganze Seite seitwaerts laeuft. */
+  .content table { display: block; width: 100%; overflow-x: auto; }
+
+  h1 { font-size: 1.45rem; }
+}
+
+@media (max-width: 520px) {
+  .stats, .stats--5, .tkpis, .ipos-strip, .ipos-dl-grid, .ictw-kpis,
+  .wh-cnt__strip, .sim-grid, .sim-hold__grid, .om-tiers {
+    grid-template-columns: 1fr;
+  }
+  .login { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}
