@@ -1556,8 +1556,14 @@ body.ictw-ai-on .ictw-reason { display: block; }
   .segmented button:last-child { border-right: 1px solid var(--ts-line); }
 
   /* Was man mit dem Finger trifft, ist mindestens 34 Pixel hoch. Gemessen
-     wurden 24 bis 31 Pixel quer durch alle Reiter. */
-  .btn--sm { min-height: 34px; padding: 7px 12px; }
+     wurden 24 bis 31 Pixel quer durch alle Reiter.
+     Die Eintraege der Schublade sind 42, nicht 34: sie sind die Navigation,
+     man trifft sie im Gehen, und sie standen mit 25 Pixeln am schlechtesten
+     da. Sie fielen erst bei der Abnahme auf der Produktion auf, weil die
+     Schublade in den Laeufen davor weggeschoben und damit unmessbar war. */
+  .navlink { min-height: 42px; }
+  .btn, .btn--sm { min-height: 34px; }
+  .btn--sm { padding: 7px 12px; }
   .iconbtn { width: 34px; height: 34px; }
 
   /* Die Kennzahlenkacheln stehen untereinander, ihre Trennlinie zeigte aber
