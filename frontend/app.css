@@ -1493,11 +1493,82 @@ body.ictw-ai-on .ictw-reason { display: block; }
   .cp-axis { display: none; }
   .cp-tl { grid-template-columns: 1fr; gap: 4px; }
 
-  /* Tabellen sind Daten und duerfen breit sein. Sie scrollen in sich, damit
-     nicht die ganze Seite seitwaerts laeuft. */
-  .content table { display: block; width: 100%; overflow-x: auto; }
+  /* Tabellen sind Daten und duerfen breit sein. Sie scrollen in ihrem
+     Umschlag, damit nicht die ganze Seite seitwaerts laeuft.
+
+     KORRIGIERT 05.10.2026: hier stand `table { display: block }`. Damit
+     verliert eine Tabelle ihr Tabellenlayout -- jede Zeile bildet eine eigene
+     anonyme Tabelle und misst ihre Spalten selbst. Im Inventar standen
+     dadurch die Spaltenkoepfe ueber den falschen Zahlen. Der Umschlag scrollt,
+     die Tabelle bleibt eine Tabelle. */
+  .panel { overflow-x: auto; }
 
   h1 { font-size: 1.45rem; }
+
+  /* Die Zahl im Flottenbalken verschwindet. app.js schreibt sie in jedes
+     Segment ueber 6 Prozent der Flotte -- eine Regel nach Anteil, nicht nach
+     Pixeln. Bei 390 Pixeln ist ein Neun-Prozent-Segment rund 30 Pixel breit,
+     die fuenfstellige Zahl braucht etwa 40, und `.dist { overflow: hidden }`
+     schneidet sie ab: aus 35.400 wurde sichtbar "5.40". Eine falsch
+     aussehende Zahl ist schlimmer als keine. Die Legende direkt darunter
+     nennt jeden Wert vollstaendig. */
+  .dist__seg-n { display: none; }
+
+  /* Die Stufen der Lagerkette: 112 Pixel minus Polster lassen 88 fuer die
+     Ueberschrift, "RETURN CHAIN" braucht mit Sperrung 89. Drei Pixel, und das
+     letzte Zeichen war weg. Die Kette scrollt ohnehin in sich, also kostet
+     etwas mehr Breite nichts. */
+  .wh-step { min-width: 124px; }
+
+  /* Kopfbereiche, die auf dem Desktop Titel links und Schalter rechts stellen:
+     der Schalter behaelt mit flex:none seine Breite, also schrumpft der Titel.
+     Im Inventar blieben dem Satz "What to order, how much, by when" 116 Pixel,
+     ein Wort je Zeile, daneben leere Flaeche. Untereinander statt nebeneinander. */
+  .ictw-head, .pagehead { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .ictw-aitoggle { align-self: stretch; }
+
+  /* Abschnittskoepfe: Titel, Zaehler und Hinweis stehen auf dem Desktop in
+     einer Zeile, der Hinweis per margin-left:auto ganz rechts. Auf dem Telefon
+     nimmt der Hinweis den Platz und der Titel bricht in ein Wort je Zeile
+     ("The" ueber "chain"). Der Hinweis bekommt seine eigene Zeile. */
+  .section__head { flex-wrap: wrap; row-gap: 5px; }
+  .section__title { white-space: nowrap; }
+  .section__hint { margin-left: 0; flex: 1 1 100%; }
+
+  /* Der Segmentschalter wird zur Chipgruppe. Als eine Zeile passten von elf
+     Filtern nur vier auf den Schirm; die anderen sieben lagen jenseits des
+     Randes und waren mit dem Finger nicht erreichbar, weil die Leiste nicht
+     scrollt. Dieselbe Klasse traegt auch das Zeitfenster der Bewegungen (dort
+     auf 35 Pixel gequetscht), die Meilensteine der Kapazitaetsplanung und den
+     Umschalter im Device TCO -- vier Befunde, eine Ursache.
+     Das margin-left kommt als style-Attribut aus dem JavaScript und laesst
+     sich nur mit !important aufheben. */
+  .toolbar { flex-wrap: wrap; row-gap: 10px; }
+  .segmented {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    border: none; overflow: visible; background: none;
+    margin-left: 0 !important;
+  }
+  .segmented button {
+    border: 1px solid var(--ts-line); border-radius: 6px;
+    background: var(--ts-surface); min-height: 34px;
+  }
+  .segmented button:last-child { border-right: 1px solid var(--ts-line); }
+
+  /* Was man mit dem Finger trifft, ist mindestens 34 Pixel hoch. Gemessen
+     wurden 24 bis 31 Pixel quer durch alle Reiter. */
+  .btn--sm { min-height: 34px; padding: 7px 12px; }
+  .iconbtn { width: 34px; height: 34px; }
+
+  /* Die Kennzahlenkacheln stehen untereinander, ihre Trennlinie zeigte aber
+     weiter nach rechts und stand als Reststrich am Kartenrand. */
+  .stat { border-right: none; border-bottom: 1px solid var(--ts-line); }
+  .stat:last-child { border-bottom: none; }
+
+  /* Der schwebende Chatknopf sitzt fest unten rechts und verdeckte auf
+     mehreren Reitern die letzte Zeile. Platz darunter, statt ihn zu
+     verstecken: er gehoert zur Bedienung. */
+  .content { padding-bottom: 96px; }
 }
 
 @media (max-width: 520px) {
