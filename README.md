@@ -1,7 +1,7 @@
 # SCM Master
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-online-2ea44f?logo=railway&logoColor=white)](https://scm-master-production.up.railway.app)
-[![Analytics Cockpit](https://img.shields.io/badge/Analytics-cockpit-F2C811?logo=powerbi&logoColor=black)](https://scm-power-bi-production.up.railway.app)
+[![Analytics Cockpit](https://img.shields.io/badge/Analytics-cockpit_%28static_demo%29-F2C811?logo=powerbi&logoColor=black)](https://eugnmueller-87.github.io/SCM-POWER-BI/deploy/)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0-D71F00?logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org/)
@@ -39,7 +39,7 @@ both reasonable and hostile AI advice and proves it holds the line.
 
 It runs **live** as two isolated stacks — a public [demo](https://scm-master-production.up.railway.app)
 that self-seeds a lived-in operation, and a forge-locked production stack — each
-with its own [analytics cockpit](https://scm-power-bi-production.up.railway.app).
+with its own [analytics cockpit](https://eugnmueller-87.github.io/SCM-POWER-BI/deploy/).
 
 ### TL;DR — key decisions (and why)
 
@@ -399,7 +399,7 @@ docker-compose.yml  # Postgres + api
 **Fastest path — the live demo.** Open
 [scm-master-production.up.railway.app](https://scm-master-production.up.railway.app)
 (self-seeds a full operation, log in with `admin@example.com` / `admin`) and its
-[analytics cockpit](https://scm-power-bi-production.up.railway.app). Nothing to install.
+[analytics cockpit](https://eugnmueller-87.github.io/SCM-POWER-BI/deploy/). Nothing to install.
 
 To run it locally, from the `backend/` directory:
 
@@ -604,7 +604,7 @@ cannot affect each other — a public demo and a forge-locked production:
 | | **Demo** | **Production** |
 | --- | --- | --- |
 | App | [scm-master-production](https://scm-master-production.up.railway.app) | own Railway project + Postgres |
-| Analytics cockpit | [scm-power-bi-production](https://scm-power-bi-production.up.railway.app) | own cockpit, wired to the prod API |
+| Analytics cockpit | [static demo (GitHub Pages)](https://eugnmueller-87.github.io/SCM-POWER-BI/deploy/) | own cockpit, wired to the prod API |
 | Data | self-seeds on boot (always populated) | **empty** — real data only |
 | Mode | `SCM_ENV` unset | `SCM_ENV=prod` (forge-locked) |
 
